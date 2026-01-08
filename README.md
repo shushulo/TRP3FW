@@ -2,7 +2,7 @@
 
 **Intelligent Profile Privacy & Security for Roleplayers**
 
-[![Version](https://img.shields.io/badge/version-2.0--beta-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.0.0--beta-blue.svg)]()
 [![WoW](https://img.shields.io/badge/WoW-9.2.7%2B-orange.svg)]()
 [![License](https://img.shields.io/badge/license-Personal%20Use-green.svg)]()
 
@@ -47,5 +47,6 @@ On first launch, you will be prompted to choose a preset. These can be changed l
 *   **Version:** 1.0-beta (v1.0.0)
 *   **Updated:** January 2026
 *   **License:** Personal Use Only
+
 
 
