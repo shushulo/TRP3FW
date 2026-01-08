@@ -6,8 +6,6 @@
 [![WoW](https://img.shields.io/badge/WoW-9.2.7%2B-orange.svg)]()
 [![License](https://img.shields.io/badge/license-Personal%20Use-green.svg)]()
 
-> **Beta v2.9.2+**: Now with **Intelligent Dynamic Batching** and **Soft Phase Verification** for high-traffic performance.
-
 TRP3 Firewall monitors and controls who can see your RP profile. It automatically blocks or "ghosts" requests from players who are not nearby (different phase, map, or zone), improving privacy and performance in crowded areas.
 
 ---
@@ -49,3 +47,4 @@ On first launch, you will be prompted to choose a preset. These can be changed l
 *   **Version:** 2.0-beta (v2.9.2+ Hotfix)
 *   **Updated:** January 2026
 *   **License:** Personal Use Only
+
