@@ -44,7 +44,8 @@ On first launch, you will be prompted to choose a preset. These can be changed l
 *   **Cross-Protocol**: Fully compatible with **TotalRP3**, **MyRolePlay**, and **XRP**.
 
 **Project Info**
-*   **Version:** 2.0-beta (v2.9.2+ Hotfix)
+*   **Version:** 1.0-beta (v1.0.0)
 *   **Updated:** January 2026
 *   **License:** Personal Use Only
+
 
