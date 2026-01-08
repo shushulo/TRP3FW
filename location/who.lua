@@ -414,9 +414,10 @@ whoFrame:SetScript("OnEvent", function(self, event)
     if event == "WHO_LIST_UPDATE" and TRP3FW.whoQueryPending then
         local pendingQuery = TRP3FW.whoQueryPending
         local isNameQuery = pendingQuery.isNameQuery or false
+        local isScanMode = pendingQuery.scanMode or false  -- NEW: Check for scan mode
         local pendingZoneName = pendingQuery.zoneName
         local zoneQueryContext = pendingQuery.zoneQueryContext  -- Carries zone query details into name query fallback
-        TRP3FW:Debug("[WHO Query] Processing WHO results for: "..tostring(pendingQuery.playerName).." (name query: "..tostring(isNameQuery)..")", "who")
+        TRP3FW:Debug("[WHO Query] Processing WHO results for: "..tostring(pendingQuery.playerName).." (name query: "..tostring(isNameQuery)..", scan mode: "..tostring(isScanMode)..")", "who")
 
         local playerName = pendingQuery.playerName
         local callback = pendingQuery.callback
@@ -452,6 +453,81 @@ whoFrame:SetScript("OnEvent", function(self, event)
 
                 -- Get our own character name to skip it
                 local myName = UnitName("player")
+
+                -- SCAN MODE: Collect all player names for zone scan
+                if isScanMode then
+                    local playerList = {}
+                    for i = 1, numResults do
+                        local success, info = pcall(C_FriendList.GetWhoInfo, i)
+                        if not success then
+                            TRP3FW:Debug("[WHO Zone Scan] ERROR: Failed to get WHO info for index "..i..": "..tostring(info), "who")
+                            info = nil
+                        end
+
+                        if info and info.fullName then
+                            local name = TRP3FW:CleanPlayerName(info.fullName)
+                            local playerZone = info.area or nil
+
+                            -- Skip invalid names and self
+                            if name and name ~= myName then
+                                table.insert(playerList, name)
+
+                                -- Also cache in zone cache for future queries
+                                local cacheEntry = TRP3FW:AcquireWhoResult()
+                                cacheEntry.found = true
+                                cacheEntry.zone = playerZone
+                                cacheEntry.timestamp = now
+
+                                local CI = TRP3FW.CacheInterface
+                                if CI then
+                                    CI:Set("whoZone", name, cacheEntry)
+                                    TRP3FW:Debug("[Cache Add] whoZoneCache: Added "..name.." (zone scan)", "cache")
+                                end
+                                cachedCount = cachedCount + 1
+                            end
+                        end
+                    end
+
+                    TRP3FW:Debug("[WHO Zone Scan] Collected "..#playerList.." players (cached "..cachedCount..")", "who")
+
+                    -- Return player list to callback
+                    if callback then
+                        callback(true, playerList, nil)
+                    end
+
+                    -- Process queued queries
+                    EnsureWhoQueue()
+                    local queueIndex = TRP3FW.pendingWhoQueueHead
+                    local queue = TRP3FW.pendingWhoQueries
+                    while queueIndex <= #queue do
+                        local nextQuery = queue[queueIndex]
+                        queueIndex = queueIndex + 1
+
+                        if IsQueueEntryStale(nextQuery) then
+                            TRP3FW:Debug("[WHO Query] Dropping stale queued request for "..tostring(nextQuery.playerName), "who")
+                        else
+                            local cached, cacheType, age = CheckWhoCaches(nextQuery.playerName)
+                            if cached then
+                                TRP3FW:Debug("[WHO Query] Queued player "..nextQuery.playerName.." found in "..cacheType.." cache, executing callback immediately", "who")
+                                if nextQuery.callback then
+                                    local ageNow = TRP3FW:GetCurrentTime() - cached.timestamp
+                                    nextQuery.callback(cached.found, "cached", ageNow, cached.zone)
+                                end
+                            else
+                                TRP3FW:Debug("[WHO Query] Queued player "..nextQuery.playerName.." not cached, scheduling WHO query", "who")
+                                C_Timer.After(WHO_QUERY_DELAY, function()
+                                    CheckPlayerViaWho(nextQuery.playerName, nextQuery.sendId or 0, nextQuery.callback, false, nextQuery.forceNameQuery, nextQuery.priority)
+                                end)
+                                break
+                            end
+                        end
+                    end
+                    AdvanceWhoQueue(queueIndex)
+
+                    local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService")
+                    if hs then hs:RecordPerformance(debugprofilestop() - start, "WHO Query") end
+                    return  -- Exit early for scan mode
+                end
 
                 -- For zone queries: cache ALL results
                 -- For name queries: only cache the specific player
@@ -1229,6 +1305,131 @@ CheckPlayerViaWho = function(playerName, sendId, callback, trackStats, forceName
             end
         end)
     end
+end
+
+-- Scan zone for all players (for /trp3fw phasecheck command)
+function TRP3FW:ScanZoneForPlayers(callback)
+    if not self.hasEpsilonAPI then
+        TRP3FW:Debug("[WHO Zone Scan] Epsilon API not available", "who")
+        if callback then callback(false, {}, "unavailable") end
+        return
+    end
+
+    -- Check if a query is already pending
+    if self.whoQueryPending then
+        TRP3FW:Debug("[WHO Zone Scan] Query already pending, cannot start zone scan", "who")
+        if callback then callback(false, {}, "query_pending") end
+        return
+    end
+
+    -- Get current zone name
+    local zoneName = self.currentZoneName
+    if not zoneName or zoneName == "" or zoneName == "Unknown" then
+        -- Fallback: resolve from map info
+        local mapID = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+        if mapID then
+            local info = C_Map.GetMapInfo(mapID)
+            if info and info.name and info.name ~= "" then
+                zoneName = info.name
+                self.currentZoneName = zoneName
+                TRP3FW:Debug("[WHO Zone Scan] Resolved zone from map info: "..zoneName, "who")
+            end
+        end
+    end
+
+    if not zoneName or zoneName == "" or zoneName == "Unknown" then
+        TRP3FW:Debug("[WHO Zone Scan] Cannot determine current zone", "who")
+        if callback then callback(false, {}, "unknown_zone") end
+        return
+    end
+
+    -- Generate unique request ID
+    self.whoQueryRequestId = self.whoQueryRequestId + 1
+    local requestId = self.whoQueryRequestId
+
+    local now = self:GetCurrentTime()
+
+    -- Set up scan mode query
+    self.whoQueryPending = {
+        playerName = "__ZONE_SCAN__",  -- Special marker for zone scans
+        callback = callback,
+        timestamp = now,
+        zoneName = zoneName,
+        requestId = requestId,
+        isNameQuery = false,
+        scanMode = true,  -- NEW: Flag for zone scan mode
+        results = {}      -- NEW: Collect all player names here
+    }
+    self.whoQueryCooldown = true
+    self.whoQuerySentTime = now
+
+    TRP3FW:Debug("[WHO Zone Scan] Zone scan request ID: "..requestId.." for zone: "..zoneName, "who")
+
+    -- Update zone query timestamp
+    self.lastZoneQueryTime = now
+
+    -- SECURITY: Sanitize zone name
+    local sanitizedZone = self:SanitizeZoneName(zoneName)
+    if not sanitizedZone then
+        TRP3FW:Debug("[WHO Zone Scan] ERROR: Invalid zone name rejected: "..tostring(zoneName), "who")
+        self.whoQueryPending = nil
+        self.whoQueryCooldown = false
+        if callback then callback(false, {}, "invalid_zone") end
+        return
+    end
+
+    -- Send WHO query
+    local whoQuery = 'z-"'..sanitizedZone..'"'
+    TRP3FW:Debug("[WHO Zone Scan] Sending zone scan query: "..whoQuery, "who")
+
+    local privilegedCode = 'C_FriendList.SetWhoToUi(false) C_FriendList.SendWho([['..whoQuery..']])'
+
+    -- Check token capacity
+    if not HasPrivilegedCapacity("who_zone_scan") then
+        TRP3FW:Debug("[WHO Zone Scan] Blocked by rate limit preflight", "who")
+        self.whoQueryPending = nil
+        self.whoQueryCooldown = false
+        self.suppressWhoOutput = false
+        if callback then callback(false, {}, "rate_limit") end
+        return
+    end
+
+    local success, err = self:RunPrivilegedSafe(privilegedCode, "who_zone_scan")
+
+    if not success then
+        TRP3FW:Debug("[WHO Zone Scan] ERROR: Failed to send zone scan query: "..tostring(err), "who")
+        self.whoQueryPending = nil
+        self.whoQueryCooldown = false
+        self.suppressWhoOutput = false
+        if callback then callback(false, {}, err or "error") end
+        return
+    end
+
+    TRP3FW:Debug("[WHO Zone Scan] Zone scan query sent successfully", "who")
+
+    -- Try to get results immediately
+    C_Timer.After(0.5, function()
+        if self.whoQueryPending and self.whoQueryPending.requestId == requestId then
+            TRP3FW:Debug("[WHO Zone Scan] Checking for immediate results (request "..requestId..")...", "who")
+            local success, numWho = pcall(C_FriendList.GetNumWhoResults)
+            if success and numWho and numWho > 0 then
+                TRP3FW:Debug("[WHO Zone Scan] Found immediate results! Triggering event manually", "who")
+                whoFrame:GetScript("OnEvent")(whoFrame, "WHO_LIST_UPDATE")
+                return
+            end
+        end
+    end)
+
+    -- Set timeout
+    C_Timer.After(WHO_TIMEOUT_SECONDS, function()
+        if self.whoQueryPending and self.whoQueryPending.requestId == requestId then
+            TRP3FW:Debug("[WHO Zone Scan] Timeout for zone scan (request "..requestId..")", "who")
+            self.whoQueryPending = nil
+            self.whoQueryCooldown = false
+            self.suppressWhoOutput = false
+            if callback then callback(false, {}, "timeout") end
+        end
+    end)
 end
 
 -- Export the function
