@@ -1005,6 +1005,93 @@ SlashCmdList.TRP3FW = function(msg)
             TRP3FW:Info("  status - Show profiler status")
         end
 
+    -- Phase Check Command - Scan zone for players in same phase
+    elseif cmd == "phasecheck" then
+        -- Duplicate prevention
+        if TRP3FW.phaseCheckInProgress then
+            TRP3FW:Error("Phase check already in progress. Please wait.")
+            return
+        end
+
+        -- Check Epsilon API availability
+        if not TRP3FW.hasEpsilonAPI then
+            TRP3FW:Error("Phase check requires Epsilon API (not available on this server)")
+            return
+        end
+
+        -- Parse verbose flag
+        local verbose = (rest and rest:match("verbose"))
+
+        -- Get current zone name
+        local zone = TRP3FW.currentZoneName or GetRealZoneText()
+        if not zone or zone == "" then
+            TRP3FW:Error("Cannot determine current zone")
+            return
+        end
+
+        TRP3FW:Info("Starting phase check for zone: " .. zone)
+
+        -- Token awareness warning
+        if TRP3FW.pendingPhaseChecks and #TRP3FW.pendingPhaseChecks > 20 then
+            TRP3FW:Warn("Phase check queue is busy. This may take longer than usual.")
+        end
+
+        TRP3FW.phaseCheckInProgress = true
+
+        TRP3FW:ScanZoneForPlayers(function(success, players, err)
+            if not success then
+                TRP3FW:Error("Zone scan failed: " .. tostring(err))
+                TRP3FW.phaseCheckInProgress = false
+                return
+            end
+
+            local total = #players
+            if total == 0 then
+                TRP3FW:Info("No other players found in zone.")
+                TRP3FW.phaseCheckInProgress = false
+                return
+            end
+
+            TRP3FW:Info("Found " .. total .. " players. Checking phases...")
+
+            local passed = 0
+            local checked = 0
+            local uniqueMaps = {}
+
+            for _, name in ipairs(players) do
+                TRP3FW:CheckPlayerPhase(name, nil, function(inPhase, reason, mapID)
+                    checked = checked + 1
+
+                    if inPhase then
+                        passed = passed + 1
+                        if mapID then
+                            uniqueMaps[mapID] = true
+                        end
+                        if verbose then
+                            TRP3FW:Info("|cff00ff00✓|r " .. name)
+                        end
+                    end
+
+                    -- Progress indicator every 10 players
+                    if checked % 10 == 0 and checked < total then
+                        TRP3FW:Info("Progress: " .. checked .. "/" .. total .. " checked...")
+                    end
+
+                    -- Final summary
+                    if checked >= total then
+                        local mapCount = 0
+                        for _ in pairs(uniqueMaps) do
+                            mapCount = mapCount + 1
+                        end
+
+                        TRP3FW:Info("Phase check complete. " .. passed .. "/" .. total ..
+                                    " in phase. (Maps: " .. mapCount .. ")")
+                        TRP3FW.phaseCheckInProgress = false
+                    end
+                end, "LOW") -- Use LOW priority to avoid blocking active RP
+            end
+        end)
+
     -- Batch Phase Check Configuration
     elseif cmd == "batch" then
         local subcommand = args[1]
