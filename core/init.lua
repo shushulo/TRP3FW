@@ -33,7 +33,7 @@ TRP3FW.tremove = tremove or table.remove
 -- Default settings
 TRP3FW.defaultSettings = {
     notifyEnabled    = true,
-    suppressionTime  = 300,
+    suppressionTime  = 600,
     refreshSuppression = true, -- Extend suppression duration on new activity (sliding window)
     showInChat       = true,
     showOnScreen     = false,
@@ -107,7 +107,7 @@ TRP3FW.defaultSettings = {
     sendCacheDuration  = 600,
 
     phaseCacheDuration = 300,    -- 5 minutes (up from 120s)
-    phaseCacheRefreshThreshold = 0.2, -- Refresh when age > 20% of TTL (60s)
+    phaseCacheRefreshThreshold = 0.5, -- Refresh when age > 50% of TTL (150s)
     phaseCacheFailureDuration = 10, -- Short cache duration for failed phase checks (allows quick retries)
     
     -- Batch Phase Check Settings (Optimization #2)
