@@ -624,163 +624,173 @@ whoFrame:SetScript("OnEvent", function(self, event)
                 TRP3FW.nextWhoBackoffUntil = TRP3FW:GetCurrentTime() + WHO_BACKOFF_SECONDS
                 RegisterZoneTruncation(pendingZoneName)
 
-                local zoneContext = {
-                    zoneName = pendingZoneName,
-                    numResults = numResults,
-                    totalCount = totalCount,
-                    limitReached = shouldFallbackToName
-                }
-
-                -- Generate new request ID for name query
-                TRP3FW.whoQueryRequestId = TRP3FW.whoQueryRequestId + 1
-                local nameRequestId = TRP3FW.whoQueryRequestId
-
-                -- Set up for name query (mark as pending again)
-                TRP3FW.whoQueryPending = {
-                    playerName = playerName,
-                    callback = callback,
-                    timestamp = TRP3FW:GetCurrentTime(),
-                    isNameQuery = true,  -- Flag to indicate this is a name-based query
-                    requestId = nameRequestId,  -- New request ID for name query
-                    zoneQueryContext = zoneContext -- Preserve zone query context for result interpretation
-                }
-                TRP3FW.whoQueryCooldown = true
-
-                TRP3FW:Debug("[WHO Query] Name request ID: "..nameRequestId, "who")
-
-                -- Enable WHO output suppression again
-                TRP3FW.whoQuerySentTime = TRP3FW:GetCurrentTime()
-
-                -- Since we are falling back to a name query for the CURRENT request,
-                -- the zone query "slot" is effectively freed up for the next queued item.
-                -- Process the next item in the queue immediately to avoid stalls.
-                EnsureWhoQueue()
-                local queueIndex = TRP3FW.pendingWhoQueueHead
-                local queue = TRP3FW.pendingWhoQueries
-                while queueIndex <= #queue do
-                    local nextQuery = queue[queueIndex]
-                    queueIndex = queueIndex + 1
-
-                    if IsQueueEntryStale(nextQuery) then
-                        TRP3FW:Debug("[WHO Query] Dropping stale queued request for "..tostring(nextQuery.playerName), "who")
-                    else
-                        local cached, cacheType, age = CheckWhoCaches(nextQuery.playerName)
-                        if cached then
-                            TRP3FW:Debug("[WHO Query] Queued player "..nextQuery.playerName.." found in "..cacheType.." cache, executing callback immediately", "who")
-                            if nextQuery.callback then
-                                local ageNow = TRP3FW:GetCurrentTime() - cached.timestamp
-                                nextQuery.callback(cached.found, "cached", ageNow, cached.zone)
-                            end
-                        else
-                            TRP3FW:Debug("[WHO Query] Queued player "..nextQuery.playerName.." not cached, scheduling WHO query (concurrent with fallback)", "who")
-                            C_Timer.After(WHO_QUERY_DELAY, function()
-                                CheckPlayerViaWho(nextQuery.playerName, nextQuery.sendId or 0, nextQuery.callback, false, nextQuery.forceNameQuery, nextQuery.priority)
-                            end)
-                            break
-                        end
-                    end
-                end
-                AdvanceWhoQueue(queueIndex)
-
-                -- SECURITY: Sanitize name before constructing query (Fixes nil global error)
-                local sanitizedName = TRP3FW:SanitizePlayerName(playerName)
-                if not sanitizedName then
-                    TRP3FW:Debug("[WHO Query] ERROR: Invalid player name for fallback query: "..tostring(playerName), "who")
-                    if callback then callback(false, "invalid_name", 0, nil) end
-                    return
-                end
-
-                -- Send name-based WHO query
-                local whoQuery = 'n-"'..sanitizedName..'"'
-                TRP3FW:Debug("[WHO Query] Sending name query: "..whoQuery, "who")
-
-                -- Use double brackets to avoid escaping issues
-                local privilegedCode = 'C_FriendList.SetWhoToUi(false) C_FriendList.SendWho([['..whoQuery..']])'
-
-                -- FIXED: CRITICAL-3 - Use rate-limited safe wrapper (with preflight)
-                if not HasPrivilegedCapacity(nameCategory) then
-                    TRP3FW:Debug("[WHO Query] Name query blocked by rate limit preflight ("..tostring(nameCategory)..")", "who")
-                    TRP3FW.nextWhoBackoffUntil = TRP3FW:GetCurrentTime() + WHO_BACKOFF_SECONDS
-                    TRP3FW.whoQueryPending = nil
-                    TRP3FW.whoQueryCooldown = false
-                    TRP3FW.suppressWhoOutput = false
-                    if not TryMapFallbackForWho(playerName, nil, callback, "rate_limit_name") and callback then
-                        callback(false, "rate_limit", 0, nil)
-                    end
-                    return
-                end
-
-                local success, err = TRP3FW:RunPrivilegedSafe(privilegedCode, nameCategory)
-
-                if not success then
-                    TRP3FW:Debug("[WHO Query] ERROR: Failed to send name query: "..tostring(err), "who")
-                    TRP3FW.whoQueryPending = nil
-                    TRP3FW.whoQueryCooldown = false
-                    TRP3FW.suppressWhoOutput = false
-
-                    -- Cache negative result in name cache (since zone query already failed)
-                    local CI = TRP3FW.CacheInterface
-                    if CI then
-                        CI:Set("whoName", playerName, {
-                            found = false,
-                            zone = nil,
-                            timestamp = TRP3FW:GetCurrentTime()
-                        })
-                        TRP3FW:Debug("[Cache Add] whoNameCache: Added "..playerName.." (NOT FOUND)", "cache")
-                    end
-
-                    local reason = (err == "rate_limit") and "rate_limit" or "error"
-                    if not TryMapFallbackForWho(playerName, nil, callback, "name_sendfail_"..reason) and callback then
-                        callback(false, reason, 0, nil)
-                    end
-                    return
-                end
-
-                TRP3FW:Debug("[WHO Query] Name query sent successfully", "who")
-
-                -- Try to get results immediately
-                C_Timer.After(WHO_QUERY_DELAY, function()
-                    if TRP3FW.whoQueryPending and TRP3FW.whoQueryPending.requestId == nameRequestId then
-                        TRP3FW:Debug("[WHO Query] Checking for immediate name query results (request "..nameRequestId..")...", "who")
-                        local success, numWho = pcall(C_FriendList.GetNumWhoResults)
-                        if not success then
-                            TRP3FW:Debug("[WHO Query] ERROR: Failed to get WHO results count: "..tostring(numWho), "who")
-                            numWho = 0
-                        end
-                        if numWho and numWho > 0 then
-                            TRP3FW:Debug("[WHO Query] Found immediate results! Triggering event manually", "who")
-                            whoFrame:GetScript("OnEvent")(whoFrame, "WHO_LIST_UPDATE")
-                            return
-                        end
-                    end
-                end)
-
-                -- Set timeout
-                C_Timer.After(WHO_TIMEOUT_SECONDS, function()
-                    if TRP3FW.whoQueryPending and TRP3FW.whoQueryPending.requestId == nameRequestId then
-                        TRP3FW:Debug("[WHO Query] Name query timeout for "..playerName.." (request "..nameRequestId..")", "who")
-                        TRP3FW.nextWhoBackoffUntil = TRP3FW:GetCurrentTime() + WHO_BACKOFF_SECONDS
-                        TRP3FW.whoQueryPending = nil
-                        TRP3FW.whoQueryCooldown = false
-                        TRP3FW.suppressWhoOutput = false
-
-                        -- Cache negative result in name cache (timeout on name query)
-                        local CI = TRP3FW.CacheInterface
-                        if CI then
-                            CI:Set("whoName", playerName, {
-                                found = false,
-                                zone = nil,
-                                timestamp = TRP3FW:GetCurrentTime()
-                            })
-                            TRP3FW:Debug("[Cache Add] whoNameCache: Added "..playerName.." (NOT FOUND - timeout)", "cache")
-                        end
-
-                        if not TryMapFallbackForWho(playerName, nil, callback, "name_timeout") and callback then
-                            callback(false, "timeout", 0, nil)
-                        end
-                    end
-                end)
-            else
+                            local zoneContext = {
+                                zoneName = pendingZoneName,
+                                numResults = numResults,
+                                totalCount = totalCount,
+                                limitReached = shouldFallbackToName
+                            }
+                
+                            -- Generate new request ID for name query
+                            TRP3FW.whoQueryRequestId = TRP3FW.whoQueryRequestId + 1
+                            local nameRequestId = TRP3FW.whoQueryRequestId
+                            
+                            -- Set cooldown immediately to block other queries during the delay
+                            TRP3FW.whoQueryCooldown = true
+                            TRP3FW:Debug("[WHO Query] Scheduling fallback name query for "..playerName.." in 3 seconds (server throttle compliance)", "who")
+                
+                            -- DELAY: Wait 3 seconds before sending fallback query to avoid server throttle
+                            C_Timer.After(3.0, function()
+                                -- Check if request was cancelled or superseded (though unlikely with cooldown active)
+                                -- We can proceed with setting up the pending query
+                                
+                                -- Set up for name query (mark as pending again)
+                                TRP3FW.whoQueryPending = {
+                                    playerName = playerName,
+                                    callback = callback,
+                                    timestamp = TRP3FW:GetCurrentTime(),
+                                    isNameQuery = true,  -- Flag to indicate this is a name-based query
+                                    requestId = nameRequestId,  -- New request ID for name query
+                                    zoneQueryContext = zoneContext -- Preserve zone query context for result interpretation
+                                }
+                                
+                                TRP3FW:Debug("[WHO Query] Executing delayed name query (ID: "..nameRequestId..")", "who")
+                
+                                -- Enable WHO output suppression again
+                                TRP3FW.whoQuerySentTime = TRP3FW:GetCurrentTime()
+                
+                                -- Since we are falling back to a name query for the CURRENT request,
+                                -- the zone query "slot" is effectively freed up for the next queued item.
+                                -- Process the next item in the queue immediately to avoid stalls.
+                                EnsureWhoQueue()
+                                local queueIndex = TRP3FW.pendingWhoQueueHead
+                                local queue = TRP3FW.pendingWhoQueries
+                                while queueIndex <= #queue do
+                                    local nextQuery = queue[queueIndex]
+                                    queueIndex = queueIndex + 1
+                
+                                    if IsQueueEntryStale(nextQuery) then
+                                        TRP3FW:Debug("[WHO Query] Dropping stale queued request for "..tostring(nextQuery.playerName), "who")
+                                    else
+                                        local cached, cacheType, age = CheckWhoCaches(nextQuery.playerName)
+                                        if cached then
+                                            TRP3FW:Debug("[WHO Query] Queued player "..nextQuery.playerName.." found in "..cacheType.." cache, executing callback immediately", "who")
+                                            if nextQuery.callback then
+                                                local ageNow = TRP3FW:GetCurrentTime() - cached.timestamp
+                                                nextQuery.callback(cached.found, "cached", ageNow, cached.zone)
+                                            end
+                                        else
+                                            TRP3FW:Debug("[WHO Query] Queued player "..nextQuery.playerName.." not cached, scheduling WHO query (concurrent with fallback)", "who")
+                                            C_Timer.After(WHO_QUERY_DELAY, function()
+                                                CheckPlayerViaWho(nextQuery.playerName, nextQuery.sendId or 0, nextQuery.callback, false, nextQuery.forceNameQuery, nextQuery.priority)
+                                            end)
+                                            break
+                                        end
+                                    end
+                                end
+                                AdvanceWhoQueue(queueIndex)
+                
+                                -- SECURITY: Sanitize name before constructing query (Fixes nil global error)
+                                local sanitizedName = TRP3FW:SanitizePlayerName(playerName)
+                                if not sanitizedName then
+                                    TRP3FW:Debug("[WHO Query] ERROR: Invalid player name for fallback query: "..tostring(playerName), "who")
+                                    if callback then callback(false, "invalid_name", 0, nil) end
+                                    TRP3FW.whoQueryPending = nil
+                                    TRP3FW.whoQueryCooldown = false
+                                    return
+                                end
+                
+                                -- Send name-based WHO query
+                                local whoQuery = 'n-"'..sanitizedName..'"'
+                                TRP3FW:Debug("[WHO Query] Sending name query: "..whoQuery, "who")
+                
+                                -- Use double brackets to avoid escaping issues
+                                local privilegedCode = 'C_FriendList.SetWhoToUi(false) C_FriendList.SendWho([['..whoQuery..']])'
+                
+                                -- FIXED: CRITICAL-3 - Use rate-limited safe wrapper (with preflight)
+                                if not HasPrivilegedCapacity(nameCategory) then
+                                    TRP3FW:Debug("[WHO Query] Name query blocked by rate limit preflight ("..tostring(nameCategory)..")", "who")
+                                    TRP3FW.nextWhoBackoffUntil = TRP3FW:GetCurrentTime() + WHO_BACKOFF_SECONDS
+                                    TRP3FW.whoQueryPending = nil
+                                    TRP3FW.whoQueryCooldown = false
+                                    TRP3FW.suppressWhoOutput = false
+                                    if not TryMapFallbackForWho(playerName, nil, callback, "rate_limit_name") and callback then
+                                        callback(false, "rate_limit", 0, nil)
+                                    end
+                                    return
+                                end
+                
+                                local success, err = TRP3FW:RunPrivilegedSafe(privilegedCode, nameCategory)
+                
+                                if not success then
+                                    TRP3FW:Debug("[WHO Query] ERROR: Failed to send name query: "..tostring(err), "who")
+                                    TRP3FW.whoQueryPending = nil
+                                    TRP3FW.whoQueryCooldown = false
+                                    TRP3FW.suppressWhoOutput = false
+                
+                                    -- Cache negative result in name cache (since zone query already failed)
+                                    local CI = TRP3FW.CacheInterface
+                                    if CI then
+                                        CI:Set("whoName", playerName, {
+                                            found = false,
+                                            zone = nil,
+                                            timestamp = TRP3FW:GetCurrentTime()
+                                        })
+                                        TRP3FW:Debug("[Cache Add] whoNameCache: Added "..playerName.." (NOT FOUND)", "cache")
+                                    end
+                
+                                    local reason = (err == "rate_limit") and "rate_limit" or "error"
+                                    if not TryMapFallbackForWho(playerName, nil, callback, "name_sendfail_"..reason) and callback then
+                                        callback(false, reason, 0, nil)
+                                    end
+                                    return
+                                end
+                
+                                TRP3FW:Debug("[WHO Query] Name query sent successfully", "who")
+                
+                                -- Try to get results immediately
+                                C_Timer.After(0.5, function()
+                                    if TRP3FW.whoQueryPending and TRP3FW.whoQueryPending.requestId == nameRequestId then
+                                        TRP3FW:Debug("[WHO Query] Checking for immediate name query results (request "..nameRequestId..")...", "who")
+                                        local success, numWho = pcall(C_FriendList.GetNumWhoResults)
+                                        if not success then
+                                            TRP3FW:Debug("[WHO Query] ERROR: Failed to get WHO results count: "..tostring(numWho), "who")
+                                            numWho = 0
+                                        end
+                                        if numWho and numWho > 0 then
+                                            TRP3FW:Debug("[WHO Query] Found immediate results! Triggering event manually", "who")
+                                            whoFrame:GetScript("OnEvent")(whoFrame, "WHO_LIST_UPDATE")
+                                            return
+                                        end
+                                    end
+                                end)
+                
+                                -- Set timeout
+                                C_Timer.After(WHO_TIMEOUT_SECONDS, function()
+                                    if TRP3FW.whoQueryPending and TRP3FW.whoQueryPending.requestId == nameRequestId then
+                                        TRP3FW:Debug("[WHO Query] Name query timeout for "..playerName.." (request "..nameRequestId..")", "who")
+                                        TRP3FW.nextWhoBackoffUntil = TRP3FW:GetCurrentTime() + WHO_BACKOFF_SECONDS
+                                        TRP3FW.whoQueryPending = nil
+                                        TRP3FW.whoQueryCooldown = false
+                                        TRP3FW.suppressWhoOutput = false
+                
+                                        -- Cache negative result in name cache (timeout on name query)
+                                        local CI = TRP3FW.CacheInterface
+                                        if CI then
+                                            CI:Set("whoName", playerName, {
+                                                found = false,
+                                                zone = nil,
+                                                timestamp = TRP3FW:GetCurrentTime()
+                                            })
+                                            TRP3FW:Debug("[Cache Add] whoNameCache: Added "..playerName.." (NOT FOUND - timeout)", "cache")
+                                        end
+                
+                                        if not TryMapFallbackForWho(playerName, nil, callback, "name_timeout") and callback then
+                                            callback(false, "timeout", 0, nil)
+                                        end
+                                    end
+                                end)
+                            end)            else
                 -- OPTIMIZATION: Zone query was NOT truncated, so the list is complete.
                 -- If player wasn't found, they are definitely not in the zone.
                 -- Skip the extra name query.
