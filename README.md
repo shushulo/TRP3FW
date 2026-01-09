@@ -15,6 +15,7 @@ TRP3 Firewall monitors and controls who can see your RP profile. It automaticall
 ### 1. Installation
 *   Download the latest `TRP3FW.zip` from the [Releases](../../releases) page.                                                                                                                                                       │
 *   Extract the `TRP3FW` folder into your `World of Warcraft/_retail_/Interface/AddOns/` directory.
+*   Rename the extracted folder to `TRP3FW` by removing the verion number.
 
 ### 2. First Launch & Presets
 On first launch, you will be prompted to choose a preset. These can be changed later in `/trp3fwui`.
@@ -46,6 +47,7 @@ On first launch, you will be prompted to choose a preset. These can be changed l
 *   **Version:** 1.0-beta (v1.0.0)
 *   **Updated:** January 2026
 *   **License:** Personal Use Only
+
 
 
 
