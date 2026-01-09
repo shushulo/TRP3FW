@@ -126,6 +126,7 @@ TRP3FW.defaultSettings = {
 
     whoZoneCacheDuration = 180,  -- Cache WHO zone lookups longer for stability (configurable via UI/command)
     whoNameCacheDuration = 180,  -- Cache WHO name lookups longer for stability (configurable via UI/command)
+    whoCacheRefreshThreshold = 50, -- Refresh when age > 50% of TTL (0-100%)
     whoZoneQueryCooldown = 20,   -- Increased from 15s to be more server-friendly (configurable via UI/command)
     
 

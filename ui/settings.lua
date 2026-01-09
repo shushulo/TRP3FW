@@ -1611,6 +1611,7 @@ local function RefreshUI()
     uiElements.whoZoneCacheDuration:SetText(TRP3FW_Settings.whoZoneCacheDuration or 45)
     uiElements.whoNameCacheDuration:SetText(TRP3FW_Settings.whoNameCacheDuration or 180)
     uiElements.whoZoneQueryCooldown:SetText(TRP3FW_Settings.whoZoneQueryCooldown or 20)
+    uiElements.whoCacheRefreshThreshold:SetText(TRP3FW_Settings.whoCacheRefreshThreshold or 50)
     uiElements.sendCacheDuration:SetText(TRP3FW_Settings.sendCacheDuration)
     uiElements.interactionCacheDuration:SetText(TRP3FW_Settings.interactionCacheDuration or 600)
     uiElements.interactionRefreshRate:SetText(TRP3FW_Settings.interactionRefreshRate or 60)
@@ -4186,7 +4187,35 @@ function TRP3FW:InitializeUI()
             saveWhoZoneQueryCooldown(self)
         end
     end)
-    y5 = y5 - 75
+    y5 = y5 - 45
+
+    uiElements.whoCacheRefreshThreshold = CreateEditBox(tab5, "WHO Refresh (%)", "Percentage of cache duration after which an entry is considered stale and refreshed (0-100%). Default: 50%.", 80, "whoCacheRefreshThreshold")
+    uiElements.whoCacheRefreshThreshold:SetPoint("TOPLEFT", 20, y5)
+
+    local function saveWhoCacheRefreshThreshold(self)
+        local value = tonumber(self:GetText())
+        if value and value >= 0 and value <= 100 then
+            TRP3FW_Settings.whoCacheRefreshThreshold = value
+            TRP3FW:Info("WHO cache refresh threshold set to "..value.."%")
+        else
+            TRP3FW:Warn("Invalid value (must be 0-100)")
+            self:SetText(TRP3FW_Settings.whoCacheRefreshThreshold or 50)
+        end
+    end
+
+    local whoCacheRefreshThresholdEnterPressed = false
+    uiElements.whoCacheRefreshThreshold:SetScript("OnEnterPressed", function(self)
+        whoCacheRefreshThresholdEnterPressed = true
+        saveWhoCacheRefreshThreshold(self)
+        self:ClearFocus()
+        C_Timer.After(0, function() whoCacheRefreshThresholdEnterPressed = false end)
+    end)
+    uiElements.whoCacheRefreshThreshold:SetScript("OnEditFocusLost", function(self)
+        if not whoCacheRefreshThresholdEnterPressed then
+            saveWhoCacheRefreshThreshold(self)
+        end
+    end)
+    y5 = y5 - 45
 
     -- WHO cache prepopulation (tied to WHO caching above)
     local function setPrepopulateWhoChildrenEnabled(enabled)

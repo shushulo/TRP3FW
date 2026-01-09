@@ -432,12 +432,26 @@ function TRP3FW:ProcessPhaseCheckBatch()
             -- Cache result
             local CI = TRP3FW.CacheInterface
             if CI then
+                local now = TRP3FW:GetCurrentTime()
                 CI:Set("phaseCheck", check.playerName, {
                     inPhase = result,
                     mapID = mapID,
-                    timestamp = TRP3FW:GetCurrentTime(),
+                    timestamp = now,
                     method = reason
                 })
+
+                -- NEW LOGIC: Cross-populate WHO cache on successful target
+                -- If we targeted them, they are in the same instance/zone
+                if result and reason == "batch_targeting" then
+                    local currentZone = TRP3FW.currentZoneName or GetRealZoneText()
+                    CI:Set("whoName", check.playerName, {
+                        found = true,
+                        zone = currentZone,
+                        timestamp = now,
+                        mapID = mapID
+                    })
+                    TRP3FW:Debug("[Batch] Cross-populated WHO cache for "..check.playerName, "phase")
+                end
             end
 
             -- Callback
@@ -622,12 +636,26 @@ function TRP3FW:ExecutePhaseCheck(check)
         -- Cache result
         local CI = self.CacheInterface
         if CI then
+            local now = self:GetCurrentTime()
             CI:Set("phaseCheck", playerName, {
                 inPhase = success,
                 mapID = mapID,
-                timestamp = self:GetCurrentTime(),
+                timestamp = now,
                 method = reason
             })
+
+            -- NEW LOGIC: Cross-populate WHO cache on successful target
+            -- If we targeted them, they are in the same instance/zone
+            if success and (reason == "targeting" or reason == "targeting_fallback") then
+                local currentZone = self.currentZoneName or GetRealZoneText()
+                CI:Set("whoName", playerName, {
+                    found = true,
+                    zone = currentZone,
+                    timestamp = now,
+                    mapID = mapID
+                })
+                self:Debug("[Phase Check] Cross-populated WHO cache for "..playerName, "phase")
+            end
         end
 
         -- Check if target actually changed (Optimization #5)
