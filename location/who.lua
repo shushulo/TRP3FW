@@ -832,6 +832,20 @@ CheckPlayerViaWho = function(playerName, sendId, callback, trackStats, forceName
     local cached, cacheType, age = CheckWhoCaches(playerName)
     if cached then
         TRP3FW:Debug("[WHO Query] "..cacheType:upper().." cache hit for "..playerName.." (cached "..string.format("%.1f", age).."s ago) in zone: "..tostring(cached.zone), "who")
+        
+        -- NEW LOGIC: Background Refresh
+        -- If cache entry is valid but aging, trigger a low-priority refresh
+        if cached.found and playerName ~= "__PREPOPULATE__" then
+            local ttl = (cacheType == "name") and (TRP3FW_Settings.whoNameCacheDuration or 180) or (TRP3FW_Settings.whoZoneCacheDuration or 180)
+            local thresholdPercent = TRP3FW_Settings.whoCacheRefreshThreshold or 50
+            if age > (ttl * (thresholdPercent / 100)) then
+                 TRP3FW:Debug("[WHO Query] Cache entry aging ("..string.format("%.1f", age).."s / "..ttl.."s) - triggering background refresh for "..playerName, "who")
+                 -- Low priority background refresh (no callback)
+                 -- Use a custom category to ensure it doesn't block high-priority WHO queries
+                 TRP3FW:CheckPlayerViaWho(playerName, nil, nil, false, true, "who_refresh_low")
+            end
+        end
+
         if trackStats then
             TrackWhoCacheStat(sendId, true, playerName)
         end

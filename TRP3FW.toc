@@ -78,6 +78,3 @@ commands.lua
 
 # Main initialization (load last)
 TRP3FW.lua
-
-## Tests
-tests\integration_tests.lua

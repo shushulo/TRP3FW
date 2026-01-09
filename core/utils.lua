@@ -620,6 +620,7 @@ function TRP3FW:ValidateSettings()
         {name = "whoQueueLimit", min = 10, max = 500, default = 100},
         {name = "interactionRefreshRate", min = 0, max = 100, default = 10},
         {name = "sendCacheRefreshRate", min = 0, max = 100, default = 10},
+        {name = "whoCacheRefreshThreshold", min = 0, max = 100, default = 50},
         {name = "phaseRefreshCooldown", min = 0, max = 300, default = 30},
         {name = "statusRefreshRate", min = 2, max = 120, default = 30},
         {name = "validatedNamesCacheDuration", min = 86400, max = 2592000, default = 604800}, -- 1-30 days (in seconds)
