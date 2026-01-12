@@ -99,6 +99,7 @@ end
 --- @param phaseSalt string - Optional cached phase salt (if nil, will fetch from cache)
 --- @return number - Generator value
 local function GetGenerator(phaseID, phaseSalt)
+    TRP3FW.profiler.start("SPVP:GetGenerator")
     -- 1. Base: Phase ID
     local entropy = tostring(phaseID or 0)
 
@@ -125,6 +126,7 @@ local function GetGenerator(phaseID, phaseSalt)
     local g = ModPow(hash, 2, DH_PRIME)
     if g < 2 then g = 2 end
 
+    TRP3FW.profiler.stop("SPVP:GetGenerator")
     return g
 end
 
@@ -162,7 +164,10 @@ end
 --- @param myPrivateKey number - My private key
 --- @return number - Shared key
 local function DeriveSharedKey(theirPublicKey, myPrivateKey)
-    return ModPow(theirPublicKey, myPrivateKey, DH_PRIME)
+    TRP3FW.profiler.start("SPVP:DeriveKey")
+    local key = ModPow(theirPublicKey, myPrivateKey, DH_PRIME)
+    TRP3FW.profiler.stop("SPVP:DeriveKey")
+    return key
 end
 
 -- ===================================================================
@@ -212,6 +217,7 @@ end
 --- - Math.random state evolution: ~10-20 bits
 --- @return string - Phase salt (64 hex chars + colon + UTC timestamp)
 function TRP3FW:GeneratePhaseSalt()
+    TRP3FW.profiler.start("SPVP:GenerateSalt")
     -- Entropy Source 1: Player GUID (unique per character)
     local guid = UnitGUID("player") or "NOGUID"
     local guidEntropy = tonumber(guid:sub(-8), 16) or 0  -- Last 8 hex chars (32 bits)
@@ -267,6 +273,7 @@ function TRP3FW:GeneratePhaseSalt()
     local utcTimestamp = time()  -- UTC seconds since epoch
     salt = salt .. ":" .. tostring(utcTimestamp)
 
+    TRP3FW.profiler.stop("SPVP:GenerateSalt")
     return salt
 end
 
@@ -691,16 +698,19 @@ end
 --- @param message string - INIT packet data
 --- @param sender string - Sender player name
 function TRP3FW:HandleSPVPInit(message, sender)
+    TRP3FW.profiler.start("SPVP:HandleInit")
     local version, sessionID, publicKey = message:match("^INIT:(%d+):(%w+):(%d+)$")
 
     if not version or not sessionID or not publicKey then
         TRP3FW:Debug("Malformed INIT packet from " .. sender, "spvp")
+        TRP3FW.profiler.stop("SPVP:HandleInit")
         return
     end
 
     -- Check version
     if tonumber(version) ~= SPVP_VERSION then
         TRP3FW:Debug(string.format("Unsupported SPVP version %s from %s", version, sender), "spvp")
+        TRP3FW.profiler.stop("SPVP:HandleInit")
         return
     end
 
@@ -708,6 +718,7 @@ function TRP3FW:HandleSPVPInit(message, sender)
     if IsReplayedSession(sessionID, sender) then
         TRP3FW:Debug(string.format("Rejecting replayed INIT from %s (session: %s)",
             sender, sessionID), "spvp")
+        TRP3FW.profiler.stop("SPVP:HandleInit")
         return  -- Drop silently
     end
 
@@ -720,6 +731,7 @@ function TRP3FW:HandleSPVPInit(message, sender)
         -- Queue this INIT and wait for HandleSaltResponse to process it
         table.insert(self.pendingSPVPInits, { sender = sender, message = message })
         TRP3FW:Debug("Queued SPVP INIT from " .. sender .. " (waiting for salt ticket)", "spvp")
+        TRP3FW.profiler.stop("SPVP:HandleInit")
         return
     elseif salt == "" then
         -- We are in an unsecured phase. Cannot participate in SPVP.
@@ -727,6 +739,7 @@ function TRP3FW:HandleSPVPInit(message, sender)
         local reply = string.format("NOSALT:%s", sessionID)
         C_ChatInfo.SendAddonMessage("TRP3FW_SPVP", reply, "WHISPER", sender)
         TRP3FW:Debug("Sent NOSALT to " .. sender, "spvp")
+        TRP3FW.profiler.stop("SPVP:HandleInit")
         return
     end
 
@@ -756,6 +769,7 @@ function TRP3FW:HandleSPVPInit(message, sender)
     C_ChatInfo.SendAddonMessage("TRP3FW_SPVP", reply, "WHISPER", sender)
 
     TRP3FW:Debug(string.format("SPVP REPLY sent to %s (session: %s)", sender, sessionID), "spvp")
+    TRP3FW.profiler.stop("SPVP:HandleInit")
 end
 
 --- Handle SPVP CONFIRM packet (Bob Side)
@@ -819,10 +833,12 @@ end
 --- @param message string - REPLY packet data
 --- @param sender string - Sender player name
 function TRP3FW:HandleSPVPReply(message, sender)
+    TRP3FW.profiler.start("SPVP:HandleReply")
     local sessionID, publicKey, verifier = message:match("^REPLY:(%w+):(%d+):(%w+)$")
 
     if not sessionID or not publicKey or not verifier then
         TRP3FW:Debug("Malformed REPLY packet from " .. sender, "spvp")
+        TRP3FW.profiler.stop("SPVP:HandleReply")
         return
     end
 
@@ -830,6 +846,7 @@ function TRP3FW:HandleSPVPReply(message, sender)
     local session = TRP3FW.spvpSessions[sessionID]
     if not session then
         TRP3FW:Debug(string.format("Unknown session %s from %s (expired or invalid)", sessionID, sender), "spvp")
+        TRP3FW.profiler.stop("SPVP:HandleReply")
         return
     end
 
@@ -896,6 +913,7 @@ function TRP3FW:HandleSPVPReply(message, sender)
             session.callback(false, "verification_failed")
         end
     end
+    TRP3FW.profiler.stop("SPVP:HandleReply")
 end
 
 -- ===================================================================
