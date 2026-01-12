@@ -15,6 +15,27 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     self:Debug("=== Starting cascading location check for "..playerName.." ===", "location")
     
     local now = self:GetCurrentTime()
+
+    -- OPTIMIZATION #1: Start Phase Early Exit (Fail Fast)
+    if TRP3FW_Settings.blockStartPhase then
+        local currentPhaseID = self:GetCurrentPhaseID()
+        if currentPhaseID == START_PHASE_ID then
+            TRP3FW.profiler.stop("CheckLocationCascading")
+            if callback then callback(false, "start_phase_block", "start_phase", 0, nil, nil, {}, false, 0, nil) end
+            return
+        end
+    end
+
+    -- OPTIMIZATION #2: Interaction Cache Fast-Path (Success Fast)
+    local CI = self.CacheInterface
+    local interaction = CI and CI:Get("interaction", playerName)
+    if interaction and (now - interaction.timestamp) < TRP3FW_Settings.interactionCacheDuration then
+        local inTransitionGracePeriod = (now - (self.lastZoneChangeTime or 0)) < (TRP3FW_Settings.transitionGracePeriod or 3)
+        TRP3FW.profiler.stop("CheckLocationCascading")
+        if callback then callback(true, nil, "interaction_cache", now - interaction.timestamp, nil, nil, { interactionCache = "hit" }, inTransitionGracePeriod, 0, nil) end
+        return
+    end
+
     local myMapID = C_Map.GetBestMapForUnit("player")
     local myZone = GetRealZoneText()
     
@@ -87,8 +108,19 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     }
 
     local function evaluateResults()
+        -- OPTIMIZATION #3: Early Success (Don't wait for slow SPVP if standard checks pass)
         if results.checksComplete < results.checksExpected then
-            return -- Wait for all checks
+            local canEarlySuccess = (results.phaseCheck == true and results.mapCheck == true)
+            -- Only allow early success if phase verification is strong (Targeting/Nameplate/Group)
+            -- We don't trust "cached" alone for early exit without SPVP confirming
+            local isStrongPhase = (results.phaseMethod == "target" or results.phaseMethod == "nameplate" or results.phaseMethod == "group")
+            
+            if canEarlySuccess and isStrongPhase and spvpMode ~= "required" then
+                TRP3FW:Debug("Early Success triggered: Phase/Map verified via "..tostring(results.phaseMethod).." (skipping pending SPVP wait)", "location")
+                -- Proceed to evaluation logic below
+            else
+                return -- Wait for all checks
+            end
         end
 
         TRP3FW:Debug("=== All location checks complete ===", "location")
@@ -235,59 +267,15 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     end
 
     local function startStandardChecks(priority)
-        -- Adjust expected count if we haven't set it yet
+        -- Determine expected checks (Phase + Map)
+        -- We set this upfront so the cascading logic waits for both, even if serialized
         if results.checksExpected == 0 or results.checksExpected == 1 then
             results.checksExpected = results.checksComplete + (phaseCheckEnabled and (results.phaseCheck == nil and 1 or 0) or 0) + (mapCheckEnabled and (results.mapCheck == nil and 1 or 0) or 0)
         end
 
-        -- Standard Phase Check
-        if phaseCheckEnabled and results.phaseCheck == nil and not results.phaseCheckStarted then
-            -- MUTUAL EXCHANGE OPTIMIZATION: Check if already targeting this player
-            local existingCheckIdx = nil
-            for i, check in ipairs(self.pendingPhaseChecks or {}) do
-                if check.playerName == playerName then
-                    existingCheckIdx = i
-                    break
-                end
-            end
-
-            if existingCheckIdx then
-                TRP3FW:Debug("Attaching to existing phase check for "..playerName, "location")
-                results.phaseCheckStarted = true
-                local originalCallback = self.pendingPhaseChecks[existingCheckIdx].callback
-                self.pendingPhaseChecks[existingCheckIdx].callback = function(inPhase, source, theirMapID, phaseMethod)
-                    if originalCallback then originalCallback(inPhase, source, theirMapID, phaseMethod) end
-                    results.phaseCheck, results.theirMapID, results.phaseSource, results.phaseMethod = inPhase, theirMapID, source, phaseMethod
-                    results.checksComplete = results.checksComplete + 1
-                    if source and source:find("cached") then results.cacheInfo.phaseCache = "hit" end
-                    evaluateResults()
-                end
-            else
-                results.phaseCheckStarted = true
-                TRP3FW:Debug("Starting standard phase check...", "location")
-                self:CheckPlayerPhase(playerName, sendId, function(inPhase, source, theirMapID, phaseMethod)
-                    results.phaseCheck, results.theirMapID, results.phaseSource, results.phaseMethod = inPhase, theirMapID, source, phaseMethod
-                    results.checksComplete = results.checksComplete + 1
-                    if source and source:find("cached") then results.cacheInfo.phaseCache = "hit" end
-                    evaluateResults()
-                end, priority)
-            end
-        elseif results.phaseCheck ~= nil then
-            TRP3FW:Debug("Skipping standard phase check (Already set: "..tostring(results.phaseCheck)..")", "location")
-        end
-
-        -- Standard Map Check
-        if mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
-            -- OPTIMIZATION: If phase check already passed via targeting/nameplate, skip map check
-            if results.phaseCheck == true and (results.phaseMethod == "target" or results.phaseMethod == "nameplate") then
-                TRP3FW:Debug("Skipping map check (Phase check passed via "..tostring(results.phaseMethod)..")", "location")
-                results.mapCheck = true
-                results.mapSource = "skipped_phase_verified"
-                results.mapMethod = "skipped"
-                results.mapSkippedBecausePhase = true
-                results.checksComplete = results.checksComplete + 1
-                evaluateResults()
-                return -- Skip actual map check
+        local function runMapCheck()
+            if not mapCheckEnabled or results.mapCheck ~= nil or results.mapCheckStarted then
+                return
             end
 
             results.mapCheckStarted = true
@@ -334,15 +322,66 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
                 end)
             end
         end
-    end
 
-    -- Check Interaction Cache First (Instant)
-    local CI = self.CacheInterface
-    local interaction = CI and CI:Get("interaction", playerName)
-    if interaction and (self:GetCurrentTime() - interaction.timestamp) < TRP3FW_Settings.interactionCacheDuration then
-        TRP3FW.profiler.stop("CheckLocationCascading")
-        if callback then callback(true, nil, "interaction_cache", self:GetCurrentTime() - interaction.timestamp, nil, nil, { interactionCache = "hit" }, inTransitionGracePeriod, timeSinceTransition, nil) end
-        return
+        local function handlePhaseResult(inPhase, source, theirMapID, phaseMethod)
+            results.phaseCheck, results.theirMapID, results.phaseSource, results.phaseMethod = inPhase, theirMapID, source, phaseMethod
+            results.checksComplete = results.checksComplete + 1
+            if source and source:find("cached") then results.cacheInfo.phaseCache = "hit" end
+            
+            -- CHECK: Can we skip the map check?
+            if mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
+                if inPhase == true and (phaseMethod == "target" or phaseMethod == "nameplate") then
+                    TRP3FW:Debug("Skipping map check (Phase check passed via "..tostring(phaseMethod)..")", "location")
+                    results.mapCheck = true
+                    results.mapSource = "skipped_phase_verified"
+                    results.mapMethod = "skipped"
+                    results.mapSkippedBecausePhase = true
+                    results.checksComplete = results.checksComplete + 1
+                    evaluateResults()
+                    return
+                else
+                    -- Phase check failed or wasn't authoritative about location - Proceed to Map Check
+                    runMapCheck()
+                end
+            else
+                evaluateResults()
+            end
+        end
+
+        -- Standard Phase Check
+        if phaseCheckEnabled and results.phaseCheck == nil and not results.phaseCheckStarted then
+            -- MUTUAL EXCHANGE OPTIMIZATION: Check if already targeting this player
+            local existingCheckIdx = nil
+            for i, check in ipairs(self.pendingPhaseChecks or {}) do
+                if check.playerName == playerName then
+                    existingCheckIdx = i
+                    break
+                end
+            end
+
+            if existingCheckIdx then
+                TRP3FW:Debug("Attaching to existing phase check for "..playerName, "location")
+                results.phaseCheckStarted = true
+                local originalCallback = self.pendingPhaseChecks[existingCheckIdx].callback
+                self.pendingPhaseChecks[existingCheckIdx].callback = function(inPhase, source, theirMapID, phaseMethod)
+                    if originalCallback then originalCallback(inPhase, source, theirMapID, phaseMethod) end
+                    handlePhaseResult(inPhase, source, theirMapID, phaseMethod)
+                end
+            else
+                results.phaseCheckStarted = true
+                TRP3FW:Debug("Starting standard phase check...", "location")
+                self:CheckPlayerPhase(playerName, sendId, handlePhaseResult, priority)
+            end
+        elseif results.phaseCheck ~= nil then
+            TRP3FW:Debug("Skipping standard phase check (Already set: "..tostring(results.phaseCheck)..")", "location")
+            -- If phase check was already done (e.g. SPVP path fallback?), we might need to trigger map check if it wasn't done
+            if mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
+                 runMapCheck()
+            end
+        else
+            -- Phase check disabled, go straight to map
+            runMapCheck()
+        end
     end
 
     -- Execution Flow based on SPVP Mode
@@ -396,7 +435,8 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
                     evaluateResults() -- Fail now
                 else
                     TRP3FW:Debug("Falling back to standard checks (Preferred Mode).", "location")
-                    startStandardChecks()
+                    -- Use HIGH priority for fallback to recover from the timeout delay
+                    startStandardChecks("HIGH")
                 end
             end
         end
