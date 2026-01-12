@@ -2,7 +2,7 @@
 
 **Intelligent Profile Privacy & Security for Roleplayers**
 
-[![Version](https://img.shields.io/badge/version-1.2.0--beta-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.3.0--beta-blue.svg)]()
 [![WoW](https://img.shields.io/badge/WoW-9.2.7%2B-orange.svg)]()
 [![License](https://img.shields.io/badge/license-Personal%20Use-green.svg)]()
 
@@ -44,9 +44,10 @@ On first launch, you will be prompted to choose a preset. These can be changed l
 *   **Cross-Protocol**: Fully compatible with **TotalRP3**, **MyRolePlay**, and **XRP**.
 
 **Project Info**
-*   **Version:** 1.2-beta (v1.2.0)
+*   **Version:** 1.3-beta (v1.3.0)
 *   **Updated:** January 2026
 *   **License:** Personal Use Only
+
 
 
 

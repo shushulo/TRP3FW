@@ -624,7 +624,6 @@ function CacheService:InitializeZoneCacheClearing()
                     CI:Clear("spvpPhaseSalt")
                 end 
             end
-
         elseif event == "ZONE_CHANGED_NEW_AREA" then
             if TRP3FW_Settings.clearPhaseCheckOnZoneChange or (isMergedEvent and TRP3FW_Settings.clearPhaseCheckOnPhaseChange) then
                 if CI then CI:Clear("phaseCheck") end
@@ -658,7 +657,6 @@ function CacheService:InitializeZoneCacheClearing()
                     CI:Clear("spvpPhaseSalt") 
                 end
             end
-
         elseif event == "PLAYER_ENTERING_WORLD" then
             if CI then
                 CI:Clear("phaseCheck")
@@ -668,8 +666,6 @@ function CacheService:InitializeZoneCacheClearing()
                 CI:Clear("mapScan")
                 CI:Clear("whoZone")
                 CI:Clear("whoName")
-                CI:Clear("spvpVerified")
-                CI:Clear("spvpPhaseSalt")
             end
             TRP3FW.recentScanRequests = {}
         end

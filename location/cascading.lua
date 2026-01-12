@@ -492,4 +492,3 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
         end
         startStandardChecks()
     end
-end
