@@ -177,7 +177,7 @@ TRP3FW.defaultSettings = {
 
     -- SPVP (Secure Phase Verification Protocol) v2.5
     spvpEnabled = true,              -- Master toggle for SPVP (ENABLED BY DEFAULT)
-    spvpMode = "preferred",           -- "off", "optional", "preferred", "required"
+    spvpMode = "optional",           -- "off", "optional", "preferred", "required"
     spvpAutoInitialize = false,       -- Auto-generate salts when entering phase (phase owners only)
     spvpBlockDuration = 60,           -- Block duration after failed verification (seconds, 10-3600)
     spvpSaltCacheDuration = 10800,    -- Phase salt cache duration (seconds, default 3 hours = 10800s)

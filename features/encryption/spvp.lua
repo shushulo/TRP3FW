@@ -373,17 +373,29 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
     -- Check cache (unless forced refresh)
     if not forceRefresh then
         local cached = CI:Get("spvpPhaseSalt", phaseID)
-        if cached and cached.salt then
-            self:Debug(string.format("Phase salt cache hit for phase %d (age: %.0fs)",
-                phaseID, self:GetCurrentTime() - cached.timestamp), "spvp")
-            
-            -- Track hits
-            if self.sessionStats and self.sessionStats.spvpCache then
-                self.sessionStats.spvpCache.hits = self.sessionStats.spvpCache.hits + 1
-                self.sessionStats.spvpCache.apiCallsSaved = self.sessionStats.spvpCache.apiCallsSaved + 1
+        if cached then
+            -- Check for negative cache (No Salt)
+            if cached.noSalt then
+                local age = self:GetCurrentTime() - cached.timestamp
+                -- 1 hour retry for missing salts
+                if age < 3600 then
+                    self:Debug(string.format("Phase salt NEGATIVE cache hit for phase %d (age: %.0fs)",
+                        phaseID, age), "spvp")
+                    return nil
+                end
+                -- Expired negative cache - retry
+            elseif cached.salt then
+                self:Debug(string.format("Phase salt cache hit for phase %d (age: %.0fs)",
+                    phaseID, self:GetCurrentTime() - cached.timestamp), "spvp")
+                
+                -- Track hits
+                if self.sessionStats and self.sessionStats.spvpCache then
+                    self.sessionStats.spvpCache.hits = self.sessionStats.spvpCache.hits + 1
+                    self.sessionStats.spvpCache.apiCallsSaved = self.sessionStats.spvpCache.apiCallsSaved + 1
+                end
+                
+                return cached.salt
             end
-            
-            return cached.salt
         end
     end
 
@@ -399,6 +411,18 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
     -- Asynchronous/Synchronous Request
     local result = C_Epsilon.GetPhaseAddonData("TRP3FW_SPVP_KEY")
     
+    if not result or result == "" then
+        -- Immediate "No Salt" result
+        self:Debug("Phase salt not found (Synchronous) for phase "..phaseID..", caching negative result (1h)", "spvp")
+        if CI then
+            CI:Set("spvpPhaseSalt", phaseID, {
+                noSalt = true,
+                timestamp = self:GetCurrentTime()
+            })
+        end
+        return nil
+    end
+
     if result then
         -- Check if result is the data itself (Synchronous hit)
         -- If the client already has the data, it might return it directly
@@ -519,8 +543,26 @@ function TRP3FW:HandleSaltResponse(ticket, salt)
     self.pendingSaltTickets[ticket] = nil
     
     -- Validate salt
-    if not salt or #salt < 32 or not salt:match("^[0-9a-fA-F:]+$") then
-        self:Debug("Async salt invalid/weak for phase "..phaseID..": "..(salt or "nil"), "spvp")
+    if not salt or salt == "" or #salt < 32 or not salt:match("^[0-9a-fA-F:]+$") then
+        self:Debug("Async salt missing/invalid for phase "..phaseID..", caching negative result (1h)", "spvp")
+        local CI = self.CacheInterface
+        if CI then
+            CI:Set("spvpPhaseSalt", phaseID, {
+                noSalt = true,
+                timestamp = self:GetCurrentTime()
+            })
+        end
+        
+        -- Fail any pending INITs for this phase (we can't verify)
+        if #self.pendingSPVPInits > 0 then
+            for _, pending in ipairs(self.pendingSPVPInits) do
+                -- Inform sender we have no salt
+                local reply = string.format("NOSALT:%s", pending.message:match("^INIT:.-:(%w+):") or "0")
+                C_ChatInfo.SendAddonMessage("TRP3FW_SPVP", reply, "WHISPER", pending.sender)
+            end
+            self.pendingSPVPInits = {}
+        end
+        
         return
     end
     
