@@ -113,7 +113,10 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
             local canEarlySuccess = (results.phaseCheck == true and results.mapCheck == true)
             -- Only allow early success if phase verification is strong (Targeting/Nameplate/Group)
             -- We don't trust "cached" alone for early exit without SPVP confirming
-            local isStrongPhase = (results.phaseMethod == "target" or results.phaseMethod == "nameplate" or results.phaseMethod == "group")
+            local function isMethodStrong(m) 
+                return m and (m:find("target") or m == "nameplate" or m == "group") 
+            end
+            local isStrongPhase = isMethodStrong(results.phaseMethod)
             
             if canEarlySuccess and isStrongPhase and spvpMode ~= "required" then
                 TRP3FW:Debug("Early Success triggered: Phase/Map verified via "..tostring(results.phaseMethod).." (skipping pending SPVP wait)", "location")
@@ -175,7 +178,7 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
             -- Nearness signal: proves they are physically nearby (not just same-phase)
             -- We check both phase and map methods for targeting evidence
             local function isMethodTargeting(m) 
-                return m and (m:find("target") or m == "nameplate" or m == "batch") 
+                return m and (m:find("target") or m == "nameplate") 
             end
             local isNear = isMethodTargeting(results.phaseMethod) or isMethodTargeting(results.mapMethod)
 
@@ -198,13 +201,13 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
             return isReliable
         end
 
-        local function isMethodTargeting(m) 
-            return m and (m:find("target") or m == "nameplate" or m == "batch") 
+        local function isMethodStrong(m) 
+            return m and (m:find("target") or m == "nameplate" or m == "group") 
         end
-        local isPhaseTargeting = isMethodTargeting(results.phaseMethod) or (results.phaseMethod == "spvp" and results.mapMethod == "target")
+        local isPhaseStrong = isMethodStrong(results.phaseMethod) or (results.phaseMethod == "spvp" and results.mapMethod == "target")
 
-        -- Cleanup confusion: If phase verified via targeting, map check failure is irrelevant noise
-        if (results.phaseCheck == true or spvpVerified) and isPhaseTargeting then
+        -- Cleanup confusion: If phase verified via strong signal, map check failure is irrelevant noise
+        if (results.phaseCheck == true or spvpVerified) and isPhaseStrong then
             if results.mapCheck == false then
                  results.mapCheck = true
                  results.mapSource = "ignored_targeting_verified"
@@ -279,7 +282,11 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
             end
 
             results.mapCheckStarted = true
+            
             local function handleMap(found, source, age, method, tMapID, tZone)
+                -- Avoid double-resolving if fallback already triggered
+                if results.mapCheck ~= nil then return end
+                
                 results.mapCheck = found
                 results.mapSource = source
                 results.mapMethod = method or source
@@ -290,36 +297,41 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
                 evaluateResults()
             end
 
-            -- Fast-path cache
-            local CI = TRP3FW.CacheInterface
-            if CI then
-                local c = CI:Get("mapScan", playerName)
-                local b = CI:Get("broadcast", playerName)
-                local nowTs = TRP3FW:GetCurrentTime()
-                if c and (nowTs - c.timestamp) < (c.found == false and 10 or 120) then
-                    results.cacheInfo.mapScanCache = "hit"
-                    return handleMap(c.found ~= false, "map_cache", nowTs - c.timestamp, "mapScan", c.mapID)
-                end
-                if b and (nowTs - b.timestamp) < 120 then
-                    results.cacheInfo.broadcastCache = "hit"
-                    return handleMap(true, "map_cache_broadcast", nowTs - b.timestamp, "broadcast", b.mapID)
-                end
-            end
-
-            if useWhoInsteadOfMapScan then
-                TRP3FW:Debug("Starting WHO query (preferred over map scan)...", "location")
-                self:CheckPlayerViaWho(playerName, sendId, function(found, source, age, zone, tMapID)
-                    if source == "cached" then results.cacheInfo.whoCache = "hit" end
-                    local f = found
-                    if not zone and tMapID and myMapID and tMapID ~= myMapID then f = false end
-                    handleMap(f, source, age, source, tMapID, zone)
-                end, true, forceWhoNameOnly, priority)
-            else
-                TRP3FW:Debug("Starting map scan...", "location")
+            local function runMapScan()
+                TRP3FW:Debug("Starting map scan (final fallback)...", "location")
                 self:MapScan(playerName, sendId, function(found, source, age)
                     if source:find("cached") then results.cacheInfo.mapCache = "hit" end
                     handleMap(found, source, age)
                 end)
+            end
+
+            -- Priority 1: WHO Query (Epsilon only, silent)
+            if useWhoInsteadOfMapScan then
+                TRP3FW:Debug("Starting WHO query sequence (preferred over map scan)...", "location")
+                
+                self:CheckPlayerViaWho(playerName, sendId, function(found, source, age, zone, tMapID)
+                    if source == "cached" then results.cacheInfo.whoCache = "hit" end
+                    
+                    -- Check if we should fall back to Map Scan
+                    -- Technical failures (timeout, backoff, rate limit) should trigger Map Scan
+                    -- Definitive results (who_query, who_not_found, cached) should NOT.
+                    local isTechnicalFailure = source:find("timeout") or source:find("backoff") or source:find("rate_limit") or source:find("error") or source:find("full")
+                    
+                    if isTechnicalFailure and not TRP3FW.detectedAddons.TRP3 then
+                         -- On Non-Epsilon/Non-TRP3 environments we'd fallback, but WHO is Epsilon-only.
+                         -- If WHO failed due to technical reasons, try Map Scan if available.
+                         TRP3FW:Debug("WHO failed technically ("..tostring(source).."), falling back to Map Scan", "location")
+                         runMapScan()
+                    else
+                        local f = found
+                        -- Verify map ID match if zone was returned but mapID is available
+                        if not zone and tMapID and myMapID and tMapID ~= myMapID then f = false end
+                        handleMap(f, source, age, source, tMapID, zone)
+                    end
+                end, true, forceWhoNameOnly, priority)
+            else
+                -- Priority 2: Map Scan (Visible broadcast)
+                runMapScan()
             end
         end
 
@@ -330,7 +342,8 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
             
             -- CHECK: Can we skip the map check?
             if mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
-                if inPhase == true and (phaseMethod == "target" or phaseMethod == "nameplate") then
+                local isStrongSignal = phaseMethod and (phaseMethod:find("target") or phaseMethod == "nameplate" or phaseMethod == "group")
+                if inPhase == true and isStrongSignal then
                     TRP3FW:Debug("Skipping map check (Phase check passed via "..tostring(phaseMethod)..")", "location")
                     results.mapCheck = true
                     results.mapSource = "skipped_phase_verified"
