@@ -1576,7 +1576,6 @@ local function RefreshUI()
             UIDropDownMenu_SetText(uiElements.ghostProfileDropdown, currentProfile)
         end
     end
-
     -- Update SPVP controls
     if uiElements.spvpModeDropdown then
         local mode = TRP3FW_Settings.spvpMode or "off"
@@ -1656,7 +1655,6 @@ local function RefreshUI()
             uiElements.spvpSaltStatus:SetText("|cffaaaaaa(Epsilon API not available)|r")
         end
     end
-
     -- Disable Epsilon-specific features if API not available
     for _, control in ipairs(epsilonControls) do
         if control and control.SetShown then
