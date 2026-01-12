@@ -34,11 +34,20 @@ function HistoryService:Initialize()
             whoNameCacheHits = 0,
             whoNameCacheMisses = 0,
             broadcastCacheHits = 0,
-            broadcastCacheMisses = 0
+            broadcastCacheMisses = 0,
+            spvpVerifiedCacheHits = 0,
+            spvpVerifiedCacheMisses = 0
         },
         privilegedStats = {
             phaseCheckBatches = 0,
             phaseCheckTokensSaved = 0
+        },
+        spvpCache = {
+            hits = 0,
+            misses = 0,
+            activeEntries = 0,
+            apiCallsSaved = 0,
+            lastRefresh = 0
         },
         performance = {
             -- Global Stats

@@ -206,6 +206,12 @@ function TRP3FW:CreateDecisionContext(playerName, addon, isWhisper, sendId, orig
             blockStartPhase = TRP3FW_Settings.blockStartPhase,
             ghostOnStartPhase = TRP3FW_Settings.ghostOnStartPhase,
             ghostProfileID = TRP3FW_Settings.ghostProfileID,
+            spvpEnabled = TRP3FW_Settings.spvpEnabled,
+            spvpMode = TRP3FW_Settings.spvpMode,
+            spvpAutoInitialize = TRP3FW_Settings.spvpAutoInitialize,
+            spvpBlockDuration = TRP3FW_Settings.spvpBlockDuration,
+            spvpSaltCacheDuration = TRP3FW_Settings.spvpSaltCacheDuration,
+            spvpPerPhaseOverrides = TRP3FW_Settings.spvpPerPhaseOverrides,
             interactionCacheDuration = TRP3FW_Settings.interactionCacheDuration,
         },
 
@@ -556,9 +562,116 @@ function TRP3FW:ProcessLocationDecision(context, locationResult)
         end
     end
 
-    -- Apply decision to the primary request
+    -- SPVP Fallback: If location checks failed, try cryptographic verification as last resort
+    if shouldBlock and context.settings.spvpEnabled and self.hasEpsilonAPI then
+        local currentPhaseID = self:GetCurrentPhaseID()
+
+        -- Check if SPVP was already verified in the pipeline (but we are still blocking, e.g. strict map check)
+        local spvpDetails = locationResult.checkDetails and locationResult.checkDetails.spvp
+        local alreadyVerified = spvpDetails and spvpDetails.result == true
+        
+        if alreadyVerified then
+             self:Debug("SPVP already verified but block persists (Strict Map Check) - Skipping rescue", "spvp")
+             -- Do NOT attempt rescue, fall through to ApplyLocationDecision (BLOCK)
+        -- Hard exclusion: Never use SPVP in Phase 169 (Start Phase)
+        elseif currentPhaseID and currentPhaseID ~= 169 then
+            -- Check if phase has SPVP salt configured (use cached salt)
+            local phaseSalt = self:GetPhaseSalt(currentPhaseID, false)
+            local hasSalt = (phaseSalt and phaseSalt ~= "")
+
+            if hasSalt then
+                self:Debug(string.format("SPVP fallback: Location failed for %s, trying crypto", context.playerName), "spvp")
+
+                -- Initiate SPVP handshake (async with timeout/retry)
+                self:CheckPlayerViaSPVP(context.playerName, context.sendId, function(verified, reason)
+                    -- Mark location result
+                    locationResult.spvpAttempted = true
+                    locationResult.spvpReason = reason
+
+                    if verified then
+                        -- SPVP verification passed! Override location failure
+                        self:Debug(string.format("SPVP rescue: %s VERIFIED, overriding block", context.playerName), "spvp")
+                        locationResult.spvpRescue = true
+
+                        -- Allow the request (override shouldBlock)
+                        self:ApplyLocationDecision(context, false, false, false, locationResult)
+
+                        -- Process queued burst requests with ALLOW
+                        if self.pendingLocationChecks and self.pendingLocationChecks[context.playerName] then
+                            local queuedRequests = self.pendingLocationChecks[context.playerName].queuedRequests
+                            self.pendingLocationChecks[context.playerName] = nil
+
+                            if queuedRequests and #queuedRequests > 0 then
+                                for _, req in ipairs(queuedRequests) do
+                                    local stale = self:IsBurstRequestStale(req)
+                                    if not stale then
+                                        local queuedContext = {
+                                            now = req.timestamp,
+                                            settings = context.settings,
+                                            playerName = context.playerName,
+                                            addon = req.addon,
+                                            isWhisper = req.isWhisper,
+                                            sendId = req.sendId,
+                                            originalFunc = req.originalFunc,
+                                            originalArgs = req.originalArgs,
+                                            isFirstTime = req.isFirstTime,
+                                            suppressedCount = req.suppressedCount,
+                                            isUserInitiated = self:IsUserInitiatedExchange(context.playerName),
+                                            isMSPAutoReply = context.isMSPAutoReply
+                                        }
+                                        self:ApplyLocationDecision(queuedContext, false, false, false, locationResult)
+                                    end
+                                end
+                            end
+                        end
+                    else
+                        -- SPVP failed/timed out - proceed with block/ghost
+                        self:Debug(string.format("SPVP rescue: %s FAILED (%s), blocking", context.playerName, reason or "unknown"), "spvp")
+                        locationResult.spvpFailed = true
+
+                        -- Apply original block/ghost decision
+                        self:ApplyLocationDecision(context, shouldBlock, shouldAlert, useGhostModeForThisSend, locationResult)
+
+                        -- Process queued burst requests with BLOCK/GHOST
+                        if self.pendingLocationChecks and self.pendingLocationChecks[context.playerName] then
+                            local queuedRequests = self.pendingLocationChecks[context.playerName].queuedRequests
+                            self.pendingLocationChecks[context.playerName] = nil
+
+                            if queuedRequests and #queuedRequests > 0 then
+                                for _, req in ipairs(queuedRequests) do
+                                    local stale = self:IsBurstRequestStale(req)
+                                    if not stale then
+                                        local queuedContext = {
+                                            now = req.timestamp,
+                                            settings = context.settings,
+                                            playerName = context.playerName,
+                                            addon = req.addon,
+                                            isWhisper = req.isWhisper,
+                                            sendId = req.sendId,
+                                            originalFunc = req.originalFunc,
+                                            originalArgs = req.originalArgs,
+                                            isFirstTime = req.isFirstTime,
+                                            suppressedCount = req.suppressedCount,
+                                            isUserInitiated = self:IsUserInitiatedExchange(context.playerName),
+                                            isMSPAutoReply = context.isMSPAutoReply
+                                        }
+                                        self:ApplyLocationDecision(queuedContext, shouldBlock, shouldAlert, useGhostModeForThisSend, locationResult)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end)
+
+                -- Return early - decision will be applied in SPVP callback
+                return
+            end
+        end
+    end
+
+    -- No SPVP fallback - apply normal decision
     self:ApplyLocationDecision(context, shouldBlock, shouldAlert, useGhostModeForThisSend, locationResult)
-    
+
     -- Process queued requests efficiently
     if self.pendingLocationChecks and self.pendingLocationChecks[context.playerName] then
         local queuedRequests = self.pendingLocationChecks[context.playerName].queuedRequests

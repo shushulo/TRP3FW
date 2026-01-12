@@ -58,7 +58,8 @@ local DEBUG_CATEGORIES = {
     ui = "debugUI",
     utils = "debugUtils",
     security = "debugSecurity",  -- Security-related messages (sanitization, cache limits, queue limits)
-    ghost = "debugGhost"  -- Ghost mode execution flow and exchange hook calls
+    ghost = "debugGhost",  -- Ghost mode execution flow and exchange hook calls
+    spvp = "debugSPVP"  -- SPVP (Secure Phase Verification Protocol) handshake and verification
 }
 
 -- SECURITY: Redact sensitive information from debug messages

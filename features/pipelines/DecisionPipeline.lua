@@ -12,21 +12,24 @@ function TRP3FW:InitializeDecisionPipeline()
     -- Stage 2: Phase-In Delay (Queues requests after zone change)
     pipeline:AddStage(TRP3FW.PhaseInStage:New("PhaseInDelay"))
 
-    -- Stage 3: Cache Check (Phase, Map, Allowed Senders)
+    -- Stage 3: SPVP Context (Prepares salt and enabled status)
+    pipeline:AddStage(TRP3FW.SPVPStage:New("SPVP"))
+
+    -- Stage 4: Cache Check (Phase, Map, Allowed Senders, SPVP Verified)
     pipeline:AddStage(TRP3FW.CacheStage:New("Cache"))
 
-    -- Stage 4: Interaction Check (Mutual exchange, mouseover, target)
+    -- Stage 5: Interaction Check (Mutual exchange, mouseover, target)
     pipeline:AddStage(TRP3FW.InteractionStage:New("Interaction"))
 
-    -- Stage 5: Alert-Only Fast Path (Sends immediately if blocking disabled)
+    -- Stage 6: Alert-Only Fast Path (Sends immediately if blocking disabled)
     pipeline:AddStage(TRP3FW.AlertFastPathStage:New("AlertFastPath"))
 
-    -- Stage 6: Burst Handling (Queues requests if check in progress)
+    -- Stage 7: Burst Handling (Queues requests if check in progress)
     pipeline:AddStage(TRP3FW.BurstStage:New("Burst"))
 
-    -- Stage 7: Location Check (Async checks, decision logic)
+    -- Stage 8: Location Check (Async checks with SPVP fallback)
     pipeline:AddStage(TRP3FW.LocationStage:New("Location"))
 
     TRP3FW.DecisionPipeline = pipeline
-    TRP3FW:Debug("DecisionPipeline initialized with 7 stages.", "pipeline")
+    TRP3FW:Debug("DecisionPipeline initialized with 8 stages.", "pipeline")
 end

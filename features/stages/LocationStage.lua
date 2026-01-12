@@ -103,6 +103,12 @@ function LocationStage:Process(context)
     end
 
     -- Perform Check
+    local options = {
+        spvpEnabled = context.spvpEnabled,
+        spvpPhaseID = context.spvpPhaseID,
+        spvpSalt = context.spvpSalt
+    }
+
     TRP3FW:CheckLocationCascading(context.playerName, context.sendId, function(locationOK, alertType, source, mapCacheAge, theirZone, myZone, cacheInfo, recentTransition, timeSinceTransition, checkDetails)
         local locationResult = {
             locationOK = locationOK,
@@ -119,7 +125,7 @@ function LocationStage:Process(context)
         
         -- Call Decision Stage
         TRP3FW:ProcessLocationDecision(context, locationResult)
-    end)
+    end, options)
 
     return {handled = true, async = true, reason = "check_started"}
 end

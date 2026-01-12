@@ -71,6 +71,24 @@ function CacheService:InitializeCaches()
         maxSize = 1000
     })
 
+    -- SPVP Verified Cache (successful verifications)
+    CI:Register("spvpVerified", {
+        ttl = 300,  -- 5 minutes
+        maxSize = 1000
+    })
+
+    -- SPVP Session Cache (replay attack protection)
+    CI:Register("spvpSessions", {
+        ttl = 60,  -- 1 minute
+        maxSize = 500
+    })
+
+    -- SPVP Phase Salt Cache (reduces API calls)
+    CI:Register("spvpPhaseSalt", {
+        ttl = TRP3FW_Settings.spvpSaltCacheDuration,  -- 3 hours default
+        maxSize = 100  -- Max 100 phases cached
+    })
+
     -- Name Normalization Caches (Utility)
     CI:Register("cleanName", {
         maxSize = TRP3FW_Settings.cleanNameCacheSize or 500
@@ -600,6 +618,7 @@ function CacheService:InitializeZoneCacheClearing()
             if TRP3FW_Settings.clearRecentScansOnPhaseChange then if CI then CI:Clear("mapScan") end end
             if TRP3FW_Settings.clearWhoZoneOnPhaseChange then if CI then CI:Clear("whoZone") end end
             if TRP3FW_Settings.clearWhoNameOnPhaseChange then if CI then CI:Clear("whoName") end end
+            if TRP3FW_Settings.clearSpvpOnPhaseChange then if CI then CI:Clear("spvpVerified") end end
 
         elseif event == "ZONE_CHANGED_NEW_AREA" then
             if TRP3FW_Settings.clearPhaseCheckOnZoneChange or (isMergedEvent and TRP3FW_Settings.clearPhaseCheckOnPhaseChange) then
@@ -628,6 +647,9 @@ function CacheService:InitializeZoneCacheClearing()
             if TRP3FW_Settings.clearWhoNameOnZoneChange or (isMergedEvent and TRP3FW_Settings.clearWhoNameOnPhaseChange) then
                 if CI then CI:Clear("whoName") end
             end
+            if TRP3FW_Settings.clearSpvpOnZoneChange or (isMergedEvent and TRP3FW_Settings.clearSpvpOnPhaseChange) then
+                if CI then CI:Clear("spvpVerified") end
+            end
 
         elseif event == "PLAYER_ENTERING_WORLD" then
             if CI then
@@ -638,6 +660,7 @@ function CacheService:InitializeZoneCacheClearing()
                 CI:Clear("mapScan")
                 CI:Clear("whoZone")
                 CI:Clear("whoName")
+                CI:Clear("spvpVerified")
             end
             TRP3FW.recentScanRequests = {}
         end
