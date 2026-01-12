@@ -111,6 +111,7 @@ local SETTING_LEVELS = {
     spvpVerifiedCacheDuration = 3,
     spvpVerifiedRefreshRate = 3,
     spvpPhaseSaltRefreshRate = 4,
+
     -- Everything (Default for unmatched, and explicitly listed for clarity)
     phaseCheckRefundOnNoChange = 4,
     privilegedReservedTokens = 4,
