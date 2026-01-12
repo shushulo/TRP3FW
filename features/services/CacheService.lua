@@ -71,8 +71,6 @@ function CacheService:InitializeCaches()
         maxSize = 1000
     })
 
-<<<<<<< Updated upstream
-=======
     -- SPVP Verified Cache
     CI:Register("spvpVerified", {
         ttl = TRP3FW_Settings.spvpVerifiedCacheDuration or 300,
@@ -85,7 +83,6 @@ function CacheService:InitializeCaches()
         maxSize = 500
     })
 
->>>>>>> Stashed changes
     -- Name Normalization Caches (Utility)
     CI:Register("cleanName", {
         maxSize = TRP3FW_Settings.cleanNameCacheSize or 500
@@ -621,16 +618,12 @@ function CacheService:InitializeZoneCacheClearing()
             if TRP3FW_Settings.clearRecentScansOnPhaseChange then if CI then CI:Clear("mapScan") end end
             if TRP3FW_Settings.clearWhoZoneOnPhaseChange then if CI then CI:Clear("whoZone") end end
             if TRP3FW_Settings.clearWhoNameOnPhaseChange then if CI then CI:Clear("whoName") end end
-<<<<<<< Updated upstream
-=======
             if TRP3FW_Settings.clearSpvpOnPhaseChange then 
                 if CI then 
                     CI:Clear("spvpVerified")
                     CI:Clear("spvpPhaseSalt")
                 end 
             end
->>>>>>> Stashed changes
-
         elseif event == "ZONE_CHANGED_NEW_AREA" then
             if TRP3FW_Settings.clearPhaseCheckOnZoneChange or (isMergedEvent and TRP3FW_Settings.clearPhaseCheckOnPhaseChange) then
                 if CI then CI:Clear("phaseCheck") end
@@ -658,16 +651,12 @@ function CacheService:InitializeZoneCacheClearing()
             if TRP3FW_Settings.clearWhoNameOnZoneChange or (isMergedEvent and TRP3FW_Settings.clearWhoNameOnPhaseChange) then
                 if CI then CI:Clear("whoName") end
             end
-<<<<<<< Updated upstream
-=======
             if TRP3FW_Settings.clearSpvpOnZoneChange or (isMergedEvent and TRP3FW_Settings.clearSpvpOnPhaseChange) then
                 if CI then 
                     CI:Clear("spvpVerified")
                     CI:Clear("spvpPhaseSalt") 
                 end
             end
->>>>>>> Stashed changes
-
         elseif event == "PLAYER_ENTERING_WORLD" then
             if CI then
                 CI:Clear("phaseCheck")
@@ -677,11 +666,6 @@ function CacheService:InitializeZoneCacheClearing()
                 CI:Clear("mapScan")
                 CI:Clear("whoZone")
                 CI:Clear("whoName")
-<<<<<<< Updated upstream
-=======
-                CI:Clear("spvpVerified")
-                CI:Clear("spvpPhaseSalt")
->>>>>>> Stashed changes
             end
             TRP3FW.recentScanRequests = {}
         end

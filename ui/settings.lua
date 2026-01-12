@@ -89,6 +89,9 @@ local SETTING_LEVELS = {
     performanceHistoryEnabled = 3,
     phaseInDelay = 3,
     transitionGracePeriod = 3,
+    redactLocations = 3,
+    redactNetwork = 3,
+    redactSPVP = 3,
     cacheSizeLimit = 3,
     mapScanMinInterval = 3, -- Moved from Everything
     whoZoneQueryCooldown = 3, -- Moved from Everything
@@ -100,8 +103,6 @@ local SETTING_LEVELS = {
     phaseCheckBatchMinSize = 3,
     phaseCheckBatchInterDelay = 3,
 
-<<<<<<< Updated upstream
-=======
     -- SPVP settings (Advanced)
     spvpMode = 3,
     spvpAutoInitialize = 3,
@@ -110,8 +111,6 @@ local SETTING_LEVELS = {
     spvpVerifiedCacheDuration = 3,
     spvpVerifiedRefreshRate = 3,
     spvpPhaseSaltRefreshRate = 4,
-
->>>>>>> Stashed changes
     -- Everything (Default for unmatched, and explicitly listed for clarity)
     phaseCheckRefundOnNoChange = 4,
     privilegedReservedTokens = 4,
@@ -128,15 +127,16 @@ local CUSTOM_LOGIC_KEYS = {
     clearPhaseCheckOnZoneChange = true, clearAllowedSendersOnZoneChange = true, clearInteractionOnZoneChange = true, 
     clearSuppressionOnZoneChange = true, clearRecentBroadcastsOnZoneChange = true, clearRecentScansOnZoneChange = true,
     clearWhoZoneOnZoneChange = true, clearWhoNameOnZoneChange = true,
-    debugTimestamp = true, debugChannel = true, debugWhisper = true, debugWho = true, debugPhase = true, debugCleanName = true, 
-    debugLocation = true, debugDecision = true, debugHooks = true, debugCache = true, debugSend = true, debugUI = true, 
-    debugUtils = true, debugSecurity = true, debugGhost = true,
+    debugTimestamp = true, debugChannel = true, debugWhisper = true, debugWho = true, debugPhase = true, debugCleanName = true,
+    debugLocation = true, debugDecision = true, debugHooks = true, debugCache = true, debugSend = true, debugUI = true,
+    debugUtils = true, debugSecurity = true, debugGhost = true, debugSPVP = true,
     scanResponseRequireNonce = true, scanResponseCacheEnabled = true, scanResponseAllowCacheBypass = true, 
     scanResponseAllowGroupBypass = true, scanResponseWhitelistEnabled = true, scanResponseWhitelistEdit = true, 
     scanResponseWhitelistScroll = true, scanResponsePhaseMode = true, scanResponseMapMode = true, 
     notifyOnScanResponse = true, notifyOnScanAllow = true,
-    redactNames = true, redactLocations = true, redactNetwork = true,
-    ghostProfileWhitelistEdit = true, ghostProfileWhitelistScroll = true
+    redactNames = true, redactLocations = true, redactNetwork = true, redactSPVP = true,
+    ghostProfileWhitelistEdit = true, ghostProfileWhitelistScroll = true,
+    spvpSaltStatus = true, spvpSecureButton = true, spvpBlockDurationSlider = true, spvpSaltCacheDurationSlider = true
 }
 
 -- Function to update UI based on complexity level
@@ -320,6 +320,22 @@ StaticPopupDialogs["TRP3FW_WHITELIST_CONFIRM"] = {
         end
         if uiElements and uiElements.whitelistScroll then
             uiElements.whitelistScroll:SetAlpha(0.5)
+        end
+    end,
+    hideOnEscape = 1,
+    timeout = 0,
+    whileDead = 1,
+    showAlert = 1,
+}
+
+StaticPopupDialogs["TRP3FW_SPVP_ROTATE_CONFIRM"] = {
+    text = "|cffffcc00Rotate SPVP Security Key?|r\n\nThis phase already has a security key. Rotating it will:\n\n• Generate a new cryptographic salt\n• Invalidate all existing SPVP verifications\n• Require players to re-verify with the new key\n\nOnly rotate if you suspect the current key is compromised or want to refresh security.",
+    button1 = "Rotate Key",
+    button2 = "Cancel",
+    OnAccept = function()
+        TRP3FW:SecureCurrentPhase()
+        if RequestRefreshUI then
+            RequestRefreshUI()
         end
     end,
     hideOnEscape = 1,
@@ -952,6 +968,39 @@ local function UpdateStatusTab()
         end
     end
 
+    -- Phase Security Indicator
+    if uiElements.statusPhaseSecurity then
+        if TRP3FW.hasEpsilonAPI then
+            local phaseID = TRP3FW:GetCurrentPhaseID()
+            local phaseSalt = TRP3FW:GetPhaseSalt(phaseID, false)
+            if phaseSalt and phaseSalt ~= "" then
+                local _, timestamp = TRP3FW:ParsePhaseSalt(phaseSalt)
+                local ageStr = ""
+                
+                -- Validate salt format (Basic check)
+                -- Expecting either "HEX:TIMESTAMP" or pure "HEX"
+                -- Allow some leniency for custom salts but flag them
+                local isHex = phaseSalt:match("^[0-9a-fA-F:]+$")
+                local isLongEnough = #phaseSalt >= 16
+                
+                if timestamp then
+                    local daysOld = math.floor((time() - timestamp) / 86400)
+                    ageStr = string.format(" (Age: %d days)", daysOld)
+                    uiElements.statusPhaseSecurity:SetText("|cff00ff00Secured|r" .. ageStr)
+                elseif isHex and isLongEnough then
+                    uiElements.statusPhaseSecurity:SetText("|cff00ff00Secured|r (Legacy Format)")
+                else
+                    -- Non-standard salt (short or non-hex)
+                    uiElements.statusPhaseSecurity:SetText("|cffffcc00Unknown Data|r (Custom/Weak Key)")
+                end
+            else
+                uiElements.statusPhaseSecurity:SetText("|cffff0000Unsecured|r")
+            end
+        else
+            uiElements.statusPhaseSecurity:SetText("|cffaaaaaaN/A|r")
+        end
+    end
+
     -- Detected RP Addons (compact inline format)
     local addons = {}
     if TRP3FW.detectedAddons.TRP3 then table.insert(addons, "|cff00ff00TRP3|r") end
@@ -1125,6 +1174,18 @@ local function UpdateStatusTab()
         TRP3FW.sessionStats.cacheStats.broadcastCacheHits,
         TRP3FW.sessionStats.cacheStats.broadcastCacheMisses)
 
+    -- Update SPVP Cache Bar (Salt)
+    if TRP3FW.sessionStats.spvpCache then
+        UpdateCacheBar(uiElements.statusSpvpCachePerfBar,
+            TRP3FW.sessionStats.spvpCache.hits,
+            TRP3FW.sessionStats.spvpCache.misses)
+    end
+
+    -- Update SPVP Verified Cache Bar
+    UpdateCacheBar(uiElements.statusSpvpVerifiedCachePerfBar,
+        TRP3FW.sessionStats.cacheStats.spvpVerifiedCacheHits,
+        TRP3FW.sessionStats.cacheStats.spvpVerifiedCacheMisses)
+
     -- Cache Status (player/entry counts)
     local function getCacheCounts()
         local now = TRP3FW:GetCurrentTime()
@@ -1141,6 +1202,8 @@ local function UpdateStatusTab()
             whoName = CI and CI:GetSize("whoName") or 0,
             whoZone = CI and CI:GetSize("whoZone") or 0,
             interaction = CI and CI:GetSize("interaction") or 0,
+            spvpSalt = CI and CI:GetSize("spvpPhaseSalt") or 0,
+            spvpVerified = CI and CI:GetSize("spvpVerified") or 0,
             suppression = TRP3FW:CountTableEntries(TRP3FW.profileSendHistory),
         }
         cacheCountState.counts = counts
@@ -1156,6 +1219,12 @@ local function UpdateStatusTab()
     uiElements.statusWhoNameCache:SetText((counts.whoName or 0).." entries")
     uiElements.statusWhoZoneCache:SetText((counts.whoZone or 0).." entries")
     uiElements.statusInteractionCache:SetText((counts.interaction or 0).." entries")
+    if uiElements.statusSpvpCache then
+        uiElements.statusSpvpCache:SetText((counts.spvpSalt or 0).." entries")
+    end
+    if uiElements.statusSpvpVerifiedCache then
+        uiElements.statusSpvpVerifiedCache:SetText((counts.spvpVerified or 0).." entries")
+    end
     if uiElements.statusSuppressionCache then
         uiElements.statusSuppressionCache:SetText((counts.suppression or 0).." entries")
     end
@@ -1506,9 +1575,6 @@ local function RefreshUI()
             UIDropDownMenu_SetText(uiElements.ghostProfileDropdown, currentProfile)
         end
     end
-
-<<<<<<< Updated upstream
-=======
     -- Update SPVP controls
     if uiElements.spvpModeDropdown then
         local mode = TRP3FW_Settings.spvpMode or "off"
@@ -1588,8 +1654,6 @@ local function RefreshUI()
             uiElements.spvpSaltStatus:SetText("|cffaaaaaa(Epsilon API not available)|r")
         end
     end
-
->>>>>>> Stashed changes
     -- Disable Epsilon-specific features if API not available
     for _, control in ipairs(epsilonControls) do
         if control and control.SetShown then
@@ -1601,6 +1665,10 @@ local function RefreshUI()
     end
 
     if not TRP3FW.hasEpsilonAPI then
+        if uiElements.spvpModeDropdown then
+            UIDropDownMenu_DisableDropDown(uiElements.spvpModeDropdown)
+            uiElements.spvpModeDropdown:SetAlpha(0.5)
+        end
         uiElements.blockStartPhase:Disable()
         uiElements.blockStartPhase:SetAlpha(0.5)
         uiElements.ghostOnStartPhase:Disable()
@@ -1738,6 +1806,9 @@ local function RefreshUI()
     uiElements.clearRecentScansOnPhaseChange:SetChecked(TRP3FW_Settings.clearRecentScansOnPhaseChange)
     uiElements.clearWhoZoneOnPhaseChange:SetChecked(TRP3FW_Settings.clearWhoZoneOnPhaseChange)
     uiElements.clearWhoNameOnPhaseChange:SetChecked(TRP3FW_Settings.clearWhoNameOnPhaseChange)
+    if uiElements.clearSpvpOnPhaseChange then
+        uiElements.clearSpvpOnPhaseChange:SetChecked(TRP3FW_Settings.clearSpvpOnPhaseChange)
+    end
 
     -- Zone change granular settings
     uiElements.clearPhaseCheckOnZoneChange:SetChecked(TRP3FW_Settings.clearPhaseCheckOnZoneChange)
@@ -1748,6 +1819,9 @@ local function RefreshUI()
     uiElements.clearRecentScansOnZoneChange:SetChecked(TRP3FW_Settings.clearRecentScansOnZoneChange)
     uiElements.clearWhoZoneOnZoneChange:SetChecked(TRP3FW_Settings.clearWhoZoneOnZoneChange)
     uiElements.clearWhoNameOnZoneChange:SetChecked(TRP3FW_Settings.clearWhoNameOnZoneChange)
+    if uiElements.clearSpvpOnZoneChange then
+        uiElements.clearSpvpOnZoneChange:SetChecked(TRP3FW_Settings.clearSpvpOnZoneChange)
+    end
 
     -- Enable/disable granular options based on master toggles AND Epsilon API availability
     if TRP3FW_Settings.clearCacheOnPhaseChange and TRP3FW.hasEpsilonAPI then
@@ -1759,6 +1833,7 @@ local function RefreshUI()
         uiElements.clearRecentScansOnPhaseChange:Enable()
         uiElements.clearWhoZoneOnPhaseChange:Enable()
         uiElements.clearWhoNameOnPhaseChange:Enable()
+        if uiElements.clearSpvpOnPhaseChange then uiElements.clearSpvpOnPhaseChange:Enable() end
     else
         uiElements.clearPhaseCheckOnPhaseChange:Disable()
         uiElements.clearAllowedSendersOnPhaseChange:Disable()
@@ -1768,6 +1843,7 @@ local function RefreshUI()
         uiElements.clearRecentScansOnPhaseChange:Disable()
         uiElements.clearWhoZoneOnPhaseChange:Disable()
         uiElements.clearWhoNameOnPhaseChange:Disable()
+        if uiElements.clearSpvpOnPhaseChange then uiElements.clearSpvpOnPhaseChange:Disable() end
     end
 
     -- Grey out phase change granular options if Epsilon API not available
@@ -1780,6 +1856,7 @@ local function RefreshUI()
         uiElements.clearRecentScansOnPhaseChange:SetAlpha(0.5)
         uiElements.clearWhoZoneOnPhaseChange:SetAlpha(0.5)
         uiElements.clearWhoNameOnPhaseChange:SetAlpha(0.5)
+        if uiElements.clearSpvpOnPhaseChange then uiElements.clearSpvpOnPhaseChange:SetAlpha(0.5) end
     end
 
     if TRP3FW_Settings.clearCacheOnZoneChange then
@@ -1791,6 +1868,7 @@ local function RefreshUI()
         uiElements.clearRecentScansOnZoneChange:Enable()
         uiElements.clearWhoZoneOnZoneChange:Enable()
         uiElements.clearWhoNameOnZoneChange:Enable()
+        if uiElements.clearSpvpOnZoneChange then uiElements.clearSpvpOnZoneChange:Enable() end
     else
         uiElements.clearPhaseCheckOnZoneChange:Disable()
         uiElements.clearAllowedSendersOnZoneChange:Disable()
@@ -1800,6 +1878,7 @@ local function RefreshUI()
         uiElements.clearRecentScansOnZoneChange:Disable()
         uiElements.clearWhoZoneOnZoneChange:Disable()
         uiElements.clearWhoNameOnZoneChange:Disable()
+        if uiElements.clearSpvpOnZoneChange then uiElements.clearSpvpOnZoneChange:Disable() end
     end
 
     -- History Settings
@@ -1814,6 +1893,9 @@ local function RefreshUI()
     uiElements.redactNames:SetChecked(TRP3FW_Settings.redactNames)
     uiElements.redactLocations:SetChecked(TRP3FW_Settings.redactLocations)
     uiElements.redactNetwork:SetChecked(TRP3FW_Settings.redactNetwork)
+    if uiElements.redactSPVP then
+        uiElements.redactSPVP:SetChecked(TRP3FW_Settings.redactSPVP)
+    end
 
     local redactOn = TRP3FW_Settings.redactEnabled ~= false
     local function setRedactEnabled(enabled)
@@ -1822,14 +1904,17 @@ local function RefreshUI()
             uiElements.redactNames:Enable()
             uiElements.redactLocations:Enable()
             uiElements.redactNetwork:Enable()
+            if uiElements.redactSPVP then uiElements.redactSPVP:Enable() end
         else
             uiElements.redactNames:Disable()
             uiElements.redactLocations:Disable()
             uiElements.redactNetwork:Disable()
+            if uiElements.redactSPVP then uiElements.redactSPVP:Disable() end
         end
         uiElements.redactNames:SetAlpha(alpha)
         uiElements.redactLocations:SetAlpha(alpha)
         uiElements.redactNetwork:SetAlpha(alpha)
+        if uiElements.redactSPVP then uiElements.redactSPVP:SetAlpha(alpha) end
     end
     setRedactEnabled(redactOn)
 
@@ -1855,6 +1940,7 @@ local function RefreshUI()
     uiElements.debugUtils:SetChecked(TRP3FW_Settings.debugUtils)
     uiElements.debugSecurity:SetChecked(TRP3FW_Settings.debugSecurity)
     uiElements.debugGhost:SetChecked(TRP3FW_Settings.debugGhost)
+    if uiElements.debugSPVP then uiElements.debugSPVP:SetChecked(TRP3FW_Settings.debugSPVP) end
 
     -- Enable/disable debug options based on debug mode
     if TRP3FW_Settings.debug then
@@ -1872,6 +1958,7 @@ local function RefreshUI()
         uiElements.debugUtils:Enable()
         uiElements.debugSecurity:Enable()
         uiElements.debugGhost:Enable()
+        if uiElements.debugSPVP then uiElements.debugSPVP:Enable() end
     else
         uiElements.debugChannel:Disable()
         uiElements.debugWhisper:Disable()
@@ -1887,6 +1974,7 @@ local function RefreshUI()
         uiElements.debugUtils:Disable()
         uiElements.debugSecurity:Disable()
         uiElements.debugGhost:Disable()
+        if uiElements.debugSPVP then uiElements.debugSPVP:Disable() end
     end
 
     -- Timestamp toggle should be usable even when debug output is off (affects notifications too)
@@ -1907,939 +1995,9 @@ RequestRefreshUI = function()
 end
 
 -- Create the main settings frame
-function TRP3FW:InitializeUI()
-    if settingsFrame then
-        TRP3FW:Debug("UI already initialized", "ui")
-        return
-    end
-
-    -- Ensure settings are initialized before building UI
-    if TRP3FW.InitializeSettings then
-        TRP3FW:InitializeSettings()
-    end
-
-    TRP3FW:Debug("Starting UI initialization...", "ui")
-
-    -- Initialize minimap settings from SavedVariables
-    local success, err = pcall(InitializeMinimapSettings)
-    if not success then
-        print("|cffff0000TRP3FW Error:|r Failed to initialize minimap settings: "..tostring(err))
-        return
-    end
-    TRP3FW:Debug("Minimap settings initialized", "ui")
-
-    TRP3FW:Debug("Creating settings frame...", "ui")
-
-    -- Main frame
-    success, err = pcall(function()
-        settingsFrame = CreateFrame("Frame", "TRP3FW_SettingsFrame", UIParent, "BasicFrameTemplateWithInset")
-    end)
-
-    if not success then
-        print("|cffff0000TRP3FW Error:|r Failed to create settings frame: "..tostring(err))
-        print("|cffffff00TRP3FW:|r UI will not be available. Attempting to create minimap button only...")
-        -- Still try to create minimap button even if UI frame fails
-        local btnSuccess, btnErr = pcall(CreateMinimapButton)
-        if not btnSuccess then
-            print("|cffff0000TRP3FW Error:|r Failed to create minimap button: "..tostring(btnErr))
-        end
-        return
-    end
-    TRP3FW:Debug("Settings frame created successfully", "ui")
-    settingsFrame:SetSize(600, 550)
-    settingsFrame:SetPoint("CENTER")
-    settingsFrame:SetMovable(true)
-    settingsFrame:EnableMouse(true)
-    settingsFrame:RegisterForDrag("LeftButton")
-    settingsFrame:SetScript("OnDragStart", settingsFrame.StartMoving)
-    settingsFrame:SetScript("OnDragStop", settingsFrame.StopMovingOrSizing)
-    settingsFrame:Hide()
-
-    -- Title
-    settingsFrame.title = settingsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    settingsFrame.title:SetPoint("TOP", 0, -5)
-    settingsFrame.title:SetText("TRP3 Firewall Settings v"..TRP3FW.VERSION)
-
-    -- Tab system
-    local tabs = {}
-    local tabContents = {}
-
-    -- Create 5 tabs
-    tabs[1] = CreateTab(settingsFrame, 1, "Status")
-    tabs[2] = CreateTab(settingsFrame, 2, "Notifications")
-    tabs[3] = CreateTab(settingsFrame, 3, "Alerts & Blocking")
-    tabs[4] = CreateTab(settingsFrame, 4, "Filters & Addons")
-    tabs[5] = CreateTab(settingsFrame, 5, "Cache & Debug")
-
-    -- Create content frames for each tab with appropriate heights
-    -- Heights calculated based on content (absolute value of final y-offset + padding for slider/elements)
-    local tabHeights = {
-        1000,   -- Tab 1 (Status) - includes recent activity list
-        470,   -- Tab 2 (Notifications)
-        1500,  -- Tab 3 (Alerts & Blocking) - expanded Safety/overrides
-        280,   -- Tab 4 (Filters & Addons)
-        950    -- Tab 5 (Cache & Debug)
-    }
-
-    for i = 1, 5 do
-        local scrollFrame, scrollChild = CreateScrollFrame(settingsFrame, tabHeights[i])
-        tabContents[i] = { scrollFrame = scrollFrame, scrollChild = scrollChild }
-        scrollFrame:Hide()
-    end
-
-    -- Tab click handler
-    local currentTab = 1 -- Track currently selected tab
-
-    -- Periodic update timer for Status tab (only when visible)
-    local statusUpdateTimer = nil
-    local function StartStatusUpdates()
-        if statusUpdateTimer then return end -- Already running
-        local refreshRate = TRP3FW_Settings.statusRefreshRate or 30
-        statusUpdateTimer = C_Timer.NewTicker(refreshRate, function()
-            if settingsFrame:IsVisible() and currentTab == 1 then
-                UpdateStatusTab()
-            else
-                -- Stop timer if frame hidden or different tab
-                if statusUpdateTimer then
-                    statusUpdateTimer:Cancel()
-                    statusUpdateTimer = nil
-                end
-            end
-        end)
-    end
-
-    local function SelectTab(tabIndex)
-        currentTab = tabIndex
-
-        for i = 1, 5 do
-            if i == tabIndex then
-                tabs[i].bg:SetColorTexture(0.3, 0.3, 0.3, 1)
-                tabs[i].text:SetTextColor(1, 1, 1)
-                tabContents[i].scrollFrame:Show()
-            else
-                tabs[i].bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-                tabs[i].text:SetTextColor(0.7, 0.7, 0.7)
-                tabContents[i].scrollFrame:Hide()
-            end
-        end
-
-        -- Update Status tab immediately when switching to it
-        if tabIndex == 1 then
-            UpdateStatusTab()
-            StartStatusUpdates() -- Restart the periodic timer
-        end
-    end
-
-    for i = 1, 5 do
-        tabs[i]:SetScript("OnClick", function() SelectTab(i) end)
-    end
-
-    -- ========== TAB 1: STATUS ==========
-    local tab1 = tabContents[1].scrollChild
-    local y1 = -10
-
-    CreateSectionHeader(tab1, "Environment", y1)
-    y1 = y1 - 30
-
-    -- Single line showing all detected addons with badges
-    local addonsLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    addonsLabel:SetPoint("TOPLEFT", 20, y1)
-    addonsLabel:SetText("RP Addons:")
-    addonsLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local addonsList = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    addonsList:SetPoint("LEFT", addonsLabel, "RIGHT", 10, 0)
-    addonsList:SetJustifyH("LEFT")
-    addonsList:SetWidth(460)
-    uiElements.statusAddonsList = addonsList
-    y1 = y1 - 22
-
-    -- Map Scanner (inline)
-    local mapScannerLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    mapScannerLabel:SetPoint("TOPLEFT", 20, y1)
-    mapScannerLabel:SetText("Map Scanner:")
-    mapScannerLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local mapScannerValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    mapScannerValue:SetPoint("LEFT", mapScannerLabel, "RIGHT", 10, 0)
-    uiElements.statusMapScanner = mapScannerValue
-    y1 = y1 - 22
-
-    -- Epsilon API (inline)
-    local epsilonAPILabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    epsilonAPILabel:SetPoint("TOPLEFT", 20, y1)
-    epsilonAPILabel:SetText("Epsilon API:")
-    epsilonAPILabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local epsilonAPIValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    epsilonAPIValue:SetPoint("LEFT", epsilonAPILabel, "RIGHT", 10, 0)
-    uiElements.statusEpsilonAPI = epsilonAPIValue
-    y1 = y1 - 22
-
-    -- Memory Usage (inline)
-    local memoryLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    memoryLabel:SetPoint("TOPLEFT", 20, y1)
-    memoryLabel:SetText("Memory Usage:")
-    memoryLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local memoryValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    memoryValue:SetPoint("LEFT", memoryLabel, "RIGHT", 10, 0)
-    uiElements.statusMemory = memoryValue
-
-    -- Column 2: Performance Metrics (Avg Latency, CPU Load, Throughput)
-    local col2X = 200
-    local perfLabelY = y1 + 66 -- Align with top of section
-
-    -- Avg Latency
-    local latencyLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    latencyLabel:SetPoint("TOPLEFT", col2X, perfLabelY)
-    latencyLabel:SetText("Latency (Inst/Avg/Peak):")
-    latencyLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local latencyValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    latencyValue:SetPoint("LEFT", latencyLabel, "RIGHT", 10, 0)
-    uiElements.statusLatency = latencyValue
-    perfLabelY = perfLabelY - 22
-
-    -- CPU Load
-    local cpuLoadLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    cpuLoadLabel:SetPoint("TOPLEFT", col2X, perfLabelY)
-    cpuLoadLabel:SetText("CPU Load (Inst/Avg/Peak):")
-    cpuLoadLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local cpuLoadValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    cpuLoadValue:SetPoint("LEFT", cpuLoadLabel, "RIGHT", 10, 0)
-    uiElements.statusCPULoad = cpuLoadValue
-    perfLabelY = perfLabelY - 22
-
-    -- Throughput
-    local throughputLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    throughputLabel:SetPoint("TOPLEFT", col2X, perfLabelY)
-    throughputLabel:SetText("Throughput (Inst/Avg/Peak):")
-    throughputLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local throughputValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    throughputValue:SetPoint("LEFT", throughputLabel, "RIGHT", 10, 0)
-    uiElements.statusThroughput = throughputValue
-
-    -- History Checkbox
-    local histCheck = CreateCheckbox(tab1, "Track History", "Enable performance history tracking (avg/max per refresh interval).\n\n|cffff0000Warning:|r Tracking while closed keeps the performance monitor active. This will force GC every auto-refresh due to the memory usage stat.", "performanceHistoryEnabled")
-    histCheck:SetPoint("TOPLEFT", col2X, perfLabelY - 25)
-    uiElements.performanceHistoryEnabled = histCheck
-    histCheck:SetScript("OnClick", function(self)
-        TRP3FW_Settings.performanceHistoryEnabled = self:GetChecked()
-        UpdateBackgroundTracking()
-    end)
-
-    -- Show History Button
-    local showHistoryBtn = CreateFrame("Button", nil, tab1, "UIPanelButtonTemplate")
-    showHistoryBtn:SetSize(100, 22)
-    showHistoryBtn:SetPoint("TOPLEFT", histCheck, "TOPRIGHT", 100, 0) -- Position relative to checkbox, 100px to the right
-    showHistoryBtn:SetText("Show Graphs")
-    showHistoryBtn:SetScript("OnClick", function()
-        if TRP3FW.ToggleHistoryWindow then
-            TRP3FW:ToggleHistoryWindow()
-        end
-    end)
-
-    y1 = y1 - 35
-
-    CreateSectionHeader(tab1, "Session Statistics", y1)
-    y1 = y1 - 30
-
-    -- Create 3 stat cards in a row (520px total width: 3 cards + 2 gaps)
-    local cardWidth = (520 - 20) / 3  -- ~167px per card
-    local alertsCard = CreateStatCard(tab1, cardWidth, 75)
-    alertsCard:SetPoint("TOPLEFT", 20, y1)
-    alertsCard.title:SetText("ALERTS SHOWN")
-    uiElements.statusAlertsCard = alertsCard
-
-    local blocksCard = CreateStatCard(tab1, cardWidth, 75)
-    blocksCard:SetPoint("LEFT", alertsCard, "RIGHT", 10, 0)
-    blocksCard.title:SetText("BLOCKS")
-    uiElements.statusBlocksCard = blocksCard
-
-    local ghostCard = CreateStatCard(tab1, cardWidth, 75)
-    ghostCard:SetPoint("LEFT", blocksCard, "RIGHT", 10, 0)
-    ghostCard.title:SetText("GHOST PROFILES")
-    uiElements.statusGhostCard = ghostCard
-
-    y1 = y1 - 85
-
-    CreateSectionHeader(tab1, "Detection Breakdown", y1)
-    y1 = y1 - 30
-
-    -- Phase Alerts
-    local phaseAlertsText = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    phaseAlertsText:SetPoint("TOPLEFT", 20, y1)
-    phaseAlertsText:SetText("Different Phase Detections:")
-    y1 = y1 - 25
-
-    local phaseAlertsValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    phaseAlertsValue:SetPoint("TOPLEFT", 40, y1)
-    uiElements.statusPhaseAlerts = phaseAlertsValue
-    y1 = y1 - 40
-
-    -- Map Alerts
-    local mapAlertsText = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    mapAlertsText:SetPoint("TOPLEFT", 20, y1)
-    mapAlertsText:SetText("Different Map Detections:")
-    y1 = y1 - 25
-
-    local mapAlertsValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    mapAlertsValue:SetPoint("TOPLEFT", 40, y1)
-    uiElements.statusMapAlerts = mapAlertsValue
-    y1 = y1 - 50
-
-    CreateSectionHeader(tab1, "Recent Activity", y1)
-    y1 = y1 - 30
-
-    -- Header Row
-    local hTime = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hTime:SetPoint("TOPLEFT", 20, y1)
-    hTime:SetWidth(60)
-    hTime:SetJustifyH("LEFT")
-    hTime:SetText("Time")
-    hTime:SetTextColor(0.6, 0.6, 0.6)
-
-    local hPlayer = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hPlayer:SetPoint("LEFT", hTime, "RIGHT", 5, 0)
-    hPlayer:SetWidth(150)
-    hPlayer:SetJustifyH("LEFT")
-    hPlayer:SetText("Player")
-    hPlayer:SetTextColor(0.6, 0.6, 0.6)
-
-    local hAddon = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hAddon:SetPoint("LEFT", hPlayer, "RIGHT", 5, 0)
-    hAddon:SetWidth(60)
-    hAddon:SetJustifyH("LEFT")
-    hAddon:SetText("Addon")
-    hAddon:SetTextColor(0.6, 0.6, 0.6)
-
-    local hResult = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hResult:SetPoint("LEFT", hAddon, "RIGHT", 5, 0)
-    hResult:SetWidth(100)
-    hResult:SetJustifyH("LEFT")
-    hResult:SetText("Result")
-    hResult:SetTextColor(0.6, 0.6, 0.6)
-
-    y1 = y1 - 20
-
-    uiElements.statusRecentEvents = {}
-    for i = 1, 8 do
-        local row = CreateFrame("Frame", nil, tab1)
-        row:SetSize(540, 18)
-        row:SetPoint("TOPLEFT", 20, y1)
-
-        -- Alternating background
-        if i % 2 == 0 then
-            local bg = row:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(1, 1, 1, 0.05)
-        end
-
-        local tTime = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        tTime:SetPoint("LEFT", 0, 0)
-        tTime:SetWidth(60)
-        tTime:SetJustifyH("LEFT")
-        row.Time = tTime
-
-        local tPlayer = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        tPlayer:SetPoint("LEFT", tTime, "RIGHT", 5, 0)
-        tPlayer:SetWidth(150)
-        tPlayer:SetJustifyH("LEFT")
-        row.Player = tPlayer
-
-        local tAddon = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        tAddon:SetPoint("LEFT", tPlayer, "RIGHT", 5, 0)
-        tAddon:SetWidth(60)
-        tAddon:SetJustifyH("LEFT")
-        row.Addon = tAddon
-
-        local tResult = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        tResult:SetPoint("LEFT", tAddon, "RIGHT", 5, 0)
-        tResult:SetWidth(200)
-        tResult:SetJustifyH("LEFT")
-        row.Result = tResult
-
-        uiElements.statusRecentEvents[i] = row
-        y1 = y1 - 18
-    end
-
-    y1 = y1 - 10
-
-    CreateSectionHeader(tab1, "Requests by Addon", y1)
-    y1 = y1 - 30
-
-    -- Horizontal stacked bar showing relative addon usage (520px to match separator)
-    local requestsBar = CreateHorizontalStackedBar(tab1, 520, 30)
-    requestsBar:SetPoint("TOPLEFT", 20, y1)
-    uiElements.statusRequestsBar = requestsBar
-    y1 = y1 - 35
-
-    -- Legend for the bar chart
-    local legendFrame = CreateFrame("Frame", nil, tab1)
-    legendFrame:SetPoint("TOPLEFT", 20, y1)
-    legendFrame:SetSize(520, 20)
-
-    local legendText = legendFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    legendText:SetPoint("LEFT", 0, 0)
-    legendText:SetTextColor(0.7, 0.7, 0.7)
-    legendText:SetText("|cff4D99FFTRP3|r  |cffCC4DCCMRP|r  |cffFF9933XRP|r  |cff33CC66MSP|r")
-
-    y1 = y1 - 30
-
-    CreateSectionHeader(tab1, "Cache Performance", y1)
-    y1 = y1 - 30
-
-    -- Cache Performance bars with aligned labels (520px to match separator)
-    local perfLabelWidth = 120
-    local perfBarX = 20 + perfLabelWidth + 10
-    local perfBarWidth = 520 - perfLabelWidth - 10  -- 390px bar width
-
-    -- Phase Cache Performance Bar
-    local phaseCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    phaseCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
-    phaseCachePerfLabel:SetWidth(perfLabelWidth)
-    phaseCachePerfLabel:SetJustifyH("LEFT")
-    phaseCachePerfLabel:SetText("Phase Cache:")
-    phaseCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local phaseCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
-    phaseCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
-    uiElements.statusPhaseCachePerfBar = phaseCachePerfBar
-    y1 = y1 - 25
-
-    -- Map Cache Performance Bar
-    local mapCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    mapCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
-    mapCachePerfLabel:SetWidth(perfLabelWidth)
-    mapCachePerfLabel:SetJustifyH("LEFT")
-    mapCachePerfLabel:SetText("Map Scan:")
-    mapCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local mapCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
-    mapCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
-    uiElements.statusMapCachePerfBar = mapCachePerfBar
-    y1 = y1 - 25
-
-    -- WHO Cache Performance Bar
-    local whoCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    whoCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
-    whoCachePerfLabel:SetWidth(perfLabelWidth)
-    whoCachePerfLabel:SetJustifyH("LEFT")
-    whoCachePerfLabel:SetText("WHO Query:")
-    whoCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local whoCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
-    whoCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
-    uiElements.statusWhoCachePerfBar = whoCachePerfBar
-    y1 = y1 - 25
-
-    -- Allowed Senders Cache Performance Bar
-    local allowedSendersCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    allowedSendersCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
-    allowedSendersCachePerfLabel:SetWidth(perfLabelWidth)
-    allowedSendersCachePerfLabel:SetJustifyH("LEFT")
-    allowedSendersCachePerfLabel:SetText("Allowed Senders:")
-    allowedSendersCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local allowedSendersCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
-    allowedSendersCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
-    uiElements.statusAllowedSendersCachePerfBar = allowedSendersCachePerfBar
-    y1 = y1 - 25
-
-    -- Interaction Cache Performance Bar
-    local interactionCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    interactionCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
-    interactionCachePerfLabel:SetWidth(perfLabelWidth)
-    interactionCachePerfLabel:SetJustifyH("LEFT")
-    interactionCachePerfLabel:SetText("Interaction:")
-    interactionCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local interactionCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
-    interactionCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
-    uiElements.statusInteractionCachePerfBar = interactionCachePerfBar
-    y1 = y1 - 25
-
-    -- Broadcast Cache Performance Bar
-    local broadcastCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    broadcastCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
-    broadcastCachePerfLabel:SetWidth(perfLabelWidth)
-    broadcastCachePerfLabel:SetJustifyH("LEFT")
-    broadcastCachePerfLabel:SetText("Broadcasts:")
-    broadcastCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local broadcastCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
-    broadcastCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
-    uiElements.statusBroadcastCachePerfBar = broadcastCachePerfBar
-    y1 = y1 - 35
-
-    CreateSectionHeader(tab1, "Cache Status", y1)
-    y1 = y1 - 30
-
-    -- 2-column grid layout for cache counts with aligned labels
-    local statusLabelWidth = 140
-    local col1LabelX = 20
-    local col1ValueX = col1LabelX + statusLabelWidth
-    local col2LabelX = 310
-    local col2ValueX = col2LabelX + statusLabelWidth
-
-    -- Row 1: Phase Cache | Broadcast Cache
-    local phaseCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    phaseCacheLabel:SetPoint("TOPLEFT", col1LabelX, y1)
-    phaseCacheLabel:SetWidth(statusLabelWidth)
-    phaseCacheLabel:SetJustifyH("LEFT")
-    phaseCacheLabel:SetText("Phase Cache:")
-    phaseCacheLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local phaseCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    phaseCacheValue:SetPoint("TOPLEFT", col1ValueX, y1)
-    phaseCacheValue:SetJustifyH("LEFT")
-    uiElements.statusPhaseCache = phaseCacheValue
-
-    local broadcastCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    broadcastCacheLabel:SetPoint("TOPLEFT", col2LabelX, y1)
-    broadcastCacheLabel:SetWidth(statusLabelWidth)
-    broadcastCacheLabel:SetJustifyH("LEFT")
-    broadcastCacheLabel:SetText("Broadcast Cache:")
-    broadcastCacheLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local broadcastCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    broadcastCacheValue:SetPoint("TOPLEFT", col2ValueX, y1)
-    broadcastCacheValue:SetJustifyH("LEFT")
-    uiElements.statusBroadcastCache = broadcastCacheValue
-    y1 = y1 - 22
-
-    -- Row 2: Map Scan Cache | Send Cache
-    local scanCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    scanCacheLabel:SetPoint("TOPLEFT", col1LabelX, y1)
-    scanCacheLabel:SetWidth(statusLabelWidth)
-    scanCacheLabel:SetJustifyH("LEFT")
-    scanCacheLabel:SetText("Map Scan Cache:")
-    scanCacheLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local scanCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    scanCacheValue:SetPoint("TOPLEFT", col1ValueX, y1)
-    scanCacheValue:SetJustifyH("LEFT")
-    uiElements.statusScanCache = scanCacheValue
-
-    local sendCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    sendCacheLabel:SetPoint("TOPLEFT", col2LabelX, y1)
-    sendCacheLabel:SetWidth(statusLabelWidth)
-    sendCacheLabel:SetJustifyH("LEFT")
-    sendCacheLabel:SetText("Send Cache:")
-    sendCacheLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local sendCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    sendCacheValue:SetPoint("TOPLEFT", col2ValueX, y1)
-    sendCacheValue:SetJustifyH("LEFT")
-    uiElements.statusSendCache = sendCacheValue
-    y1 = y1 - 22
-
-    -- Row 3: WHO Name Cache | WHO Zone Cache
-    local whoNameCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    whoNameCacheLabel:SetPoint("TOPLEFT", col1LabelX, y1)
-    whoNameCacheLabel:SetWidth(statusLabelWidth)
-    whoNameCacheLabel:SetJustifyH("LEFT")
-    whoNameCacheLabel:SetText("WHO Name Cache:")
-    whoNameCacheLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local whoNameCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    whoNameCacheValue:SetPoint("TOPLEFT", col1ValueX, y1)
-    whoNameCacheValue:SetJustifyH("LEFT")
-    uiElements.statusWhoNameCache = whoNameCacheValue
-
-    local whoZoneCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    whoZoneCacheLabel:SetPoint("TOPLEFT", col2LabelX, y1)
-    whoZoneCacheLabel:SetWidth(statusLabelWidth)
-    whoZoneCacheLabel:SetJustifyH("LEFT")
-    whoZoneCacheLabel:SetText("WHO Zone Cache:")
-    whoZoneCacheLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local whoZoneCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    whoZoneCacheValue:SetPoint("TOPLEFT", col2ValueX, y1)
-    whoZoneCacheValue:SetJustifyH("LEFT")
-    uiElements.statusWhoZoneCache = whoZoneCacheValue
-    y1 = y1 - 22
-
-    -- Row 4: Interaction Cache
-    local interactionCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    interactionCacheLabel:SetPoint("TOPLEFT", col1LabelX, y1)
-    interactionCacheLabel:SetWidth(statusLabelWidth)
-    interactionCacheLabel:SetJustifyH("LEFT")
-    interactionCacheLabel:SetText("Interaction Cache:")
-    interactionCacheLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local interactionCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    interactionCacheValue:SetPoint("TOPLEFT", col1ValueX, y1)
-    interactionCacheValue:SetJustifyH("LEFT")
-    uiElements.statusInteractionCache = interactionCacheValue
-    y1 = y1 - 22
-
-    -- Row 4 (col 2): Suppression Timers
-    local suppressionCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    suppressionCacheLabel:SetPoint("TOPLEFT", col2LabelX, y1 + 22)
-    suppressionCacheLabel:SetWidth(statusLabelWidth)
-    suppressionCacheLabel:SetJustifyH("LEFT")
-    suppressionCacheLabel:SetText("Suppression Timers:")
-    suppressionCacheLabel:SetTextColor(0.8, 0.8, 0.8)
-
-    local suppressionCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    suppressionCacheValue:SetPoint("TOPLEFT", col2ValueX, y1 + 22)
-    suppressionCacheValue:SetJustifyH("LEFT")
-    uiElements.statusSuppressionCache = suppressionCacheValue
-    y1 = y1 - 35
-
-    -- ============================================
-    -- RunPrivileged API Statistics
-    -- ============================================
-    CreateSectionHeader(tab1, "RunPrivileged API Statistics", y1)
-    y1 = y1 - 30
-
-    local privStatLabelWidth = 140
-    local privStatValueX = 20 + privStatLabelWidth
-
-    local privTotalLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    privTotalLabel:SetPoint("TOPLEFT", 20, y1)
-    privTotalLabel:SetWidth(privStatLabelWidth)
-    privTotalLabel:SetJustifyH("LEFT")
-    privTotalLabel:SetText("Total Calls:")
-    uiElements.statusPrivilegedTotal = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    uiElements.statusPrivilegedTotal:SetPoint("LEFT", privStatValueX, 0)
-    uiElements.statusPrivilegedTotal:SetPoint("TOP", privTotalLabel, "TOP", 0, 0) -- Align vertically with label
-    y1 = y1 - 20
-
-    local privSuccessLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    privSuccessLabel:SetPoint("TOPLEFT", 20, y1)
-    privSuccessLabel:SetWidth(privStatLabelWidth)
-    privSuccessLabel:SetJustifyH("LEFT")
-    privSuccessLabel:SetText("Successful:")
-    uiElements.statusPrivilegedSuccess = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    uiElements.statusPrivilegedSuccess:SetPoint("LEFT", privStatValueX, 0)
-    uiElements.statusPrivilegedSuccess:SetPoint("TOP", privSuccessLabel, "TOP", 0, 0)
-    y1 = y1 - 20
-
-    local privBlockedLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    privBlockedLabel:SetPoint("TOPLEFT", 20, y1)
-    privBlockedLabel:SetWidth(privStatLabelWidth)
-    privBlockedLabel:SetJustifyH("LEFT")
-    privBlockedLabel:SetText("Rate Limited:")
-    uiElements.statusPrivilegedBlocked = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    uiElements.statusPrivilegedBlocked:SetPoint("LEFT", privStatValueX, 0)
-    uiElements.statusPrivilegedBlocked:SetPoint("TOP", privBlockedLabel, "TOP", 0, 0)
-    y1 = y1 - 20
-
-    local privErrorsLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    privErrorsLabel:SetPoint("TOPLEFT", 20, y1)
-    privErrorsLabel:SetWidth(privStatLabelWidth)
-    privErrorsLabel:SetJustifyH("LEFT")
-    privErrorsLabel:SetText("Errors:")
-    uiElements.statusPrivilegedErrors = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    uiElements.statusPrivilegedErrors:SetPoint("LEFT", privStatValueX, 0)
-    uiElements.statusPrivilegedErrors:SetPoint("TOP", privErrorsLabel, "TOP", 0, 0)
-    y1 = y1 - 20
-
-    local privDeferredLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    privDeferredLabel:SetPoint("TOPLEFT", 20, y1)
-    privDeferredLabel:SetWidth(privStatLabelWidth)
-    privDeferredLabel:SetJustifyH("LEFT")
-    privDeferredLabel:SetText("Deferred (LOW):")
-    uiElements.statusPrivilegedDeferred = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    uiElements.statusPrivilegedDeferred:SetPoint("LEFT", privStatValueX, 0)
-    uiElements.statusPrivilegedDeferred:SetPoint("TOP", privDeferredLabel, "TOP", 0, 0)
-    y1 = y1 - 20
-
-    local privRefundedLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    privRefundedLabel:SetPoint("TOPLEFT", 20, y1)
-    privRefundedLabel:SetWidth(privStatLabelWidth)
-    privRefundedLabel:SetJustifyH("LEFT")
-    privRefundedLabel:SetText("Tokens Refunded:")
-    uiElements.statusPrivilegedRefunded = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    uiElements.statusPrivilegedRefunded:SetPoint("LEFT", privStatValueX, 0)
-    uiElements.statusPrivilegedRefunded:SetPoint("TOP", privRefundedLabel, "TOP", 0, 0)
-    y1 = y1 - 20
-
-    local privBucketLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    privBucketLabel:SetPoint("TOPLEFT", 20, y1)
-    privBucketLabel:SetWidth(privStatLabelWidth)
-    privBucketLabel:SetJustifyH("LEFT")
-    privBucketLabel:SetText("Token Bucket:")
-    uiElements.statusPrivilegedBucket = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    uiElements.statusPrivilegedBucket:SetPoint("LEFT", privStatValueX, 0)
-    uiElements.statusPrivilegedBucket:SetPoint("TOP", privBucketLabel, "TOP", 0, 0)
-    y1 = y1 - 35
-    
-    CreateSectionHeader(tab1, "Status Tab Settings", y1)
-    y1 = y1 - 30
-
-    -- Refresh Rate Slider
-    local refreshRateText = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    refreshRateText:SetPoint("TOPLEFT", 20, y1)
-    refreshRateText:SetText("Auto-Refresh Rate:")
-    y1 = y1 - 30
-
-    local refreshRateSlider = CreateFrame("Slider", "TRP3FW_StatusRefreshSlider", tab1, "OptionsSliderTemplate")
-    local sliderWidth = 360
-    refreshRateSlider:SetPoint("TOPLEFT", 20, y1)
-    refreshRateSlider:SetWidth(sliderWidth)
-    refreshRateSlider:SetMinMaxValues(2, 120)
-    refreshRateSlider:SetValueStep(1)
-    refreshRateSlider:SetObeyStepOnDrag(true)
-    refreshRateSlider:SetValue(TRP3FW_Settings.statusRefreshRate or 30)
-
-    -- Slider labels
-    local refreshDefault = TRP3FW_Settings.statusRefreshRate or 30
-    getglobal(refreshRateSlider:GetName().."Low"):SetText("2s")
-    getglobal(refreshRateSlider:GetName().."High"):SetText("120s")
-    getglobal(refreshRateSlider:GetName().."Text"):SetText("Refresh every " .. refreshDefault .. " seconds")
-
-    refreshRateSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        TRP3FW_Settings.statusRefreshRate = value
-        getglobal(self:GetName().."Text"):SetText("Refresh every " .. value .. " seconds")
-    end)
-
-    refreshRateSlider:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Auto-Refresh Rate", 1, 1, 1)
-        GameTooltip:AddLine("Controls how often this status page updates.\n\n|cffff0000Warning:|r Lower values (e.g. 2s) increase CPU usage because calculating memory usage forces a garbage collection cycle.", nil, nil, nil, true)
-        GameTooltip:Show()
-    end)
-    refreshRateSlider:SetScript("OnLeave", function(self)
-        GameTooltip:Hide()
-    end)
-
-    -- Ensure thumb is visible at load
-    C_Timer.After(0, function()
-        refreshRateSlider:SetValue(TRP3FW_Settings.statusRefreshRate or 30)
-    end)
-
-    -- Only restart timer when slider is released (not during drag)
-    refreshRateSlider:SetScript("OnMouseUp", function(self)
-        -- Restart timer with new interval if on Status tab
-        if statusUpdateTimer and currentTab == 1 and settingsFrame:IsVisible() then
-            statusUpdateTimer:Cancel()
-            statusUpdateTimer = nil
-            StartStatusUpdates()
-        end
-        -- Update background ticker rate
-        UpdateBackgroundTracking()
-    end)
-
-    -- Manual refresh button
-    local refreshNow = CreateFrame("Button", nil, tab1, "UIPanelButtonTemplate")
-    refreshNow:SetSize(90, 22)
-    refreshNow:SetPoint("LEFT", refreshRateSlider, "RIGHT", 12, 0)
-    refreshNow:SetText("Refresh now")
-    refreshNow:SetScript("OnClick", function()
-        UpdateStatusTab()
-    end)
-
-    uiElements.statusRefreshRate = refreshRateSlider
-
-    -- ========== TAB 2: NOTIFICATIONS ==========
-    local tab2 = tabContents[2].scrollChild
-    local y2 = -10
-
-    CreateSectionHeader(tab2, "Notification Settings", y2)
-    y2 = y2 - 40
-
-    uiElements.notifyEnabled = CreateCheckbox(tab2, "Enable Notifications", "Master toggle for all notifications", "notifyEnabled")
-    uiElements.notifyEnabled:SetPoint("TOPLEFT", 20, y2)
-    uiElements.notifyEnabled:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyEnabled = self:GetChecked()
-    end)
-    y2 = y2 - 40
-
-    -- Granular notification type controls
-    uiElements.notifyOnAllow = CreateCheckbox(tab2, "Notify on Allow", "Show notifications when profiles are sent normally (allowed)", "notifyOnAllow")
-    uiElements.notifyOnAllow:SetPoint("TOPLEFT", 20, y2)
-    uiElements.notifyOnAllow:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnAllow = self:GetChecked()
-    end)
-    y2 = y2 - 30
-
-    uiElements.notifyOnStartPhaseBlock = CreateCheckbox(tab2, "Notify on Start Phase Block", "Show notifications when blocking in start phase (169)", "notifyOnStartPhaseBlock")
-    uiElements.notifyOnStartPhaseBlock:SetPoint("TOPLEFT", 20, y2)
-    uiElements.notifyOnStartPhaseBlock:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnStartPhaseBlock = self:GetChecked()
-    end)
-    y2 = y2 - 30
-
-    y2 = y2 - 10
-    local notifyHelpText = tab2:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    notifyHelpText:SetPoint("TOPLEFT", 20, y2)
-    notifyHelpText:SetText("|cffaaaaaa(Broadcast/Whisper toggles only affect 'Allow' notifications)|r")
-    y2 = y2 - 25
-
-    uiElements.notifyBroadcast = CreateCheckbox(tab2, "Notify on Broadcast", "Show notifications for map scan broadcasts (only affects Allow notifications)", "notifyOnBroadcast")
-    uiElements.notifyBroadcast:SetPoint("TOPLEFT", 20, y2)
-    uiElements.notifyBroadcast:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnBroadcast = self:GetChecked()
-    end)
-    y2 = y2 - 30
-
-    uiElements.notifyWhisper = CreateCheckbox(tab2, "Notify on Whisper", "Show notifications for direct profile requests (only affects Allow notifications)", "notifyOnWhisper")
-    uiElements.notifyWhisper:SetPoint("TOPLEFT", 20, y2)
-    uiElements.notifyWhisper:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnWhisper = self:GetChecked()
-    end)
-    y2 = y2 - 30
-
-    -- Scan Reply Group
-    local scanGroupHeight = 85
-    local scanGroup = CreateFrame("Frame", nil, tab2, BackdropTemplateMixin and "BackdropTemplate")
-    scanGroup:SetPoint("TOPLEFT", 20, y2)
-    scanGroup:SetSize(540, scanGroupHeight)
-    scanGroup:SetBackdrop({
-        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 }
-    })
-    scanGroup:SetBackdropColor(0, 0, 0, 0.2)
-    scanGroup:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.5)
-
-    local scanGroupTitle = scanGroup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    scanGroupTitle:SetPoint("TOPLEFT", 10, -8)
-    scanGroupTitle:SetText("Scan Reply Notifications")
-    scanGroupTitle:SetTextColor(0.7, 0.7, 0.7)
-
-    -- Position elements inside the group area
-    local groupY = y2 - 25
-
-    uiElements.notifyOnScanResponse = CreateCheckbox(tab2, "Show Scan Reply Notifications", "Controls chat/on-screen notifications for scan replies (TRP3 or RPMapScan). Protections are configured separately.", "notifyOnScanResponse")
-    uiElements.notifyOnScanResponse:SetPoint("TOPLEFT", 30, groupY)
-    uiElements.notifyOnScanResponse:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnScanResponse = self:GetChecked()
-        local enabled = self:GetChecked()
-        
-        if enabled then
-            uiElements.notifyOnScanAllow:Enable()
-            uiElements.notifyOnScanAllow:SetAlpha(1.0)
-            uiElements.notifyOnScanAllow:SetChecked(TRP3FW_Settings.notifyOnScanAllow)
-        else
-            uiElements.notifyOnScanAllow:Disable()
-            uiElements.notifyOnScanAllow:SetAlpha(0.5)
-            uiElements.notifyOnScanAllow:SetChecked(false) -- Visually uncheck when disabled
-        end
-        
-        RequestRefreshUI()
-    end)
-    groupY = groupY - 30
-
-    uiElements.notifyOnScanAllow = CreateCheckbox(tab2, "Notify on Scan Allow", "Show notifications when scan replies are allowed/sent (alerts/blocks still follow their modes).", "notifyOnScanAllow")
-    uiElements.notifyOnScanAllow:SetPoint("TOPLEFT", 50, groupY)
-    uiElements.notifyOnScanAllow:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnScanAllow = self:GetChecked()
-    end)
-    
-    y2 = y2 - scanGroupHeight - 10
-    -- Current mode summary
-    local summaryLabel = tab2:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    summaryLabel:SetPoint("TOPLEFT", 20, y2)
-    summaryLabel:SetText("Current Modes:")
-    y2 = y2 - 24
-
-    uiElements.notificationModeSummary = tab2:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    uiElements.notificationModeSummary:SetPoint("TOPLEFT", 30, y2)
-    uiElements.notificationModeSummary:SetWidth(520)
-    uiElements.notificationModeSummary:SetJustifyH("LEFT")
-    y2 = y2 - 24
-    y2 = y2 - 20
-    y2 = y2 - 10  -- Extra spacing before new section
-    CreateSectionHeader(tab2, "Display Options", y2)
-    y2 = y2 - 40
-
-    uiElements.showInChat = CreateCheckbox(tab2, "Show in Chat", "Display notifications in chat window", "showInChat")
-    uiElements.showInChat:SetPoint("TOPLEFT", 20, y2)
-    uiElements.showInChat:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showInChat = self:GetChecked()
-    end)
-    y2 = y2 - 30
-
-    uiElements.showGhostNotifications = CreateCheckbox(tab2, "Show Ghost Notifications", "Display chat/on-screen messages when ghost profiles are sent", "showGhostNotifications")
-    uiElements.showGhostNotifications:SetPoint("TOPLEFT", 40, y2)
-    uiElements.showGhostNotifications:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showGhostNotifications = self:GetChecked()
-    end)
-    y2 = y2 - 30
-
-    uiElements.showOnScreen = CreateCheckbox(tab2, "Show On-Screen", "Display on-screen alert frames", "showOnScreen")
-    uiElements.showOnScreen:SetPoint("TOPLEFT", 20, y2)
-    uiElements.showOnScreen:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showOnScreen = self:GetChecked()
-    end)
-    y2 = y2 - 30
-
-    uiElements.playSound = CreateCheckbox(tab2, "Play Sound", "Play notification sound", "playSound")
-    uiElements.playSound:SetPoint("TOPLEFT", 20, y2)
-    uiElements.playSound:SetScript("OnClick", function(self)
-        TRP3FW_Settings.playSound = self:GetChecked()
-    end)
-    y2 = y2 - 30
-
-    uiElements.showAddonSource = CreateCheckbox(tab2, "Show Addon Source", "Display which addon sent the request (TRP3, MRP, XRP)", "showAddonSource")
-    uiElements.showAddonSource:SetPoint("TOPLEFT", 20, y2)
-    uiElements.showAddonSource:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showAddonSource = self:GetChecked()
-    end)
-    y2 = y2 - 30
-
-    uiElements.showCacheInfo = CreateCheckbox(tab2, "Show Cache Info", "Append cache hit/miss info to allow notifications", "showCacheInfo")
-    uiElements.showCacheInfo:SetPoint("TOPLEFT", 20, y2)
-    uiElements.showCacheInfo:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showCacheInfo = self:GetChecked()
-    end)
-    y2 = y2 - 30
-
-    uiElements.showCheckResults = CreateCheckbox(tab2, "Show Check Results", "Append phase/map pass/fail and method (WHO, map scan, cache, skipped) to allow notifications", "showCheckResults")
-    uiElements.showCheckResults:SetPoint("TOPLEFT", 20, y2)
-    uiElements.showCheckResults:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showCheckResults = self:GetChecked()
-    end)
-    y2 = y2 - 50
-
-    y2 = y2 - 10  -- Extra spacing before new section
-    CreateSectionHeader(tab2, "Suppression", y2)
-    y2 = y2 - 50
-
-    uiElements.suppressionTime = CreateEditBox(tab2, "Suppression Time (seconds)", "Time to suppress repeated notifications from the same player.", 80, "suppressionTime")
-    uiElements.suppressionTime:SetPoint("TOPLEFT", 20, y2)
-
-    local function saveSuppressionTime(self)
-        local value = tonumber(self:GetText())
-        if value and value >= 0 then
-            TRP3FW_Settings.suppressionTime = value
-            TRP3FW:Info("Profile suppression time set to "..value.." seconds")
-        else
-            TRP3FW:Warn("Invalid value - must be a positive number")
-            self:SetText(TRP3FW_Settings.suppressionTime)
-        end
-    end
-
-    local suppressionTimeEnterPressed = false
-    uiElements.suppressionTime:SetScript("OnEnterPressed", function(self)
-        suppressionTimeEnterPressed = true
-        saveSuppressionTime(self)
-        self:ClearFocus()
-        C_Timer.After(0, function() suppressionTimeEnterPressed = false end)
-    end)
-    uiElements.suppressionTime:SetScript("OnEditFocusLost", function(self)
-        if not suppressionTimeEnterPressed then
-            saveSuppressionTime(self)
-        end
-    end)
-
-    uiElements.refreshSuppression = CreateCheckbox(tab2, "Refresh Suppression", "Extend suppression duration when new notifications are received (Sliding Window).\n\n|cff00ff00Checked:|r Spam keeps suppression active indefinitely.\n|cffff0000Unchecked:|r Suppression expires after fixed time from first notification.", "refreshSuppression")
-    uiElements.refreshSuppression:SetPoint("LEFT", uiElements.suppressionTime, "RIGHT", 120, 0)
-    uiElements.refreshSuppression:SetScript("OnClick", function(self)
-        TRP3FW_Settings.refreshSuppression = self:GetChecked()
-    end)
-
-    -- ========== TAB 3: ALERTS & BLOCKING ==========
-    local tab3 = tabContents[3].scrollChild
+-- Refactored Tab 3 creation to avoid local variable limit
+local function CreateAlertsTab(tab3)
+    -- Re-bind tab3 if needed or just use arg
     local y3 = -10
 
     -- Quick presets
@@ -2866,6 +2024,7 @@ function TRP3FW:InitializeUI()
             TRP3FW_Settings.useWhoQuery = true
             TRP3FW_Settings.blockStartPhase = true
             TRP3FW_Settings.ghostOnStartPhase = false
+            TRP3FW_Settings.spvpEnabled = true
 
         elseif preset == "strict" then
             TRP3FW_Settings.phaseCheckMode = "alert_block"
@@ -2873,6 +2032,7 @@ function TRP3FW:InitializeUI()
             TRP3FW_Settings.useWhoQuery = true
             TRP3FW_Settings.blockStartPhase = true
             TRP3FW_Settings.ghostOnStartPhase = false
+            TRP3FW_Settings.spvpEnabled = true
             TRP3FW_Settings.scanResponsePhaseMode = "block"
             TRP3FW_Settings.scanResponseMapMode = "block"
             TRP3FW_Settings.scanResponseRequireNonce = false  -- stay off by request
@@ -2884,6 +2044,7 @@ function TRP3FW:InitializeUI()
             TRP3FW_Settings.blockStartPhase = false
             TRP3FW_Settings.ghostOnStartPhase = true
             TRP3FW_Settings.ghostProfileSwitch = true
+            TRP3FW_Settings.spvpEnabled = true
             TRP3FW_Settings.scanResponsePhaseMode = "block"
             TRP3FW_Settings.scanResponseMapMode = "block"
             TRP3FW_Settings.scanResponseRequireNonce = false  -- stay off by request
@@ -3783,6 +2944,188 @@ function TRP3FW:InitializeUI()
 
     y3 = y3 - 120
 
+    -- ========== SPVP (Secure Phase Verification Protocol) v2.5 ==========
+    CreateSectionHeader(tab3, "SPVP (Cryptographic Phase Verification)", y3)
+    y3 = y3 - 35
+
+    -- Info box explaining SPVP
+    local spvpInfoBox = tab3:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    spvpInfoBox:SetPoint("TOPLEFT", 20, y3)
+    spvpInfoBox:SetWidth(560)
+    spvpInfoBox:SetJustifyH("LEFT")
+    spvpInfoBox:SetText("|cff00ccffℹ SPVP Info:|r SPVP uses cryptographic phase verification as a fallback when normal location checks fail. Requires phase owners to set a security key (salt). Players in the same phase can prove it cryptographically without physical proximity checks.")
+    y3 = y3 - 50
+
+    uiElements.spvpModeDropdown, uiElements.spvpModeLabel = CreateDropdown(tab3, "SPVP Mode", "Control how Secure Phase Verification Protocol is used.\n\n|cff00ff00SPVP verifies phase presence cryptographically using a shared secret (salt).|r\n\n|cffffcc00Modes:|r\n• |cffffffffOptional:|r Verify after standard checks (Audit)\n• |cffffffffPreferred:|r Verify before checks (Performance)\n• |cffffffffRequired:|r Strict verification (Security)", 220, "spvpMode")
+    uiElements.spvpModeDropdown:SetPoint("TOPLEFT", 20, y3)
+
+    UIDropDownMenu_Initialize(uiElements.spvpModeDropdown, function(self, level)
+        local info = UIDropDownMenu_CreateInfo()
+
+        info.text = "Off"
+        info.value = "off"
+        info.tooltipTitle = "Off"
+        info.tooltipText = "Disable Secure Phase Verification Protocol. Only standard location checks (targeting, WHO queries, map scans) will be used."
+        info.func = function()
+            TRP3FW_Settings.spvpMode = "off"
+            TRP3FW_Settings.spvpEnabled = false
+            UIDropDownMenu_SetText(uiElements.spvpModeDropdown, "Off")
+            RequestRefreshUI()
+        end
+        UIDropDownMenu_AddButton(info)
+
+        info.text = "Optional (Post-Check)"
+        info.value = "optional"
+        info.tooltipTitle = "Optional"
+        info.tooltipText = "Run standard location checks first. If the request is allowed, an SPVP handshake is performed in the background to 'upgrade' the trust level for future requests. Best for non-intrusive auditing without risk of protocol delays."
+        info.func = function()
+            TRP3FW_Settings.spvpMode = "optional"
+            TRP3FW_Settings.spvpEnabled = true
+            UIDropDownMenu_SetText(uiElements.spvpModeDropdown, "Optional (Post-Check)")
+            RequestRefreshUI()
+        end
+        UIDropDownMenu_AddButton(info)
+
+        info.text = "Preferred (Pre-Check)"
+        info.value = "preferred"
+        info.tooltipTitle = "Preferred"
+        info.tooltipText = "Perform an SPVP handshake before standard checks. If cryptographically verified, standard phase checks are skipped, significantly improving performance. Falls back to standard checks if SPVP fails or times out (Recommended)."
+        info.func = function()
+            TRP3FW_Settings.spvpMode = "preferred"
+            TRP3FW_Settings.spvpEnabled = true
+            UIDropDownMenu_SetText(uiElements.spvpModeDropdown, "Preferred (Pre-Check)")
+            RequestRefreshUI()
+        end
+        UIDropDownMenu_AddButton(info)
+
+        info.text = "Required (Strict)"
+        info.value = "required"
+        info.tooltipTitle = "Required"
+        info.tooltipText = "Strictly require cryptographic proof of phase presence. If SPVP fails or times out, the request is blocked immediately. Offers the highest security against remote spoofing but requires the peer to also have TRP3FW."
+        info.func = function()
+            TRP3FW_Settings.spvpMode = "required"
+            TRP3FW_Settings.spvpEnabled = true
+            UIDropDownMenu_SetText(uiElements.spvpModeDropdown, "Required (Strict)")
+            RequestRefreshUI()
+        end
+        UIDropDownMenu_AddButton(info)
+    end)
+    table.insert(epsilonControls, uiElements.spvpModeDropdown)
+    y3 = y3 - 50
+
+    uiElements.spvpAutoInitialize = CreateCheckbox(tab3, "Auto-Initialize Salts", "Automatically generate security keys when you enter phases you own (phase owners/officers only).", "spvpAutoInitialize")
+    uiElements.spvpAutoInitialize:SetPoint("TOPLEFT", 40, y3)  -- Indent
+    uiElements.spvpAutoInitialize:SetScript("OnClick", function(self)
+        TRP3FW_Settings.spvpAutoInitialize = self:GetChecked()
+    end)
+    table.insert(epsilonControls, uiElements.spvpAutoInitialize)
+    y3 = y3 - 35
+
+    -- Block Duration slider
+    local spvpBlockLabel = tab3:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    spvpBlockLabel:SetPoint("TOPLEFT", 40, y3)
+    spvpBlockLabel:SetText("Failed Verification Block Duration:")
+    y3 = y3 - 35  -- Increased from 20
+
+    uiElements.spvpBlockDurationSlider = CreateFrame("Slider", nil, tab3, "OptionsSliderTemplate")
+    uiElements.spvpBlockDurationSlider:SetPoint("TOPLEFT", 40, y3)
+    uiElements.spvpBlockDurationSlider:SetWidth(300)
+    uiElements.spvpBlockDurationSlider:SetMinMaxValues(10, 600)
+    uiElements.spvpBlockDurationSlider:SetValueStep(10)
+    uiElements.spvpBlockDurationSlider:SetObeyStepOnDrag(true)
+    uiElements.spvpBlockDurationSlider.Low:SetText("10s")
+    uiElements.spvpBlockDurationSlider.High:SetText("10m")
+    uiElements.spvpBlockDurationSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value / 10) * 10  -- Round to nearest 10
+        TRP3FW_Settings.spvpBlockDuration = value
+        local text
+        if value >= 60 then
+            text = string.format("%dm", math.floor(value / 60))
+        else
+            text = string.format("%ds", value)
+        end
+        uiElements.spvpBlockDurationSlider.Text:SetText("Block Duration: " .. text)
+    end)
+    table.insert(epsilonControls, uiElements.spvpBlockDurationSlider)
+    y3 = y3 - 60  -- Increased from 45
+
+    -- Salt Cache Duration slider
+    local spvpSaltCacheLabel = tab3:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    spvpSaltCacheLabel:SetPoint("TOPLEFT", 40, y3)
+    spvpSaltCacheLabel:SetText("Salt Cache Duration:")
+    y3 = y3 - 35  -- Increased from 20
+
+    uiElements.spvpSaltCacheDurationSlider = CreateFrame("Slider", nil, tab3, "OptionsSliderTemplate")
+    uiElements.spvpSaltCacheDurationSlider:SetPoint("TOPLEFT", 40, y3)
+    uiElements.spvpSaltCacheDurationSlider:SetWidth(300)
+    uiElements.spvpSaltCacheDurationSlider:SetMinMaxValues(300, 43200)  -- 5 min to 12 hours
+    uiElements.spvpSaltCacheDurationSlider:SetValueStep(300)  -- 5-minute increments
+    uiElements.spvpSaltCacheDurationSlider:SetObeyStepOnDrag(true)
+    uiElements.spvpSaltCacheDurationSlider.Low:SetText("5m")
+    uiElements.spvpSaltCacheDurationSlider.High:SetText("12h")
+    uiElements.spvpSaltCacheDurationSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value / 300) * 300  -- Round to nearest 5 min
+        TRP3FW_Settings.spvpSaltCacheDuration = value
+
+        -- Update cache TTL
+        local CI = TRP3FW.CacheInterface
+        if CI and CI.caches and CI.caches.spvpPhaseSalt then
+            CI.caches.spvpPhaseSalt.options.ttl = value
+        end
+
+        local text
+        if value >= 3600 then
+            text = string.format("%.1fh", value / 3600)
+        else
+            text = string.format("%dm", math.floor(value / 60))
+        end
+        uiElements.spvpSaltCacheDurationSlider.Text:SetText("Salt Cache: " .. text)
+    end)
+    table.insert(epsilonControls, uiElements.spvpSaltCacheDurationSlider)
+    y3 = y3 - 60  -- Increased from 45
+
+    -- Phase Owner Tools
+    local spvpOwnerLabel = tab3:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    spvpOwnerLabel:SetPoint("TOPLEFT", 20, y3)
+    spvpOwnerLabel:SetText("|cffffcc00Phase Owner Tools|r")
+    y3 = y3 - 25
+
+    -- Salt status display
+    uiElements.spvpSaltStatus = tab3:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    uiElements.spvpSaltStatus:SetPoint("TOPLEFT", 40, y3)
+    uiElements.spvpSaltStatus:SetJustifyH("LEFT")
+    uiElements.spvpSaltStatus:SetWidth(500)
+    uiElements.spvpSaltStatus:SetText("Loading phase status...")
+    table.insert(epsilonControls, uiElements.spvpSaltStatus)
+    y3 = y3 - 30
+
+    -- Secure/Rotate button
+    uiElements.spvpSecureButton = CreateFrame("Button", nil, tab3, "UIPanelButtonTemplate")
+    uiElements.spvpSecureButton:SetSize(200, 24)
+    uiElements.spvpSecureButton:SetPoint("TOPLEFT", 40, y3)
+    uiElements.spvpSecureButton:SetText("Secure This Phase")
+    uiElements.spvpSecureButton:SetScript("OnClick", function(self)
+        -- Check if user is owner/officer
+        if not C_Epsilon or not (C_Epsilon.IsOwner and C_Epsilon.IsOwner() or C_Epsilon.IsOfficer and C_Epsilon.IsOfficer()) then
+            TRP3FW:Error("You must be a phase owner or officer to secure phases.")
+            return
+        end
+
+        -- Check if salt exists (use cached check)
+        local phaseID = TRP3FW:GetCurrentPhaseID()
+        local existingSalt = TRP3FW:GetPhaseSalt(phaseID, false)
+        if existingSalt and existingSalt ~= "" then
+            -- Rotate confirmation
+            StaticPopup_Show("TRP3FW_SPVP_ROTATE_CONFIRM")
+        else
+            -- Generate new salt
+            TRP3FW:SecureCurrentPhase()
+            RequestRefreshUI()
+        end
+    end)
+    table.insert(epsilonControls, uiElements.spvpSecureButton)
+    y3 = y3 - 40
+
     -- Overrides section
     CreateSectionHeader(tab3, "Overrides (Phase/Map → Profile)", y3)
     y3 = y3 - 35
@@ -3878,6 +3221,1010 @@ function TRP3FW:InitializeUI()
 
     -- Advance y3 to below the tallest column
     y3 = overridesStartY - (rowHeight * 20) - 40
+
+end
+
+function TRP3FW:InitializeUI()
+    if settingsFrame then
+        TRP3FW:Debug("UI already initialized", "ui")
+        return
+    end
+
+    -- Ensure settings are initialized before building UI
+    if TRP3FW.InitializeSettings then
+        TRP3FW:InitializeSettings()
+    end
+
+    TRP3FW:Debug("Starting UI initialization...", "ui")
+
+    -- Initialize minimap settings from SavedVariables
+    local success, err = pcall(InitializeMinimapSettings)
+    if not success then
+        print("|cffff0000TRP3FW Error:|r Failed to initialize minimap settings: "..tostring(err))
+        return
+    end
+    TRP3FW:Debug("Minimap settings initialized", "ui")
+
+    TRP3FW:Debug("Creating settings frame...", "ui")
+
+    -- Main frame
+    success, err = pcall(function()
+        settingsFrame = CreateFrame("Frame", "TRP3FW_SettingsFrame", UIParent, "BasicFrameTemplateWithInset")
+    end)
+
+    if not success then
+        print("|cffff0000TRP3FW Error:|r Failed to create settings frame: "..tostring(err))
+        print("|cffffff00TRP3FW:|r UI will not be available. Attempting to create minimap button only...")
+        -- Still try to create minimap button even if UI frame fails
+        local btnSuccess, btnErr = pcall(CreateMinimapButton)
+        if not btnSuccess then
+            print("|cffff0000TRP3FW Error:|r Failed to create minimap button: "..tostring(btnErr))
+        end
+        return
+    end
+    TRP3FW:Debug("Settings frame created successfully", "ui")
+    settingsFrame:SetSize(600, 550)
+    settingsFrame:SetPoint("CENTER")
+    settingsFrame:SetMovable(true)
+    settingsFrame:EnableMouse(true)
+    settingsFrame:RegisterForDrag("LeftButton")
+    settingsFrame:SetScript("OnDragStart", settingsFrame.StartMoving)
+    settingsFrame:SetScript("OnDragStop", settingsFrame.StopMovingOrSizing)
+    settingsFrame:Hide()
+
+    -- Title
+    settingsFrame.title = settingsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    settingsFrame.title:SetPoint("TOP", 0, -5)
+    settingsFrame.title:SetText("TRP3 Firewall Settings v"..TRP3FW.VERSION)
+
+    -- Tab system
+    local tabs = {}
+    local tabContents = {}
+
+    -- Create 5 tabs
+    tabs[1] = CreateTab(settingsFrame, 1, "Status")
+    tabs[2] = CreateTab(settingsFrame, 2, "Notifications")
+    tabs[3] = CreateTab(settingsFrame, 3, "Alerts & Blocking")
+    tabs[4] = CreateTab(settingsFrame, 4, "Filters & Addons")
+    tabs[5] = CreateTab(settingsFrame, 5, "Cache & Debug")
+
+    -- Create content frames for each tab with appropriate heights
+    -- Heights calculated based on content (absolute value of final y-offset + padding for slider/elements)
+    local tabHeights = {
+        1000,   -- Tab 1 (Status) - includes recent activity list
+        470,   -- Tab 2 (Notifications)
+        1500,  -- Tab 3 (Alerts & Blocking) - expanded Safety/overrides
+        280,   -- Tab 4 (Filters & Addons)
+        950    -- Tab 5 (Cache & Debug)
+    }
+
+    for i = 1, 5 do
+        local scrollFrame, scrollChild = CreateScrollFrame(settingsFrame, tabHeights[i])
+        tabContents[i] = { scrollFrame = scrollFrame, scrollChild = scrollChild }
+        scrollFrame:Hide()
+    end
+
+    -- Tab click handler
+    local currentTab = 1 -- Track currently selected tab
+
+    -- Periodic update timer for Status tab (only when visible)
+    local statusUpdateTimer = nil
+    local function StartStatusUpdates()
+        if statusUpdateTimer then return end -- Already running
+        local refreshRate = TRP3FW_Settings.statusRefreshRate or 30
+        statusUpdateTimer = C_Timer.NewTicker(refreshRate, function()
+            if settingsFrame:IsVisible() and currentTab == 1 then
+                UpdateStatusTab()
+            else
+                -- Stop timer if frame hidden or different tab
+                if statusUpdateTimer then
+                    statusUpdateTimer:Cancel()
+                    statusUpdateTimer = nil
+                end
+            end
+        end)
+    end
+
+    local function SelectTab(tabIndex)
+        currentTab = tabIndex
+
+        for i = 1, 5 do
+            if i == tabIndex then
+                tabs[i].bg:SetColorTexture(0.3, 0.3, 0.3, 1)
+                tabs[i].text:SetTextColor(1, 1, 1)
+                tabContents[i].scrollFrame:Show()
+            else
+                tabs[i].bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
+                tabs[i].text:SetTextColor(0.7, 0.7, 0.7)
+                tabContents[i].scrollFrame:Hide()
+            end
+        end
+
+        -- Update Status tab immediately when switching to it
+        if tabIndex == 1 then
+            UpdateStatusTab()
+            StartStatusUpdates() -- Restart the periodic timer
+        end
+    end
+
+    for i = 1, 5 do
+        tabs[i]:SetScript("OnClick", function() SelectTab(i) end)
+    end
+
+    -- ========== TAB 1: STATUS ==========
+    local tab1 = tabContents[1].scrollChild
+    local y1 = -10
+
+    CreateSectionHeader(tab1, "Environment", y1)
+    y1 = y1 - 30
+
+    -- Single line showing all detected addons with badges
+    local addonsLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    addonsLabel:SetPoint("TOPLEFT", 20, y1)
+    addonsLabel:SetText("RP Addons:")
+    addonsLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local addonsList = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    addonsList:SetPoint("LEFT", addonsLabel, "RIGHT", 10, 0)
+    addonsList:SetJustifyH("LEFT")
+    addonsList:SetWidth(460)
+    uiElements.statusAddonsList = addonsList
+    y1 = y1 - 22
+
+    -- Map Scanner (inline)
+    local mapScannerLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    mapScannerLabel:SetPoint("TOPLEFT", 20, y1)
+    mapScannerLabel:SetText("Map Scanner:")
+    mapScannerLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local mapScannerValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    mapScannerValue:SetPoint("LEFT", mapScannerLabel, "RIGHT", 10, 0)
+    uiElements.statusMapScanner = mapScannerValue
+    y1 = y1 - 22
+
+    -- Epsilon API (inline)
+    local epsilonAPILabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    epsilonAPILabel:SetPoint("TOPLEFT", 20, y1)
+    epsilonAPILabel:SetText("Epsilon API:")
+    epsilonAPILabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local epsilonAPIValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    epsilonAPIValue:SetPoint("LEFT", epsilonAPILabel, "RIGHT", 10, 0)
+    uiElements.statusEpsilonAPI = epsilonAPIValue
+    y1 = y1 - 22
+
+    -- Memory Usage (inline)
+    local memoryLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    memoryLabel:SetPoint("TOPLEFT", 20, y1)
+    memoryLabel:SetText("Memory Usage:")
+    memoryLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local memoryValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    memoryValue:SetPoint("LEFT", memoryLabel, "RIGHT", 10, 0)
+    uiElements.statusMemory = memoryValue
+
+    -- Column 2: Performance Metrics (Avg Latency, CPU Load, Throughput)
+    local col2X = 200
+    local perfLabelY = y1 + 66 -- Align with top of section
+
+    -- Avg Latency
+    local latencyLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    latencyLabel:SetPoint("TOPLEFT", col2X, perfLabelY)
+    latencyLabel:SetText("Latency (Inst/Avg/Peak):")
+    latencyLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local latencyValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    latencyValue:SetPoint("LEFT", latencyLabel, "RIGHT", 10, 0)
+    uiElements.statusLatency = latencyValue
+    perfLabelY = perfLabelY - 22
+
+    -- CPU Load
+    local cpuLoadLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    cpuLoadLabel:SetPoint("TOPLEFT", col2X, perfLabelY)
+    cpuLoadLabel:SetText("CPU Load (Inst/Avg/Peak):")
+    cpuLoadLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local cpuLoadValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    cpuLoadValue:SetPoint("LEFT", cpuLoadLabel, "RIGHT", 10, 0)
+    uiElements.statusCPULoad = cpuLoadValue
+    perfLabelY = perfLabelY - 22
+
+    -- Throughput
+    local throughputLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    throughputLabel:SetPoint("TOPLEFT", col2X, perfLabelY)
+    throughputLabel:SetText("Throughput (Inst/Avg/Peak):")
+    throughputLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local throughputValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    throughputValue:SetPoint("LEFT", throughputLabel, "RIGHT", 10, 0)
+    uiElements.statusThroughput = throughputValue
+    perfLabelY = perfLabelY - 22
+
+    -- Phase Security Indicator
+    local phaseSecurityLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    phaseSecurityLabel:SetPoint("TOPLEFT", col2X, perfLabelY)
+    phaseSecurityLabel:SetText("Phase Security:")
+    phaseSecurityLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local phaseSecurityValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    phaseSecurityValue:SetPoint("LEFT", phaseSecurityLabel, "RIGHT", 10, 0)
+    uiElements.statusPhaseSecurity = phaseSecurityValue
+
+    -- History Checkbox (shifted down to accommodate indicator)
+    local histCheck = CreateCheckbox(tab1, "Track History", "Enable performance history tracking (avg/max per refresh interval).\n\n|cffff0000Warning:|r Tracking while closed keeps the performance monitor active. This will force GC every auto-refresh due to the memory usage stat.", "performanceHistoryEnabled")
+    histCheck:SetPoint("TOPLEFT", col2X, perfLabelY - 25)
+    uiElements.performanceHistoryEnabled = histCheck
+    histCheck:SetScript("OnClick", function(self)
+        TRP3FW_Settings.performanceHistoryEnabled = self:GetChecked()
+        UpdateBackgroundTracking()
+    end)
+
+    -- Show History Button
+    local showHistoryBtn = CreateFrame("Button", nil, tab1, "UIPanelButtonTemplate")
+    showHistoryBtn:SetSize(100, 22)
+    showHistoryBtn:SetPoint("TOPLEFT", histCheck, "TOPRIGHT", 100, 0) -- Position relative to checkbox, 100px to the right
+    showHistoryBtn:SetText("Show Graphs")
+    showHistoryBtn:SetScript("OnClick", function()
+        if TRP3FW.ToggleHistoryWindow then
+            TRP3FW:ToggleHistoryWindow()
+        end
+    end)
+
+    y1 = y1 - 35
+
+    CreateSectionHeader(tab1, "Session Statistics", y1)
+    y1 = y1 - 30
+
+    -- Create 3 stat cards in a row (520px total width: 3 cards + 2 gaps)
+    local cardWidth = (520 - 20) / 3  -- ~167px per card
+    local alertsCard = CreateStatCard(tab1, cardWidth, 75)
+    alertsCard:SetPoint("TOPLEFT", 20, y1)
+    alertsCard.title:SetText("ALERTS SHOWN")
+    uiElements.statusAlertsCard = alertsCard
+
+    local blocksCard = CreateStatCard(tab1, cardWidth, 75)
+    blocksCard:SetPoint("LEFT", alertsCard, "RIGHT", 10, 0)
+    blocksCard.title:SetText("BLOCKS")
+    uiElements.statusBlocksCard = blocksCard
+
+    local ghostCard = CreateStatCard(tab1, cardWidth, 75)
+    ghostCard:SetPoint("LEFT", blocksCard, "RIGHT", 10, 0)
+    ghostCard.title:SetText("GHOST PROFILES")
+    uiElements.statusGhostCard = ghostCard
+
+    y1 = y1 - 85
+
+    CreateSectionHeader(tab1, "Detection Breakdown", y1)
+    y1 = y1 - 30
+
+    -- Phase Alerts
+    local phaseAlertsText = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    phaseAlertsText:SetPoint("TOPLEFT", 20, y1)
+    phaseAlertsText:SetText("Different Phase Detections:")
+    y1 = y1 - 25
+
+    local phaseAlertsValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    phaseAlertsValue:SetPoint("TOPLEFT", 40, y1)
+    uiElements.statusPhaseAlerts = phaseAlertsValue
+    y1 = y1 - 40
+
+    -- Map Alerts
+    local mapAlertsText = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    mapAlertsText:SetPoint("TOPLEFT", 20, y1)
+    mapAlertsText:SetText("Different Map Detections:")
+    y1 = y1 - 25
+
+    local mapAlertsValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    mapAlertsValue:SetPoint("TOPLEFT", 40, y1)
+    uiElements.statusMapAlerts = mapAlertsValue
+    y1 = y1 - 50
+
+    CreateSectionHeader(tab1, "Recent Activity", y1)
+    y1 = y1 - 30
+
+    -- Header Row
+    local hTime = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    hTime:SetPoint("TOPLEFT", 20, y1)
+    hTime:SetWidth(60)
+    hTime:SetJustifyH("LEFT")
+    hTime:SetText("Time")
+    hTime:SetTextColor(0.6, 0.6, 0.6)
+
+    local hPlayer = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    hPlayer:SetPoint("LEFT", hTime, "RIGHT", 5, 0)
+    hPlayer:SetWidth(150)
+    hPlayer:SetJustifyH("LEFT")
+    hPlayer:SetText("Player")
+    hPlayer:SetTextColor(0.6, 0.6, 0.6)
+
+    local hAddon = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    hAddon:SetPoint("LEFT", hPlayer, "RIGHT", 5, 0)
+    hAddon:SetWidth(60)
+    hAddon:SetJustifyH("LEFT")
+    hAddon:SetText("Addon")
+    hAddon:SetTextColor(0.6, 0.6, 0.6)
+
+    local hResult = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    hResult:SetPoint("LEFT", hAddon, "RIGHT", 5, 0)
+    hResult:SetWidth(100)
+    hResult:SetJustifyH("LEFT")
+    hResult:SetText("Result")
+    hResult:SetTextColor(0.6, 0.6, 0.6)
+
+    y1 = y1 - 20
+
+    uiElements.statusRecentEvents = {}
+    for i = 1, 8 do
+        local row = CreateFrame("Frame", nil, tab1)
+        row:SetSize(540, 18)
+        row:SetPoint("TOPLEFT", 20, y1)
+
+        -- Alternating background
+        if i % 2 == 0 then
+            local bg = row:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints()
+            bg:SetColorTexture(1, 1, 1, 0.05)
+        end
+
+        local tTime = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        tTime:SetPoint("LEFT", 0, 0)
+        tTime:SetWidth(60)
+        tTime:SetJustifyH("LEFT")
+        row.Time = tTime
+
+        local tPlayer = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        tPlayer:SetPoint("LEFT", tTime, "RIGHT", 5, 0)
+        tPlayer:SetWidth(150)
+        tPlayer:SetJustifyH("LEFT")
+        row.Player = tPlayer
+
+        local tAddon = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        tAddon:SetPoint("LEFT", tPlayer, "RIGHT", 5, 0)
+        tAddon:SetWidth(60)
+        tAddon:SetJustifyH("LEFT")
+        row.Addon = tAddon
+
+        local tResult = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        tResult:SetPoint("LEFT", tAddon, "RIGHT", 5, 0)
+        tResult:SetWidth(200)
+        tResult:SetJustifyH("LEFT")
+        row.Result = tResult
+
+        uiElements.statusRecentEvents[i] = row
+        y1 = y1 - 18
+    end
+
+    y1 = y1 - 10
+
+    CreateSectionHeader(tab1, "Requests by Addon", y1)
+    y1 = y1 - 30
+
+    -- Horizontal stacked bar showing relative addon usage (520px to match separator)
+    local requestsBar = CreateHorizontalStackedBar(tab1, 520, 30)
+    requestsBar:SetPoint("TOPLEFT", 20, y1)
+    uiElements.statusRequestsBar = requestsBar
+    y1 = y1 - 35
+
+    -- Legend for the bar chart
+    local legendFrame = CreateFrame("Frame", nil, tab1)
+    legendFrame:SetPoint("TOPLEFT", 20, y1)
+    legendFrame:SetSize(520, 20)
+
+    local legendText = legendFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    legendText:SetPoint("LEFT", 0, 0)
+    legendText:SetTextColor(0.7, 0.7, 0.7)
+    legendText:SetText("|cff4D99FFTRP3|r  |cffCC4DCCMRP|r  |cffFF9933XRP|r  |cff33CC66MSP|r")
+
+    y1 = y1 - 30
+
+    CreateSectionHeader(tab1, "Cache Performance", y1)
+    y1 = y1 - 30
+
+    -- Cache Performance bars with aligned labels (520px to match separator)
+    local perfLabelWidth = 120
+    local perfBarX = 20 + perfLabelWidth + 10
+    local perfBarWidth = 520 - perfLabelWidth - 10  -- 390px bar width
+
+    -- Phase Cache Performance Bar
+    local phaseCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    phaseCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
+    phaseCachePerfLabel:SetWidth(perfLabelWidth)
+    phaseCachePerfLabel:SetJustifyH("LEFT")
+    phaseCachePerfLabel:SetText("Phase Cache:")
+    phaseCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local phaseCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
+    phaseCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
+    uiElements.statusPhaseCachePerfBar = phaseCachePerfBar
+    y1 = y1 - 25
+
+    -- Map Cache Performance Bar
+    local mapCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    mapCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
+    mapCachePerfLabel:SetWidth(perfLabelWidth)
+    mapCachePerfLabel:SetJustifyH("LEFT")
+    mapCachePerfLabel:SetText("Map Scan:")
+    mapCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local mapCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
+    mapCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
+    uiElements.statusMapCachePerfBar = mapCachePerfBar
+    y1 = y1 - 25
+
+    -- WHO Cache Performance Bar
+    local whoCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    whoCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
+    whoCachePerfLabel:SetWidth(perfLabelWidth)
+    whoCachePerfLabel:SetJustifyH("LEFT")
+    whoCachePerfLabel:SetText("WHO Query:")
+    whoCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local whoCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
+    whoCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
+    uiElements.statusWhoCachePerfBar = whoCachePerfBar
+    y1 = y1 - 25
+
+    -- Allowed Senders Cache Performance Bar
+    local allowedSendersCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    allowedSendersCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
+    allowedSendersCachePerfLabel:SetWidth(perfLabelWidth)
+    allowedSendersCachePerfLabel:SetJustifyH("LEFT")
+    allowedSendersCachePerfLabel:SetText("Allowed Senders:")
+    allowedSendersCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local allowedSendersCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
+    allowedSendersCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
+    uiElements.statusAllowedSendersCachePerfBar = allowedSendersCachePerfBar
+    y1 = y1 - 25
+
+    -- Interaction Cache Performance Bar
+    local interactionCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    interactionCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
+    interactionCachePerfLabel:SetWidth(perfLabelWidth)
+    interactionCachePerfLabel:SetJustifyH("LEFT")
+    interactionCachePerfLabel:SetText("Interaction:")
+    interactionCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local interactionCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
+    interactionCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
+    uiElements.statusInteractionCachePerfBar = interactionCachePerfBar
+    y1 = y1 - 25
+
+    -- Broadcast Cache Performance Bar
+    local broadcastCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    broadcastCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
+    broadcastCachePerfLabel:SetWidth(perfLabelWidth)
+    broadcastCachePerfLabel:SetJustifyH("LEFT")
+    broadcastCachePerfLabel:SetText("Broadcasts:")
+    broadcastCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local broadcastCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
+    broadcastCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
+    uiElements.statusBroadcastCachePerfBar = broadcastCachePerfBar
+    y1 = y1 - 25
+
+    -- SPVP Cache Performance Bar
+    local spvpCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    spvpCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
+    spvpCachePerfLabel:SetWidth(perfLabelWidth)
+    spvpCachePerfLabel:SetJustifyH("LEFT")
+    spvpCachePerfLabel:SetText("SPVP Salt:")
+    spvpCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local spvpCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
+    spvpCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
+    uiElements.statusSpvpCachePerfBar = spvpCachePerfBar
+    y1 = y1 - 25
+
+    -- SPVP Verified Cache Performance Bar
+    local spvpVerifiedCachePerfLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    spvpVerifiedCachePerfLabel:SetPoint("TOPLEFT", 20, y1)
+    spvpVerifiedCachePerfLabel:SetWidth(perfLabelWidth)
+    spvpVerifiedCachePerfLabel:SetJustifyH("LEFT")
+    spvpVerifiedCachePerfLabel:SetText("SPVP Verified:")
+    spvpVerifiedCachePerfLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local spvpVerifiedCachePerfBar = CreateProgressBar(tab1, perfBarWidth, 18)
+    spvpVerifiedCachePerfBar:SetPoint("TOPLEFT", perfBarX, y1)
+    uiElements.statusSpvpVerifiedCachePerfBar = spvpVerifiedCachePerfBar
+    y1 = y1 - 35
+
+    CreateSectionHeader(tab1, "Cache Status", y1)
+    y1 = y1 - 30
+
+    -- 2-column grid layout for cache counts with aligned labels
+    local statusLabelWidth = 140
+    local col1LabelX = 20
+    local col1ValueX = col1LabelX + statusLabelWidth
+    local col2LabelX = 310
+    local col2ValueX = col2LabelX + statusLabelWidth
+
+    -- Row 1: Phase Cache | Broadcast Cache
+    local phaseCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    phaseCacheLabel:SetPoint("TOPLEFT", col1LabelX, y1)
+    phaseCacheLabel:SetWidth(statusLabelWidth)
+    phaseCacheLabel:SetJustifyH("LEFT")
+    phaseCacheLabel:SetText("Phase Cache:")
+    phaseCacheLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local phaseCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    phaseCacheValue:SetPoint("TOPLEFT", col1ValueX, y1)
+    phaseCacheValue:SetJustifyH("LEFT")
+    uiElements.statusPhaseCache = phaseCacheValue
+
+    local broadcastCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    broadcastCacheLabel:SetPoint("TOPLEFT", col2LabelX, y1)
+    broadcastCacheLabel:SetWidth(statusLabelWidth)
+    broadcastCacheLabel:SetJustifyH("LEFT")
+    broadcastCacheLabel:SetText("Broadcast Cache:")
+    broadcastCacheLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local broadcastCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    broadcastCacheValue:SetPoint("TOPLEFT", col2ValueX, y1)
+    broadcastCacheValue:SetJustifyH("LEFT")
+    uiElements.statusBroadcastCache = broadcastCacheValue
+    y1 = y1 - 22
+
+    -- Row 2: Map Scan Cache | Send Cache
+    local scanCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    scanCacheLabel:SetPoint("TOPLEFT", col1LabelX, y1)
+    scanCacheLabel:SetWidth(statusLabelWidth)
+    scanCacheLabel:SetJustifyH("LEFT")
+    scanCacheLabel:SetText("Map Scan Cache:")
+    scanCacheLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local scanCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    scanCacheValue:SetPoint("TOPLEFT", col1ValueX, y1)
+    scanCacheValue:SetJustifyH("LEFT")
+    uiElements.statusScanCache = scanCacheValue
+
+    local sendCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sendCacheLabel:SetPoint("TOPLEFT", col2LabelX, y1)
+    sendCacheLabel:SetWidth(statusLabelWidth)
+    sendCacheLabel:SetJustifyH("LEFT")
+    sendCacheLabel:SetText("Send Cache:")
+    sendCacheLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local sendCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    sendCacheValue:SetPoint("TOPLEFT", col2ValueX, y1)
+    sendCacheValue:SetJustifyH("LEFT")
+    uiElements.statusSendCache = sendCacheValue
+    y1 = y1 - 22
+
+    -- Row 3: WHO Name Cache | WHO Zone Cache
+    local whoNameCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    whoNameCacheLabel:SetPoint("TOPLEFT", col1LabelX, y1)
+    whoNameCacheLabel:SetWidth(statusLabelWidth)
+    whoNameCacheLabel:SetJustifyH("LEFT")
+    whoNameCacheLabel:SetText("WHO Name Cache:")
+    whoNameCacheLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local whoNameCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    whoNameCacheValue:SetPoint("TOPLEFT", col1ValueX, y1)
+    whoNameCacheValue:SetJustifyH("LEFT")
+    uiElements.statusWhoNameCache = whoNameCacheValue
+
+    local whoZoneCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    whoZoneCacheLabel:SetPoint("TOPLEFT", col2LabelX, y1)
+    whoZoneCacheLabel:SetWidth(statusLabelWidth)
+    whoZoneCacheLabel:SetJustifyH("LEFT")
+    whoZoneCacheLabel:SetText("WHO Zone Cache:")
+    whoZoneCacheLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local whoZoneCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    whoZoneCacheValue:SetPoint("TOPLEFT", col2ValueX, y1)
+    whoZoneCacheValue:SetJustifyH("LEFT")
+    uiElements.statusWhoZoneCache = whoZoneCacheValue
+    y1 = y1 - 22
+
+    -- Row 4: Interaction Cache
+    local interactionCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    interactionCacheLabel:SetPoint("TOPLEFT", col1LabelX, y1)
+    interactionCacheLabel:SetWidth(statusLabelWidth)
+    interactionCacheLabel:SetJustifyH("LEFT")
+    interactionCacheLabel:SetText("Interaction Cache:")
+    interactionCacheLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local interactionCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    interactionCacheValue:SetPoint("TOPLEFT", col1ValueX, y1)
+    interactionCacheValue:SetJustifyH("LEFT")
+    uiElements.statusInteractionCache = interactionCacheValue
+
+    -- Row 4 (col 2): Suppression Timers
+    local suppressionCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    suppressionCacheLabel:SetPoint("TOPLEFT", col2LabelX, y1)
+    suppressionCacheLabel:SetWidth(statusLabelWidth)
+    suppressionCacheLabel:SetJustifyH("LEFT")
+    suppressionCacheLabel:SetText("Suppression Timers:")
+    suppressionCacheLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local suppressionCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    suppressionCacheValue:SetPoint("TOPLEFT", col2ValueX, y1)
+    suppressionCacheValue:SetJustifyH("LEFT")
+    uiElements.statusSuppressionCache = suppressionCacheValue
+    y1 = y1 - 22
+
+    -- Row 5: SPVP Salt Cache | SPVP Verified Cache
+    local spvpCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    spvpCacheLabel:SetPoint("TOPLEFT", col1LabelX, y1)
+    spvpCacheLabel:SetWidth(statusLabelWidth)
+    spvpCacheLabel:SetJustifyH("LEFT")
+    spvpCacheLabel:SetText("SPVP Salt Cache:")
+    spvpCacheLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local spvpCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    spvpCacheValue:SetPoint("TOPLEFT", col1ValueX, y1)
+    spvpCacheValue:SetJustifyH("LEFT")
+    uiElements.statusSpvpCache = spvpCacheValue
+
+    local spvpVerifiedCacheLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    spvpVerifiedCacheLabel:SetPoint("TOPLEFT", col2LabelX, y1)
+    spvpVerifiedCacheLabel:SetWidth(statusLabelWidth)
+    spvpVerifiedCacheLabel:SetJustifyH("LEFT")
+    spvpVerifiedCacheLabel:SetText("SPVP Verified Cache:")
+    spvpVerifiedCacheLabel:SetTextColor(0.8, 0.8, 0.8)
+
+    local spvpVerifiedCacheValue = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    spvpVerifiedCacheValue:SetPoint("TOPLEFT", col2ValueX, y1)
+    spvpVerifiedCacheValue:SetJustifyH("LEFT")
+    uiElements.statusSpvpVerifiedCache = spvpVerifiedCacheValue
+    y1 = y1 - 35
+
+    -- ============================================
+    -- RunPrivileged API Statistics
+    -- ============================================
+    CreateSectionHeader(tab1, "RunPrivileged API Statistics", y1)
+    y1 = y1 - 30
+
+    local privStatLabelWidth = 140
+    local privStatValueX = 20 + privStatLabelWidth
+
+    local privTotalLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    privTotalLabel:SetPoint("TOPLEFT", 20, y1)
+    privTotalLabel:SetWidth(privStatLabelWidth)
+    privTotalLabel:SetJustifyH("LEFT")
+    privTotalLabel:SetText("Total Calls:")
+    uiElements.statusPrivilegedTotal = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    uiElements.statusPrivilegedTotal:SetPoint("LEFT", privStatValueX, 0)
+    uiElements.statusPrivilegedTotal:SetPoint("TOP", privTotalLabel, "TOP", 0, 0) -- Align vertically with label
+    y1 = y1 - 20
+
+    local privSuccessLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    privSuccessLabel:SetPoint("TOPLEFT", 20, y1)
+    privSuccessLabel:SetWidth(privStatLabelWidth)
+    privSuccessLabel:SetJustifyH("LEFT")
+    privSuccessLabel:SetText("Successful:")
+    uiElements.statusPrivilegedSuccess = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    uiElements.statusPrivilegedSuccess:SetPoint("LEFT", privStatValueX, 0)
+    uiElements.statusPrivilegedSuccess:SetPoint("TOP", privSuccessLabel, "TOP", 0, 0)
+    y1 = y1 - 20
+
+    local privBlockedLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    privBlockedLabel:SetPoint("TOPLEFT", 20, y1)
+    privBlockedLabel:SetWidth(privStatLabelWidth)
+    privBlockedLabel:SetJustifyH("LEFT")
+    privBlockedLabel:SetText("Rate Limited:")
+    uiElements.statusPrivilegedBlocked = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    uiElements.statusPrivilegedBlocked:SetPoint("LEFT", privStatValueX, 0)
+    uiElements.statusPrivilegedBlocked:SetPoint("TOP", privBlockedLabel, "TOP", 0, 0)
+    y1 = y1 - 20
+
+    local privErrorsLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    privErrorsLabel:SetPoint("TOPLEFT", 20, y1)
+    privErrorsLabel:SetWidth(privStatLabelWidth)
+    privErrorsLabel:SetJustifyH("LEFT")
+    privErrorsLabel:SetText("Errors:")
+    uiElements.statusPrivilegedErrors = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    uiElements.statusPrivilegedErrors:SetPoint("LEFT", privStatValueX, 0)
+    uiElements.statusPrivilegedErrors:SetPoint("TOP", privErrorsLabel, "TOP", 0, 0)
+    y1 = y1 - 20
+
+    local privDeferredLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    privDeferredLabel:SetPoint("TOPLEFT", 20, y1)
+    privDeferredLabel:SetWidth(privStatLabelWidth)
+    privDeferredLabel:SetJustifyH("LEFT")
+    privDeferredLabel:SetText("Deferred (LOW):")
+    uiElements.statusPrivilegedDeferred = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    uiElements.statusPrivilegedDeferred:SetPoint("LEFT", privStatValueX, 0)
+    uiElements.statusPrivilegedDeferred:SetPoint("TOP", privDeferredLabel, "TOP", 0, 0)
+    y1 = y1 - 20
+
+    local privRefundedLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    privRefundedLabel:SetPoint("TOPLEFT", 20, y1)
+    privRefundedLabel:SetWidth(privStatLabelWidth)
+    privRefundedLabel:SetJustifyH("LEFT")
+    privRefundedLabel:SetText("Tokens Refunded:")
+    uiElements.statusPrivilegedRefunded = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    uiElements.statusPrivilegedRefunded:SetPoint("LEFT", privStatValueX, 0)
+    uiElements.statusPrivilegedRefunded:SetPoint("TOP", privRefundedLabel, "TOP", 0, 0)
+    y1 = y1 - 20
+
+    local privBucketLabel = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    privBucketLabel:SetPoint("TOPLEFT", 20, y1)
+    privBucketLabel:SetWidth(privStatLabelWidth)
+    privBucketLabel:SetJustifyH("LEFT")
+    privBucketLabel:SetText("Token Bucket:")
+    uiElements.statusPrivilegedBucket = tab1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    uiElements.statusPrivilegedBucket:SetPoint("LEFT", privStatValueX, 0)
+    uiElements.statusPrivilegedBucket:SetPoint("TOP", privBucketLabel, "TOP", 0, 0)
+    y1 = y1 - 35
+    
+    CreateSectionHeader(tab1, "Status Tab Settings", y1)
+    y1 = y1 - 30
+
+    -- Refresh Rate Slider
+    local refreshRateText = tab1:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    refreshRateText:SetPoint("TOPLEFT", 20, y1)
+    refreshRateText:SetText("Auto-Refresh Rate:")
+    y1 = y1 - 30
+
+    local refreshRateSlider = CreateFrame("Slider", "TRP3FW_StatusRefreshSlider", tab1, "OptionsSliderTemplate")
+    local sliderWidth = 360
+    refreshRateSlider:SetPoint("TOPLEFT", 20, y1)
+    refreshRateSlider:SetWidth(sliderWidth)
+    refreshRateSlider:SetMinMaxValues(2, 120)
+    refreshRateSlider:SetValueStep(1)
+    refreshRateSlider:SetObeyStepOnDrag(true)
+    refreshRateSlider:SetValue(TRP3FW_Settings.statusRefreshRate or 30)
+
+    -- Slider labels
+    local refreshDefault = TRP3FW_Settings.statusRefreshRate or 30
+    getglobal(refreshRateSlider:GetName().."Low"):SetText("2s")
+    getglobal(refreshRateSlider:GetName().."High"):SetText("120s")
+    getglobal(refreshRateSlider:GetName().."Text"):SetText("Refresh every " .. refreshDefault .. " seconds")
+
+    refreshRateSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value)
+        TRP3FW_Settings.statusRefreshRate = value
+        getglobal(self:GetName().."Text"):SetText("Refresh every " .. value .. " seconds")
+    end)
+
+    refreshRateSlider:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Auto-Refresh Rate", 1, 1, 1)
+        GameTooltip:AddLine("Controls how often this status page updates.\n\n|cffff0000Warning:|r Lower values (e.g. 2s) increase CPU usage because calculating memory usage forces a garbage collection cycle.", nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    refreshRateSlider:SetScript("OnLeave", function(self)
+        GameTooltip:Hide()
+    end)
+
+    -- Ensure thumb is visible at load
+    C_Timer.After(0, function()
+        refreshRateSlider:SetValue(TRP3FW_Settings.statusRefreshRate or 30)
+    end)
+
+    -- Only restart timer when slider is released (not during drag)
+    refreshRateSlider:SetScript("OnMouseUp", function(self)
+        -- Restart timer with new interval if on Status tab
+        if statusUpdateTimer and currentTab == 1 and settingsFrame:IsVisible() then
+            statusUpdateTimer:Cancel()
+            statusUpdateTimer = nil
+            StartStatusUpdates()
+        end
+        -- Update background ticker rate
+        UpdateBackgroundTracking()
+    end)
+
+    -- Manual refresh button
+    local refreshNow = CreateFrame("Button", nil, tab1, "UIPanelButtonTemplate")
+    refreshNow:SetSize(90, 22)
+    refreshNow:SetPoint("LEFT", refreshRateSlider, "RIGHT", 12, 0)
+    refreshNow:SetText("Refresh now")
+    refreshNow:SetScript("OnClick", function()
+        -- Invalidate current phase salt to force API re-check (fixes stale "Secured" status)
+        local phaseID = TRP3FW:GetCurrentPhaseID()
+        if phaseID and TRP3FW.InvalidatePhaseSaltCache then
+            TRP3FW:InvalidatePhaseSaltCache(phaseID)
+        end
+        UpdateStatusTab()
+    end)
+
+    uiElements.statusRefreshRate = refreshRateSlider
+
+    -- ========== TAB 2: NOTIFICATIONS ==========
+    local tab2 = tabContents[2].scrollChild
+    local y2 = -10
+
+    CreateSectionHeader(tab2, "Notification Settings", y2)
+    y2 = y2 - 40
+
+    uiElements.notifyEnabled = CreateCheckbox(tab2, "Enable Notifications", "Master toggle for all notifications", "notifyEnabled")
+    uiElements.notifyEnabled:SetPoint("TOPLEFT", 20, y2)
+    uiElements.notifyEnabled:SetScript("OnClick", function(self)
+        TRP3FW_Settings.notifyEnabled = self:GetChecked()
+    end)
+    y2 = y2 - 40
+
+    -- Granular notification type controls
+    uiElements.notifyOnAllow = CreateCheckbox(tab2, "Notify on Allow", "Show notifications when profiles are sent normally (allowed)", "notifyOnAllow")
+    uiElements.notifyOnAllow:SetPoint("TOPLEFT", 20, y2)
+    uiElements.notifyOnAllow:SetScript("OnClick", function(self)
+        TRP3FW_Settings.notifyOnAllow = self:GetChecked()
+    end)
+    y2 = y2 - 30
+
+    uiElements.notifyOnStartPhaseBlock = CreateCheckbox(tab2, "Notify on Start Phase Block", "Show notifications when blocking in start phase (169)", "notifyOnStartPhaseBlock")
+    uiElements.notifyOnStartPhaseBlock:SetPoint("TOPLEFT", 20, y2)
+    uiElements.notifyOnStartPhaseBlock:SetScript("OnClick", function(self)
+        TRP3FW_Settings.notifyOnStartPhaseBlock = self:GetChecked()
+    end)
+    y2 = y2 - 30
+
+    y2 = y2 - 10
+    local notifyHelpText = tab2:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    notifyHelpText:SetPoint("TOPLEFT", 20, y2)
+    notifyHelpText:SetText("|cffaaaaaa(Broadcast/Whisper toggles only affect 'Allow' notifications)|r")
+    y2 = y2 - 25
+
+    uiElements.notifyBroadcast = CreateCheckbox(tab2, "Notify on Broadcast", "Show notifications for map scan broadcasts (only affects Allow notifications)", "notifyOnBroadcast")
+    uiElements.notifyBroadcast:SetPoint("TOPLEFT", 20, y2)
+    uiElements.notifyBroadcast:SetScript("OnClick", function(self)
+        TRP3FW_Settings.notifyOnBroadcast = self:GetChecked()
+    end)
+    y2 = y2 - 30
+
+    uiElements.notifyWhisper = CreateCheckbox(tab2, "Notify on Whisper", "Show notifications for direct profile requests (only affects Allow notifications)", "notifyOnWhisper")
+    uiElements.notifyWhisper:SetPoint("TOPLEFT", 20, y2)
+    uiElements.notifyWhisper:SetScript("OnClick", function(self)
+        TRP3FW_Settings.notifyOnWhisper = self:GetChecked()
+    end)
+    y2 = y2 - 30
+
+    -- Scan Reply Group
+    local scanGroupHeight = 85
+    local scanGroup = CreateFrame("Frame", nil, tab2, BackdropTemplateMixin and "BackdropTemplate")
+    scanGroup:SetPoint("TOPLEFT", 20, y2)
+    scanGroup:SetSize(540, scanGroupHeight)
+    scanGroup:SetBackdrop({
+        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 }
+    })
+    scanGroup:SetBackdropColor(0, 0, 0, 0.2)
+    scanGroup:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.5)
+
+    local scanGroupTitle = scanGroup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    scanGroupTitle:SetPoint("TOPLEFT", 10, -8)
+    scanGroupTitle:SetText("Scan Reply Notifications")
+    scanGroupTitle:SetTextColor(0.7, 0.7, 0.7)
+
+    -- Position elements inside the group area
+    local groupY = y2 - 25
+
+    uiElements.notifyOnScanResponse = CreateCheckbox(tab2, "Show Scan Reply Notifications", "Controls chat/on-screen notifications for scan replies (TRP3 or RPMapScan). Protections are configured separately.", "notifyOnScanResponse")
+    uiElements.notifyOnScanResponse:SetPoint("TOPLEFT", 30, groupY)
+    uiElements.notifyOnScanResponse:SetScript("OnClick", function(self)
+        TRP3FW_Settings.notifyOnScanResponse = self:GetChecked()
+        local enabled = self:GetChecked()
+        
+        if enabled then
+            uiElements.notifyOnScanAllow:Enable()
+            uiElements.notifyOnScanAllow:SetAlpha(1.0)
+            uiElements.notifyOnScanAllow:SetChecked(TRP3FW_Settings.notifyOnScanAllow)
+        else
+            uiElements.notifyOnScanAllow:Disable()
+            uiElements.notifyOnScanAllow:SetAlpha(0.5)
+            uiElements.notifyOnScanAllow:SetChecked(false) -- Visually uncheck when disabled
+        end
+        
+        RequestRefreshUI()
+    end)
+    groupY = groupY - 30
+
+    uiElements.notifyOnScanAllow = CreateCheckbox(tab2, "Notify on Scan Allow", "Show notifications when scan replies are allowed/sent (alerts/blocks still follow their modes).", "notifyOnScanAllow")
+    uiElements.notifyOnScanAllow:SetPoint("TOPLEFT", 50, groupY)
+    uiElements.notifyOnScanAllow:SetScript("OnClick", function(self)
+        TRP3FW_Settings.notifyOnScanAllow = self:GetChecked()
+    end)
+    
+    y2 = y2 - scanGroupHeight - 10
+    -- Current mode summary
+    local summaryLabel = tab2:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    summaryLabel:SetPoint("TOPLEFT", 20, y2)
+    summaryLabel:SetText("Current Modes:")
+    y2 = y2 - 24
+
+    uiElements.notificationModeSummary = tab2:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    uiElements.notificationModeSummary:SetPoint("TOPLEFT", 30, y2)
+    uiElements.notificationModeSummary:SetWidth(520)
+    uiElements.notificationModeSummary:SetJustifyH("LEFT")
+    y2 = y2 - 24
+    y2 = y2 - 20
+    y2 = y2 - 10  -- Extra spacing before new section
+    CreateSectionHeader(tab2, "Display Options", y2)
+    y2 = y2 - 40
+
+    uiElements.showInChat = CreateCheckbox(tab2, "Show in Chat", "Display notifications in chat window", "showInChat")
+    uiElements.showInChat:SetPoint("TOPLEFT", 20, y2)
+    uiElements.showInChat:SetScript("OnClick", function(self)
+        TRP3FW_Settings.showInChat = self:GetChecked()
+    end)
+    y2 = y2 - 30
+
+    uiElements.showGhostNotifications = CreateCheckbox(tab2, "Show Ghost Notifications", "Display chat/on-screen messages when ghost profiles are sent", "showGhostNotifications")
+    uiElements.showGhostNotifications:SetPoint("TOPLEFT", 40, y2)
+    uiElements.showGhostNotifications:SetScript("OnClick", function(self)
+        TRP3FW_Settings.showGhostNotifications = self:GetChecked()
+    end)
+    y2 = y2 - 30
+
+    uiElements.showOnScreen = CreateCheckbox(tab2, "Show On-Screen", "Display on-screen alert frames", "showOnScreen")
+    uiElements.showOnScreen:SetPoint("TOPLEFT", 20, y2)
+    uiElements.showOnScreen:SetScript("OnClick", function(self)
+        TRP3FW_Settings.showOnScreen = self:GetChecked()
+    end)
+    y2 = y2 - 30
+
+    uiElements.playSound = CreateCheckbox(tab2, "Play Sound", "Play notification sound", "playSound")
+    uiElements.playSound:SetPoint("TOPLEFT", 20, y2)
+    uiElements.playSound:SetScript("OnClick", function(self)
+        TRP3FW_Settings.playSound = self:GetChecked()
+    end)
+    y2 = y2 - 30
+
+    uiElements.showAddonSource = CreateCheckbox(tab2, "Show Addon Source", "Display which addon sent the request (TRP3, MRP, XRP)", "showAddonSource")
+    uiElements.showAddonSource:SetPoint("TOPLEFT", 20, y2)
+    uiElements.showAddonSource:SetScript("OnClick", function(self)
+        TRP3FW_Settings.showAddonSource = self:GetChecked()
+    end)
+    y2 = y2 - 30
+
+    uiElements.showCacheInfo = CreateCheckbox(tab2, "Show Cache Info", "Append cache hit/miss info to allow notifications", "showCacheInfo")
+    uiElements.showCacheInfo:SetPoint("TOPLEFT", 20, y2)
+    uiElements.showCacheInfo:SetScript("OnClick", function(self)
+        TRP3FW_Settings.showCacheInfo = self:GetChecked()
+    end)
+    y2 = y2 - 30
+
+    uiElements.showCheckResults = CreateCheckbox(tab2, "Show Check Results", "Append phase/map pass/fail and method (WHO, map scan, cache, skipped) to allow notifications", "showCheckResults")
+    uiElements.showCheckResults:SetPoint("TOPLEFT", 20, y2)
+    uiElements.showCheckResults:SetScript("OnClick", function(self)
+        TRP3FW_Settings.showCheckResults = self:GetChecked()
+    end)
+    y2 = y2 - 50
+
+    y2 = y2 - 10  -- Extra spacing before new section
+    CreateSectionHeader(tab2, "Suppression", y2)
+    y2 = y2 - 50
+
+    uiElements.suppressionTime = CreateEditBox(tab2, "Suppression Time (seconds)", "Time to suppress repeated notifications from the same player.", 80, "suppressionTime")
+    uiElements.suppressionTime:SetPoint("TOPLEFT", 20, y2)
+
+    local function saveSuppressionTime(self)
+        local value = tonumber(self:GetText())
+        if value and value >= 0 then
+            TRP3FW_Settings.suppressionTime = value
+            TRP3FW:Info("Profile suppression time set to "..value.." seconds")
+        else
+            TRP3FW:Warn("Invalid value - must be a positive number")
+            self:SetText(TRP3FW_Settings.suppressionTime)
+        end
+    end
+
+    local suppressionTimeEnterPressed = false
+    uiElements.suppressionTime:SetScript("OnEnterPressed", function(self)
+        suppressionTimeEnterPressed = true
+        saveSuppressionTime(self)
+        self:ClearFocus()
+        C_Timer.After(0, function() suppressionTimeEnterPressed = false end)
+    end)
+    uiElements.suppressionTime:SetScript("OnEditFocusLost", function(self)
+        if not suppressionTimeEnterPressed then
+            saveSuppressionTime(self)
+        end
+    end)
+
+    uiElements.refreshSuppression = CreateCheckbox(tab2, "Refresh Suppression", "Extend suppression duration when new notifications are received (Sliding Window).\n\n|cff00ff00Checked:|r Spam keeps suppression active indefinitely.\n|cffff0000Unchecked:|r Suppression expires after fixed time from first notification.", "refreshSuppression")
+    uiElements.refreshSuppression:SetPoint("LEFT", uiElements.suppressionTime, "RIGHT", 120, 0)
+    uiElements.refreshSuppression:SetScript("OnClick", function(self)
+        TRP3FW_Settings.refreshSuppression = self:GetChecked()
+    end)
+
+    -- ========== TAB 3: ALERTS & BLOCKING ==========
+    -- ========== TAB 3: ALERTS & BLOCKING ==========
+    CreateAlertsTab(tabContents[3].scrollChild)
 
     -- ========== TAB 4: FILTERS & ADDONS ==========
     local tab4 = tabContents[4].scrollChild
@@ -4892,6 +5239,13 @@ function TRP3FW:InitializeUI()
     uiElements.clearWhoNameOnPhaseChange:SetScript("OnClick", function(self)
         TRP3FW_Settings.clearWhoNameOnPhaseChange = self:GetChecked()
     end)
+    y5 = y5 - 25
+
+    uiElements.clearSpvpOnPhaseChange = CreateCheckbox(tab5, "  SPVP Verification Cache", "Clear SPVP verification cache on phase change (Required for security)", "clearSpvpOnPhaseChange")
+    uiElements.clearSpvpOnPhaseChange:SetPoint("TOPLEFT", 40, y5)
+    uiElements.clearSpvpOnPhaseChange:SetScript("OnClick", function(self)
+        TRP3FW_Settings.clearSpvpOnPhaseChange = self:GetChecked()
+    end)
     y5 = y5 - 35
 
     -- Zone Change Cache Clearing
@@ -4910,6 +5264,7 @@ function TRP3FW:InitializeUI()
             uiElements.clearRecentScansOnZoneChange:Enable()
             uiElements.clearWhoZoneOnZoneChange:Enable()
             uiElements.clearWhoNameOnZoneChange:Enable()
+            uiElements.clearSpvpOnZoneChange:Enable()
         else
             uiElements.clearPhaseCheckOnZoneChange:Disable()
             uiElements.clearAllowedSendersOnZoneChange:Disable()
@@ -4919,6 +5274,7 @@ function TRP3FW:InitializeUI()
             uiElements.clearRecentScansOnZoneChange:Disable()
             uiElements.clearWhoZoneOnZoneChange:Disable()
             uiElements.clearWhoNameOnZoneChange:Disable()
+            uiElements.clearSpvpOnZoneChange:Disable()
         end
     end)
     y5 = y5 - 30
@@ -4977,6 +5333,13 @@ function TRP3FW:InitializeUI()
     uiElements.clearWhoNameOnZoneChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearWhoNameOnZoneChange:SetScript("OnClick", function(self)
         TRP3FW_Settings.clearWhoNameOnZoneChange = self:GetChecked()
+    end)
+    y5 = y5 - 25
+
+    uiElements.clearSpvpOnZoneChange = CreateCheckbox(tab5, "  SPVP Verification Cache", "Clear SPVP verification cache on zone change", "clearSpvpOnZoneChange")
+    uiElements.clearSpvpOnZoneChange:SetPoint("TOPLEFT", 40, y5)
+    uiElements.clearSpvpOnZoneChange:SetScript("OnClick", function(self)
+        TRP3FW_Settings.clearSpvpOnZoneChange = self:GetChecked()
     end)
     y5 = y5 - 30
 
@@ -5270,10 +5633,12 @@ function TRP3FW:InitializeUI()
         uiElements.redactNames:SetEnabled(enabled)
         uiElements.redactLocations:SetEnabled(enabled)
         uiElements.redactNetwork:SetEnabled(enabled)
+        if uiElements.redactSPVP then uiElements.redactSPVP:SetEnabled(enabled) end
         local alpha = enabled and 1 or 0.5
         uiElements.redactNames:SetAlpha(alpha)
         uiElements.redactLocations:SetAlpha(alpha)
         uiElements.redactNetwork:SetAlpha(alpha)
+        if uiElements.redactSPVP then uiElements.redactSPVP:SetAlpha(alpha) end
     end)
     y5 = y5 - 30
 
@@ -5295,6 +5660,13 @@ function TRP3FW:InitializeUI()
     uiElements.redactNetwork:SetPoint("TOPLEFT", 40, y5)
     uiElements.redactNetwork:SetScript("OnClick", function(self)
         TRP3FW_Settings.redactNetwork = self:GetChecked()
+    end)
+    y5 = y5 - 30
+
+    uiElements.redactSPVP = CreateCheckbox(tab5, "Redact SPVP Salt & Keys", "Mask SPVP phase salts and cryptographic keys in debug logs", "redactSPVP")
+    uiElements.redactSPVP:SetPoint("TOPLEFT", 40, y5)
+    uiElements.redactSPVP:SetScript("OnClick", function(self)
+        TRP3FW_Settings.redactSPVP = self:GetChecked()
     end)
     y5 = y5 - 40
 
@@ -5323,6 +5695,7 @@ function TRP3FW:InitializeUI()
             uiElements.debugUtils:Enable()
             uiElements.debugSecurity:Enable()
             uiElements.debugGhost:Enable()
+            uiElements.debugSPVP:Enable()
         else
             uiElements.debugTimestamp:Disable()
             uiElements.debugChannel:Disable()
@@ -5339,6 +5712,7 @@ function TRP3FW:InitializeUI()
             uiElements.debugUtils:Disable()
             uiElements.debugSecurity:Disable()
             uiElements.debugGhost:Disable()
+            uiElements.debugSPVP:Disable()
         end
     end)
     y5 = y5 - 30
@@ -5521,6 +5895,13 @@ function TRP3FW:InitializeUI()
     uiElements.debugGhost:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugGhost:SetScript("OnClick", function(self)
         TRP3FW_Settings.debugGhost = self:GetChecked()
+    end)
+    y5 = y5 - 30
+
+    uiElements.debugSPVP = CreateCheckbox(tab5, "SPVP Messages", "Show Secure Phase Verification Protocol debug messages", "debugSPVP")
+    uiElements.debugSPVP:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
+    uiElements.debugSPVP:SetScript("OnClick", function(self)
+        TRP3FW_Settings.debugSPVP = self:GetChecked()
     end)
 
     -- Add bottom buttons

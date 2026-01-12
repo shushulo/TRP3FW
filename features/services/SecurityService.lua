@@ -35,6 +35,10 @@ local DEBUG_REDACTION_PATTERNS = {
     {category = "locations",pattern = "phase ID: %d+", replacement = "phase ID: [REDACTED]"},
     {category = "locations",pattern = "phaseID[=%s:]+%d+", replacement = "phaseID=[REDACTED]"},
     {category = "locations",pattern = "Phase ID[=%s:]+%d+", replacement = "Phase ID=[REDACTED]"},
+    {category = "spvp",     pattern = "salt: %x+:%d+", replacement = "salt: [REDACTED]"},
+    {category = "spvp",     pattern = "salt: %x+", replacement = "salt: [REDACTED]"},
+    {category = "spvp",     pattern = "INIT:%d+:%x+:%d+", replacement = "INIT:X:REDACTED:REDACTED"},
+    {category = "spvp",     pattern = "REPLY:%x+:%d+:%x+", replacement = "REPLY:REDACTED:REDACTED:REDACTED"},
 }
 
 function SecurityService:Initialize()
@@ -51,6 +55,8 @@ local function IsRedactionCategoryEnabled(settings, category)
         return settings.redactLocations ~= false
     elseif category == "network" then
         return settings.redactNetwork ~= false
+    elseif category == "spvp" then
+        return settings.redactSPVP ~= false
     end
 
     return true

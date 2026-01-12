@@ -35,6 +35,13 @@ function AlertFastPathStage:Process(context)
     
     TRP3FW:AllowSender(context.playerName, "alert_only_allow")
     
+    -- Perform Check with SPVP context
+    local options = {
+        spvpEnabled = context.spvpEnabled,
+        spvpPhaseID = context.spvpPhaseID,
+        spvpSalt = context.spvpSalt
+    }
+
     -- Run location checks asynchronously to surface alerts
     TRP3FW:CheckLocationCascading(context.playerName, context.sendId, function(locationOK, alertType, source, mapCacheAge, theirZone, myZone, cacheInfo, recentTransition, timeSinceTransition, checkDetails)
         -- Process alerts only

@@ -16,6 +16,9 @@ core\types.lua
 core\cache_interface.lua
 core\feature_flags.lua
 
+# Encryption (SPVP v2.5)
+features\encryption\spvp.lua
+
 # Services
 features\services\SecurityService.lua
 features\services\HistoryService.lua
@@ -50,6 +53,7 @@ features\profiles\adapter_factory.lua
 core\Stage.lua
 features\stages\WhitelistStage.lua
 features\stages\PhaseInStage.lua
+features\stages\SPVPStage.lua
 features\stages\BurstStage.lua
 features\stages\InteractionStage.lua
 features\stages\AlertFastPathStage.lua
@@ -66,6 +70,10 @@ features\ghost_provider.lua
 features\profileswitch.lua
 features\notifications.lua
 features\decision.lua
+
+# SPVP Handlers
+features\encryption\spvp_handlers.lua
+features\encryption\spvp_auto_init.lua
 
 # UI
 ui\settings.lua

@@ -160,6 +160,7 @@ TRP3FW.defaultSettings = {
     clearRecentScansOnPhaseChange = false,       -- Clear recent scans cache
     clearWhoZoneOnPhaseChange = false,           -- Clear WHO zone cache
     clearWhoNameOnPhaseChange = false,           -- Clear WHO name cache
+    clearSpvpOnPhaseChange = true,               -- Clear SPVP verification cache
 
     -- Cache clearing on zone change (ZONE_CHANGED_NEW_AREA event)
     clearCacheOnZoneChange = true,   -- Master toggle for zone change clearing
@@ -171,11 +172,20 @@ TRP3FW.defaultSettings = {
     clearRecentBroadcastsOnZoneChange = false,   -- Clear recent broadcasts cache
     clearRecentScansOnZoneChange = false,        -- Clear recent scans cache
     clearWhoNameOnZoneChange = false,            -- Clear WHO name cache
+    clearSpvpOnZoneChange = false,               -- Clear SPVP verification cache
 
     statusRefreshRate = 30,  -- Seconds between Status tab updates (2-120)
     performanceHistoryEnabled = false, -- Enable tracking of performance metrics over time
 
     blockStartPhase = false,
+
+    -- SPVP (Secure Phase Verification Protocol) v2.5
+    spvpEnabled = true,              -- Master toggle for SPVP (ENABLED BY DEFAULT)
+    spvpMode = "optional",           -- "off", "optional", "preferred", "required"
+    spvpAutoInitialize = false,       -- Auto-generate salts when entering phase (phase owners only)
+    spvpBlockDuration = 60,           -- Block duration after failed verification (seconds, 10-3600)
+    spvpSaltCacheDuration = 10800,    -- Phase salt cache duration (seconds, default 3 hours = 10800s)
+    spvpPerPhaseOverrides = {},       -- Per-phase SPVP enable/disable overrides
 
     debug           = false,
     debugTimestamp  = false,
@@ -193,12 +203,14 @@ TRP3FW.defaultSettings = {
     debugUtils      = true,
     debugSecurity   = true,  -- Security enforcement messages (sanitization, cache limits, spoofing detection)
     debugGhost      = true,  -- Ghost mode execution flow and exchange hook calls
+    debugSPVP       = true,  -- SPVP (Secure Phase Verification Protocol) handshake and verification
 
     -- Redaction controls
     redactEnabled   = true,
     redactNames     = true,
     redactLocations = true,
     redactNetwork   = true,
+    redactSPVP      = true,
 
     -- Debug output settings
     debugOutputWindow = false,  -- Show debug window
@@ -586,6 +598,14 @@ function TRP3FW:InitializeSettings()
     -- OPTIMIZATION: Initialize validated names cache (persistent across sessions)
     -- This cache stores validated player names to skip expensive regex validation on repeat encounters
     TRP3FW_ValidatedNames = TRP3FW_ValidatedNames or {}
+
+    -- MIGRATION: Force enable SPVP for Epsilon users who haven't explicitly disabled it
+    if self.hasEpsilonAPI and TRP3FW_Settings.spvpEnabled == false then
+        if not TRP3FW_Settings.spvpExplicitlyDisabled then
+            TRP3FW_Settings.spvpEnabled = true
+            self:Debug("Migration: Force-enabled SPVP for Epsilon user", "init")
+        end
+    end
 end
 
 -- Disable settings that require missing dependencies (save original values)

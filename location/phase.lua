@@ -700,7 +700,7 @@ function TRP3FW:ExecutePhaseCheck(check)
         end
     end)
 
-    timeoutTimer = C_Timer.NewTimer(0.5, function()
+    timeoutTimer = C_Timer.NewTimer(2.0, function()
         -- Fallback: If event didn't fire (e.g. target didn't change), verify manually
         if UnitName("target") == playerName then
             handleResult(true, C_Map.GetBestMapForUnit("target"), "targeting_fallback")
@@ -744,6 +744,15 @@ function TRP3FW:CheckPlayerPhase(playerName, sendId, callback, priority)
     if not sanitizedName then
         if callback then callback(nil, "invalid_name") end
         return
+    end
+
+    -- Group Check (Optional Bypass)
+    if TRP3FW_Settings.allowGroupPhaseBypass then
+        if UnitInParty(sanitizedName) or UnitInRaid(sanitizedName) then
+            self:Debug("Phase check passed (Group Bypass) for "..sanitizedName, "phase")
+            if callback then callback(true, "group", nil, "group") end
+            return
+        end
     end
 
     -- Check Cache (Optimization #1)

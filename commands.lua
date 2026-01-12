@@ -839,6 +839,78 @@ SlashCmdList.TRP3FW = function(msg)
         TRP3FW_Settings.debug = not TRP3FW_Settings.debug
         TRP3FW:Info("Debug mode "..(TRP3FW_Settings.debug and "|cff00ff00enabled|r" or "|cffaaaaaadisabled|r"))
 
+    elseif cmd == "spvpdebug" then
+        if not TRP3FW.hasEpsilonAPI then
+            TRP3FW:Error("Epsilon API not available.")
+            return
+        end
+
+        local phaseID = TRP3FW:GetCurrentPhaseID() or "Unknown"
+        local salt = C_Epsilon.GetPhaseAddonData("TRP3FW_SPVP_KEY")
+        local isTicket = salt and #salt < 32
+        
+        local cachedSalt = "None"
+        local timestamp = "None"
+        
+        if TRP3FW.CacheInterface then
+            local cached = TRP3FW.CacheInterface:Get("spvpPhaseSalt", phaseID)
+            if cached then
+                cachedSalt = cached.salt or "Empty"
+                if cached.timestamp then
+                    timestamp = string.format("%.1fs ago", TRP3FW:GetCurrentTime() - cached.timestamp)
+                end
+            end
+        end
+
+        local transitionTime = "None"
+        if TRP3FW.lastPhaseChangeTime then
+            transitionTime = string.format("%.1fs ago", TRP3FW:GetCurrentTime() - TRP3FW.lastPhaseChangeTime)
+        end
+
+        local isOwner = C_Epsilon.IsOwner and C_Epsilon.IsOwner()
+        local isOfficer = C_Epsilon.IsOfficer and C_Epsilon.IsOfficer()
+        
+        -- Check for Ticket ID correlation
+        local ticketID = "Unknown"
+        local saltMatchesTicket = false
+        if C_Epsilon.GetPhaseTicket then
+            ticketID = C_Epsilon.GetPhaseTicket() or "Nil"
+            if ticketID ~= "Nil" and salt == ticketID then
+                saltMatchesTicket = true
+            end
+        end
+
+        TRP3FW:Info("=== SPVP Debug Info ===")
+        TRP3FW:Info("Current Phase ID: " .. tostring(phaseID))
+        TRP3FW:Info("Ticket ID: " .. tostring(ticketID))
+        TRP3FW:Info("SPVP Mode: " .. (TRP3FW_Settings.spvpMode or "off"))
+        TRP3FW:Info("Player Status: " .. (isOwner and "|cff00ff00Owner|r" or (isOfficer and "|cff00ff00Officer|r" or "|cffaaaaaaMember|r")))
+        TRP3FW:Info("Auto-Init Setting: " .. (TRP3FW_Settings.spvpAutoInitialize and "|cff00ff00ENABLED|r" or "|cffaaaaaaDISABLED|r"))
+        
+        local apiStatus = "Nil"
+        if salt then
+            if salt == "" then apiStatus = "Empty String"
+            elseif isTicket then apiStatus = "|cffffff00Ticket ID (Async Fetch)|r (Preview: "..salt..")"
+            else apiStatus = "Present (Len: "..#salt..", Preview: "..salt:sub(1,8).."...)"
+            end
+        end
+        TRP3FW:Info("API Salt: " .. apiStatus)
+        
+        if saltMatchesTicket then
+            TRP3FW:Info("|cffff0000WARNING: API Salt matches Phase Ticket ID! This is insecure/default behavior.|r")
+        end
+        TRP3FW:Info("Cached Salt: " .. (cachedSalt == "Empty" and "Empty String" or (cachedSalt == "None" and "None" or "Present (Preview: "..cachedSalt:sub(1,8).."...)")))
+        TRP3FW:Info("Cache Age: " .. timestamp)
+        TRP3FW:Info("Time Since Phase Change: " .. transitionTime)
+        
+        if isTicket then
+            TRP3FW:Info("Salt Mismatch: |cff888888N/A (Async Wait)|r")
+        else
+            local apiVal = (salt == "" or salt == nil) and nil or salt
+            local cacheVal = (cachedSalt == "None" or cachedSalt == "Empty") and nil or cachedSalt
+            TRP3FW:Info("Salt Mismatch: " .. ((apiVal ~= cacheVal) and "|cffff0000YES|r" or "|cff00ff00NO|r"))
+        end
+
     elseif cmd == "dumpcache" or cmd == "dumpcaches" then
         local CI = TRP3FW.CacheInterface
         if not CI then
