@@ -100,6 +100,18 @@ local SETTING_LEVELS = {
     phaseCheckBatchMinSize = 3,
     phaseCheckBatchInterDelay = 3,
 
+<<<<<<< Updated upstream
+=======
+    -- SPVP settings (Advanced)
+    spvpMode = 3,
+    spvpAutoInitialize = 3,
+    spvpBlockDuration = 3,
+    spvpSaltCacheDuration = 3,
+    spvpVerifiedCacheDuration = 3,
+    spvpVerifiedRefreshRate = 3,
+    spvpPhaseSaltRefreshRate = 4,
+
+>>>>>>> Stashed changes
     -- Everything (Default for unmatched, and explicitly listed for clarity)
     phaseCheckRefundOnNoChange = 4,
     privilegedReservedTokens = 4,
@@ -1495,6 +1507,89 @@ local function RefreshUI()
         end
     end
 
+<<<<<<< Updated upstream
+=======
+    -- Update SPVP controls
+    if uiElements.spvpModeDropdown then
+        local mode = TRP3FW_Settings.spvpMode or "off"
+        local text = "Off"
+        if mode == "optional" then text = "Optional (Post-Check)" end
+        if mode == "preferred" then text = "Preferred (Pre-Check)" end
+        if mode == "required" then text = "Required (Strict)" end
+        UIDropDownMenu_SetText(uiElements.spvpModeDropdown, text)
+    end
+    if uiElements.spvpAutoInitialize then
+        uiElements.spvpAutoInitialize:SetChecked(TRP3FW_Settings.spvpAutoInitialize)
+    end
+    if uiElements.spvpSaltCacheDurationSlider then
+        local duration = TRP3FW_Settings.spvpSaltCacheDuration or 10800
+        uiElements.spvpSaltCacheDurationSlider:SetValue(duration)
+    end
+
+    -- SPVP Cache Refresh Settings
+    if uiElements.spvpVerifiedCacheDuration then
+        local durationSec = TRP3FW_Settings.spvpVerifiedCacheDuration or 300
+        uiElements.spvpVerifiedCacheDuration:SetText(durationSec)
+    end
+    if uiElements.spvpVerifiedRefreshRate then
+        uiElements.spvpVerifiedRefreshRate:SetText(TRP3FW_Settings.spvpVerifiedRefreshRate or 50)
+    end
+    if uiElements.spvpPhaseSaltRefreshRate then
+        uiElements.spvpPhaseSaltRefreshRate:SetText(TRP3FW_Settings.spvpPhaseSaltRefreshRate or 50)
+    end
+
+    if uiElements.spvpSaltStatus then
+        -- Update salt status display
+        if TRP3FW.hasEpsilonAPI then
+            local phaseID = TRP3FW:GetCurrentPhaseID()
+            local phaseSalt = TRP3FW:GetPhaseSalt(phaseID, false)
+
+            if phaseSalt and phaseSalt ~= "" then
+                local _, timestamp = TRP3FW:ParsePhaseSalt(phaseSalt)
+                local statusText
+
+                if timestamp then
+                    local daysOld = math.floor((time() - timestamp) / 86400)
+                    local dateStr = date("%Y-%m-%d", timestamp)
+
+                    if daysOld > 30 then
+                        statusText = string.format("|cffffcc00✓ This phase is secured|r (Generated: %s, %d days old - |cffff6600rotation recommended|r)", dateStr, daysOld)
+                    else
+                        statusText = string.format("|cff00ff00✓ This phase is secured|r (Generated: %s, %d days old)", dateStr, daysOld)
+                    end
+                else
+                    statusText = "|cff00ff00✓ This phase is secured|r (Legacy salt - rotation recommended)"
+                end
+
+                uiElements.spvpSaltStatus:SetText(statusText)
+
+                if uiElements.spvpSecureButton then
+                    uiElements.spvpSecureButton:SetText("Rotate Security Key")
+                end
+            else
+                uiElements.spvpSaltStatus:SetText("|cffff0000✗ This phase is NOT secured|r (No security key set)")
+
+                if uiElements.spvpSecureButton then
+                    uiElements.spvpSecureButton:SetText("Secure This Phase")
+                end
+            end
+
+            -- Update button state based on permissions
+            if uiElements.spvpSecureButton then
+                local isOwner = C_Epsilon.IsOwner and C_Epsilon.IsOwner()
+                local isOfficer = C_Epsilon.IsOfficer and C_Epsilon.IsOfficer()
+                if isOwner or isOfficer then
+                    uiElements.spvpSecureButton:Enable()
+                else
+                    uiElements.spvpSecureButton:Disable()
+                end
+            end
+        else
+            uiElements.spvpSaltStatus:SetText("|cffaaaaaa(Epsilon API not available)|r")
+        end
+    end
+
+>>>>>>> Stashed changes
     -- Disable Epsilon-specific features if API not available
     for _, control in ipairs(epsilonControls) do
         if control and control.SetShown then
@@ -4011,8 +4106,10 @@ function TRP3FW:InitializeUI()
         end
     end)
 
+    y5 = y5 - 45
+
     uiElements.sendCacheRefreshRate = CreateEditBox(tab5, "Send Refresh (%)", "Percentage of cache duration after which an allowed sender entry is considered stale and refreshed (0-100%). Default: 10%.", 80, "sendCacheRefreshRate")
-    uiElements.sendCacheRefreshRate:SetPoint("LEFT", uiElements.sendCacheDuration, "RIGHT", 60, 0)
+    uiElements.sendCacheRefreshRate:SetPoint("TOPLEFT", 20, y5)
 
     local function saveSendCacheRefreshRate(self)
         local value = tonumber(self:GetText())
@@ -4045,7 +4142,7 @@ function TRP3FW:InitializeUI()
     CreateSectionHeader(tab5, "Interaction Cache", y5)
     y5 = y5 - 45
 
-    uiElements.interactionCacheDuration = CreateEditBox(tab5, "Interaction Cache (s)", "How long to cache mouseover/target interactions.", 80, "interactionCacheDuration")
+    uiElements.interactionCacheDuration = CreateEditBox(tab5, "Interaction Cache (s)", "How long to keep interaction records (mouseover/target). This bypasses location checks.", 80, "interactionCacheDuration")
     uiElements.interactionCacheDuration:SetPoint("TOPLEFT", 20, y5)
 
     local function saveInteractionCacheDuration(self)
@@ -4072,8 +4169,10 @@ function TRP3FW:InitializeUI()
         end
     end)
 
+    y5 = y5 - 45
+
     uiElements.interactionRefreshRate = CreateEditBox(tab5, "Interaction Refresh (%)", "Percentage of cache duration after which an entry is considered stale and refreshed (0-100%). Default: 10%.", 80, "interactionRefreshRate")
-    uiElements.interactionRefreshRate:SetPoint("LEFT", uiElements.interactionCacheDuration, "RIGHT", 60, 0)
+    uiElements.interactionRefreshRate:SetPoint("TOPLEFT", 20, y5)
 
     local function saveInteractionRefreshRate(self)
         local value = tonumber(self:GetText())
@@ -4134,8 +4233,10 @@ function TRP3FW:InitializeUI()
         end
     end)
 
+    y5 = y5 - 45
+
     uiElements.whoNameCacheDuration = CreateEditBox(tab5, "WHO Name (s)", "How long to cache WHO name query results.", 80, "whoNameCacheDuration")
-    uiElements.whoNameCacheDuration:SetPoint("LEFT", uiElements.whoZoneCacheDuration, "RIGHT", 60, 0)
+    uiElements.whoNameCacheDuration:SetPoint("TOPLEFT", 20, y5)
 
     local function saveWhoNameCacheDuration(self)
         local value = tonumber(self:GetText())
@@ -4161,8 +4262,10 @@ function TRP3FW:InitializeUI()
         end
     end)
 
+    y5 = y5 - 45
+
     uiElements.whoZoneQueryCooldown = CreateEditBox(tab5, "Zone Cooldown (s)", "Minimum seconds between z- WHO zone queries.", 80, "whoZoneQueryCooldown")
-    uiElements.whoZoneQueryCooldown:SetPoint("LEFT", uiElements.whoNameCacheDuration, "RIGHT", 60, 0)
+    uiElements.whoZoneQueryCooldown:SetPoint("TOPLEFT", 20, y5)
 
     local function saveWhoZoneQueryCooldown(self)
         local value = tonumber(self:GetText())
@@ -4290,8 +4393,10 @@ function TRP3FW:InitializeUI()
         end
     end)
 
+    y5 = y5 - 45
+
     uiElements.phaseCacheFailureDuration = CreateEditBox(tab5, "Phase Fail (s)", "How long to cache FAILED phase check results (short duration recommended).", 80, "phaseCacheFailureDuration")
-    uiElements.phaseCacheFailureDuration:SetPoint("LEFT", uiElements.phaseCacheDuration, "RIGHT", 60, 0)
+    uiElements.phaseCacheFailureDuration:SetPoint("TOPLEFT", 20, y5)
 
     local function savePhaseCacheFailureDuration(self)
         local value = tonumber(self:GetText())
@@ -4317,14 +4422,10 @@ function TRP3FW:InitializeUI()
         end
     end)
 
+    y5 = y5 - 45
+
     uiElements.scanCacheDuration = CreateEditBox(tab5, "Scan Cache (s)", "How long to cache map scan results.", 80, "scanCacheDuration")
-    uiElements.scanCacheDuration:SetPoint("LEFT", uiElements.phaseCacheFailureDuration, "RIGHT", 60, 0)
-
-    uiElements.scanCacheFailureDuration = CreateEditBox(tab5, "Scan Fail (s)", "How long to cache FAILED scan/broadcast results (short duration recommended).", 80, "scanCacheFailureDuration")
-    uiElements.scanCacheFailureDuration:SetPoint("LEFT", uiElements.scanCacheDuration, "RIGHT", 60, 0)
-
-    uiElements.mapScanMinInterval = CreateEditBox(tab5, "Min Scan Interval (s)", "Minimum seconds between map scans (manual or automatic).", 100, "mapScanMinInterval")
-    uiElements.mapScanMinInterval:SetPoint("TOPLEFT", uiElements.phaseCacheDuration, "BOTTOMLEFT", 0, -45)
+    uiElements.scanCacheDuration:SetPoint("TOPLEFT", 20, y5)
 
     local function saveScanCacheDuration(self)
         local value = tonumber(self:GetText())
@@ -4350,6 +4451,11 @@ function TRP3FW:InitializeUI()
         end
     end)
 
+    y5 = y5 - 45
+
+    uiElements.scanCacheFailureDuration = CreateEditBox(tab5, "Scan Fail (s)", "How long to cache FAILED scan/broadcast results (short duration recommended).", 80, "scanCacheFailureDuration")
+    uiElements.scanCacheFailureDuration:SetPoint("TOPLEFT", 20, y5)
+
     local function saveScanCacheFailureDuration(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
@@ -4373,6 +4479,11 @@ function TRP3FW:InitializeUI()
             saveScanCacheFailureDuration(self)
         end
     end)
+
+    y5 = y5 - 45
+
+    uiElements.mapScanMinInterval = CreateEditBox(tab5, "Min Scan Interval (s)", "Minimum seconds between map scans (manual or automatic).", 100, "mapScanMinInterval")
+    uiElements.mapScanMinInterval:SetPoint("TOPLEFT", 20, y5)
 
     local function saveMapScanMinInterval(self)
         local value = tonumber(self:GetText())
@@ -4398,8 +4509,10 @@ function TRP3FW:InitializeUI()
         end
     end)
 
+    y5 = y5 - 45
+
     uiElements.phaseCacheRefreshThreshold = CreateEditBox(tab5, "Phase Refresh (%)", "Enter a whole number from 0 to 100. This is the percentage of cache duration after which a phase result is considered stale and a background refresh is triggered. (e.g., 10 for 10%, 50 for 50%). Default: 20%.", 80, "phaseCacheRefreshThreshold")
-    uiElements.phaseCacheRefreshThreshold:SetPoint("LEFT", uiElements.mapScanMinInterval, "RIGHT", 60, 0)
+    uiElements.phaseCacheRefreshThreshold:SetPoint("TOPLEFT", 20, y5)
 
     local function savePhaseCacheRefreshThreshold(self)
         local value = tonumber(self:GetText())
@@ -4425,7 +4538,109 @@ function TRP3FW:InitializeUI()
         end
     end)
 
-    y5 = y5 - 120  -- Increased offset to push "Cache Limits & Timing" further down
+    y5 = y5 - 150
+
+    -- ============================================
+    -- SPVP CACHE SETTINGS
+    -- ============================================
+    CreateSectionHeader(tab5, "SPVP Cache Settings", y5)
+    y5 = y5 - 45
+
+    -- SPVP Verified Cache Duration (in seconds)
+    uiElements.spvpVerifiedCacheDuration = CreateEditBox(tab5, "Verification Duration (s)", "How long a cryptographic verification remains valid (seconds). Longer durations reduce network overhead.", 80, "spvpVerifiedCacheDuration")
+    uiElements.spvpVerifiedCacheDuration:SetPoint("TOPLEFT", 20, y5)
+
+    local function saveSpvpVerifiedCacheDuration(self)
+        local value = tonumber(self:GetText())
+        if value and value >= 10 and value <= 3600 then
+            TRP3FW_Settings.spvpVerifiedCacheDuration = value
+            TRP3FW:Info("SPVP verification duration set to "..value.." seconds")
+            -- Update cache if registered
+            local CI = TRP3FW.CacheInterface
+            if CI and CI.caches["spvpVerified"] then
+                CI.caches["spvpVerified"].options.ttl = value
+            end
+        else
+            TRP3FW:Warn("Invalid value (must be 10-3600 seconds)")
+            local currentSeconds = TRP3FW_Settings.spvpVerifiedCacheDuration or 300
+            self:SetText(currentSeconds)
+        end
+    end
+
+    local spvpVerifiedDurationEnterPressed = false
+    uiElements.spvpVerifiedCacheDuration:SetScript("OnEnterPressed", function(self)
+        spvpVerifiedDurationEnterPressed = true
+        saveSpvpVerifiedCacheDuration(self)
+        self:ClearFocus()
+        C_Timer.After(0, function() spvpVerifiedDurationEnterPressed = false end)
+    end)
+    uiElements.spvpVerifiedCacheDuration:SetScript("OnEditFocusLost", function(self)
+        if not spvpVerifiedDurationEnterPressed then
+            saveSpvpVerifiedCacheDuration(self)
+        end
+    end)
+
+    y5 = y5 - 45
+
+    -- SPVP Verified Refresh (%)
+    uiElements.spvpVerifiedRefreshRate = CreateEditBox(tab5, "Verification Refresh (%)", "Percentage of duration after which a background re-verification is triggered (10-90%).", 80, "spvpVerifiedRefreshRate")
+    uiElements.spvpVerifiedRefreshRate:SetPoint("TOPLEFT", 20, y5)
+
+    local function saveSpvpVerifiedRefreshRate(self)
+        local value = tonumber(self:GetText())
+        if value and value >= 10 and value <= 90 then
+            TRP3FW_Settings.spvpVerifiedRefreshRate = value
+            TRP3FW:Info("SPVP verification refresh threshold set to "..value.."%")
+        else
+            TRP3FW:Warn("Invalid value (must be 10-90%)")
+            self:SetText(TRP3FW_Settings.spvpVerifiedRefreshRate or 50)
+        end
+    end
+
+    local spvpVerifiedRefreshEnterPressed = false
+    uiElements.spvpVerifiedRefreshRate:SetScript("OnEnterPressed", function(self)
+        spvpVerifiedRefreshEnterPressed = true
+        saveSpvpVerifiedRefreshRate(self)
+        self:ClearFocus()
+        C_Timer.After(0, function() spvpVerifiedRefreshEnterPressed = false end)
+    end)
+    uiElements.spvpVerifiedRefreshRate:SetScript("OnEditFocusLost", function(self)
+        if not spvpVerifiedRefreshEnterPressed then
+            saveSpvpVerifiedRefreshRate(self)
+        end
+    end)
+
+    y5 = y5 - 45
+
+    -- SPVP Salt Refresh (%)
+    uiElements.spvpPhaseSaltRefreshRate = CreateEditBox(tab5, "Phase Salt Refresh (%)", "Percentage of salt cache duration (3h) after which a background fetch is triggered (10-90%).", 80, "spvpPhaseSaltRefreshRate")
+    uiElements.spvpPhaseSaltRefreshRate:SetPoint("TOPLEFT", 20, y5)
+
+    local function saveSpvpSaltRefreshRate(self)
+        local value = tonumber(self:GetText())
+        if value and value >= 10 and value <= 90 then
+            TRP3FW_Settings.spvpPhaseSaltRefreshRate = value
+            TRP3FW:Info("Phase salt refresh threshold set to "..value.."%")
+        else
+            TRP3FW:Warn("Invalid value (must be 10-90%)")
+            self:SetText(TRP3FW_Settings.spvpPhaseSaltRefreshRate or 50)
+        end
+    end
+
+    local spvpSaltRefreshEnterPressed = false
+    uiElements.spvpPhaseSaltRefreshRate:SetScript("OnEnterPressed", function(self)
+        spvpSaltRefreshEnterPressed = true
+        saveSpvpSaltRefreshRate(self)
+        self:ClearFocus()
+        C_Timer.After(0, function() spvpSaltRefreshEnterPressed = false end)
+    end)
+    uiElements.spvpPhaseSaltRefreshRate:SetScript("OnEditFocusLost", function(self)
+        if not spvpSaltRefreshEnterPressed then
+            saveSpvpSaltRefreshRate(self)
+        end
+    end)
+
+    y5 = y5 - 60
 
     -- ============================================
     -- CACHE LIMITS & TIMING
@@ -4460,8 +4675,10 @@ function TRP3FW:InitializeUI()
         end
     end)
 
-    uiElements.phaseInDelay = CreateEditBox(tab5, "Phase-In Delay", "Seconds to delay profile processing after zone changes (prevents false alerts during load-in).", 80, "phaseInDelay")
-    uiElements.phaseInDelay:SetPoint("LEFT", uiElements.cacheSizeLimit, "RIGHT", 60, 0)
+    y5 = y5 - 45
+
+    uiElements.phaseInDelay = CreateEditBox(tab5, "Phase-In Delay", "Seconds to delay profile processing after phasing (0-10, prevents false alerts during load-in).", 80, "phaseInDelay")
+    uiElements.phaseInDelay:SetPoint("TOPLEFT", 20, y5)
 
     local function savePhaseInDelay(self)
         local rawValue = tonumber(self:GetText())
@@ -4493,8 +4710,10 @@ function TRP3FW:InitializeUI()
         end
     end)
 
+    y5 = y5 - 45
+
     uiElements.transitionGracePeriod = CreateEditBox(tab5, "Transition Grace Period", "Seconds after map/phase change to warn about potential false alerts (helps identify race conditions).", 80, "transitionGracePeriod")
-    uiElements.transitionGracePeriod:SetPoint("LEFT", uiElements.phaseInDelay, "RIGHT", 60, 0)
+    uiElements.transitionGracePeriod:SetPoint("TOPLEFT", 20, y5)
 
     local function saveTransitionGracePeriod(self)
         local value = tonumber(self:GetText())
@@ -4552,9 +4771,11 @@ function TRP3FW:InitializeUI()
         end
     end)
 
+    y5 = y5 - 45
+
     -- Validated Names Cache Size Limit
     uiElements.validatedNamesCacheLimit = CreateEditBox(tab5, "Name Cache Size Limit", "Maximum number of validated names to keep in cache (500-10000). Higher = better performance, Lower = less SavedVariables bloat.", 80, "validatedNamesCacheLimit")
-    uiElements.validatedNamesCacheLimit:SetPoint("LEFT", uiElements.validatedNamesCacheDuration, "RIGHT", 120, 0)
+    uiElements.validatedNamesCacheLimit:SetPoint("TOPLEFT", 20, y5)
 
     local function saveValidatedNamesCacheLimit(self)
         local limit = tonumber(self:GetText())

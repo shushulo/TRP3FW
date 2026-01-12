@@ -106,6 +106,10 @@ TRP3FW.defaultSettings = {
     mapScanMinInterval = 60,   -- Minimum seconds between map scans (manual or automatic)
     sendCacheDuration  = 600,
 
+    spvpVerifiedCacheDuration = 300,    -- 5 minutes (cryptographic verification)
+    spvpVerifiedRefreshRate = 50,       -- Refresh when age > 50% of TTL
+    spvpPhaseSaltRefreshRate = 50,      -- Refresh when salt age > 50% of TTL
+
     phaseCacheDuration = 300,    -- 5 minutes (up from 120s)
     phaseCacheRefreshThreshold = 0.5, -- Refresh when age > 50% of TTL (150s)
     phaseCacheFailureDuration = 10, -- Short cache duration for failed phase checks (allows quick retries)
