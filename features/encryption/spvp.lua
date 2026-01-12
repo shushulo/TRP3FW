@@ -392,9 +392,25 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
                 end
                 -- Expired negative cache - retry
             elseif cached.salt then
+                local age = self:GetCurrentTime() - cached.timestamp
                 self:Debug(string.format("Phase salt cache hit for phase %d (age: %.0fs)",
-                    phaseID, self:GetCurrentTime() - cached.timestamp), "spvp")
+                    phaseID, age), "spvp")
                 
+                -- Background refresh logic
+                local ttl = TRP3FW_Settings.spvpSaltCacheDuration or 10800
+                local refreshThreshold = ttl * ((TRP3FW_Settings.spvpPhaseSaltRefreshRate or 50) / 100)
+                
+                if age > refreshThreshold then
+                    self:Debug(string.format("Phase salt cache aging (%.0fs) - triggering background refresh", age), "spvp")
+                    -- Trigger API fetch (HandleSaltResponse will update cache)
+                    if C_Epsilon and C_Epsilon.GetPhaseAddonData then
+                        local result = C_Epsilon.GetPhaseAddonData("TRP3FW_SPVP_KEY")
+                        if result and #result < 32 then -- Result is a ticket
+                            self.pendingSaltTickets[result] = phaseID
+                        end
+                    end
+                end
+
                 -- Track hits
                 if self.sessionStats and self.sessionStats.spvpCache then
                     self.sessionStats.spvpCache.hits = self.sessionStats.spvpCache.hits + 1
@@ -666,10 +682,27 @@ function TRP3FW:CheckPlayerViaSPVP(playerName, sendId, callback)
     -- Check cache first
     local cached = CI:Get("spvpVerified", playerName)
     if cached then
-        TRP3FW:Debug(string.format("SPVP cache hit: %s", playerName), "spvp")
-        if hs then hs:IncrementStat("cacheStats", "spvpVerifiedCacheHits") end
-        callback(true, "cached")
-        return
+        local now = TRP3FW:GetCurrentTime()
+        local age = now - cached.timestamp
+        local ttl = TRP3FW_Settings.spvpVerifiedCacheDuration or 300
+        local refreshThreshold = ttl * ((TRP3FW_Settings.spvpVerifiedRefreshRate or 50) / 100)
+
+        if age < refreshThreshold then
+            -- Fresh cache
+            TRP3FW:Debug(string.format("SPVP cache hit: %s", playerName), "spvp")
+            if hs then hs:IncrementStat("cacheStats", "spvpVerifiedCacheHits") end
+            callback(true, "cached")
+            return
+        else
+            -- Aging cache - return success but refresh in background
+            TRP3FW:Debug(string.format("SPVP cache hit (aging): %s - triggering background refresh", playerName), "spvp")
+            if hs then hs:IncrementStat("cacheStats", "spvpVerifiedCacheHits") end
+            callback(true, "cached")
+            
+            -- Background refresh (no callback)
+            StartSPVPHandshakeWithRetry(playerName, sendId, nil, 0)
+            return
+        end
     end
 
     if hs then hs:IncrementStat("cacheStats", "spvpVerifiedCacheMisses") end
