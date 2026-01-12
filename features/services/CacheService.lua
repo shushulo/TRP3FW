@@ -71,22 +71,16 @@ function CacheService:InitializeCaches()
         maxSize = 1000
     })
 
-    -- SPVP Verified Cache (successful verifications)
+    -- SPVP Verified Cache
     CI:Register("spvpVerified", {
-        ttl = 300,  -- 5 minutes
+        ttl = TRP3FW_Settings.spvpVerifiedCacheDuration or 300,
         maxSize = 1000
     })
 
-    -- SPVP Session Cache (replay attack protection)
-    CI:Register("spvpSessions", {
-        ttl = 60,  -- 1 minute
-        maxSize = 500
-    })
-
-    -- SPVP Phase Salt Cache (reduces API calls)
+    -- SPVP Phase Salt Cache
     CI:Register("spvpPhaseSalt", {
-        ttl = TRP3FW_Settings.spvpSaltCacheDuration,  -- 3 hours default
-        maxSize = 100  -- Max 100 phases cached
+        ttl = TRP3FW_Settings.spvpSaltCacheDuration or 10800,
+        maxSize = 500
     })
 
     -- Name Normalization Caches (Utility)
@@ -547,6 +541,12 @@ function CacheService:InitializeZoneCacheClearing()
     zoneChangeFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     zoneChangeFrame:RegisterEvent("SCENARIO_UPDATE")
     zoneChangeFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
+    
+    -- Epsilon-specific phase change event
+    if TRP3FW.hasEpsilonAPI then
+        pcall(function() zoneChangeFrame:RegisterEvent("EPSILON_PHASE_CHANGE") end)
+    end
+
     zoneChangeFrame:SetScript("OnEvent", function(frame, event)
         local start = debugprofilestop()
         local now = TRP3FW:GetCurrentTime()
@@ -569,12 +569,12 @@ function CacheService:InitializeZoneCacheClearing()
         end
 
         local shouldClear = false
-        if event == "SCENARIO_UPDATE" then
+        if event == "SCENARIO_UPDATE" or event == "EPSILON_PHASE_CHANGE" then
             shouldClear = TRP3FW_Settings.clearCacheOnPhaseChange
-            TRP3FW:Debug("[Phase Change] SCENARIO_UPDATE detected, clearCacheOnPhaseChange="..tostring(shouldClear), "cache")
+            TRP3FW:Debug(string.format("[%s] Detected, clearCacheOnPhaseChange=%s", event, tostring(shouldClear)), "cache")
 
             if (now - (TRP3FW.lastZoneEventTime or 0)) < 0.5 then
-                TRP3FW:Debug("[Phase Change] Zone event fired recently, skipping duplicate clear", "cache")
+                TRP3FW:Debug(string.format("[%s] Zone event fired recently, skipping duplicate clear", event), "cache")
                 return
             end
             TRP3FW.lastPhaseChangeTime = now
@@ -606,7 +606,7 @@ function CacheService:InitializeZoneCacheClearing()
             isMergedEvent = true
         end
 
-        if event == "SCENARIO_UPDATE" then
+        if event == "SCENARIO_UPDATE" or event == "EPSILON_PHASE_CHANGE" then
             if TRP3FW_Settings.clearPhaseCheckOnPhaseChange then if CI then CI:Clear("phaseCheck") end end
             if TRP3FW_Settings.clearAllowedSendersOnPhaseChange then if CI then CI:Clear("allowedSenders") end end
             if TRP3FW_Settings.clearInteractionOnPhaseChange then if CI then CI:Clear("interaction") end end
@@ -618,7 +618,12 @@ function CacheService:InitializeZoneCacheClearing()
             if TRP3FW_Settings.clearRecentScansOnPhaseChange then if CI then CI:Clear("mapScan") end end
             if TRP3FW_Settings.clearWhoZoneOnPhaseChange then if CI then CI:Clear("whoZone") end end
             if TRP3FW_Settings.clearWhoNameOnPhaseChange then if CI then CI:Clear("whoName") end end
-            if TRP3FW_Settings.clearSpvpOnPhaseChange then if CI then CI:Clear("spvpVerified") end end
+            if TRP3FW_Settings.clearSpvpOnPhaseChange then 
+                if CI then 
+                    CI:Clear("spvpVerified")
+                    CI:Clear("spvpPhaseSalt")
+                end 
+            end
 
         elseif event == "ZONE_CHANGED_NEW_AREA" then
             if TRP3FW_Settings.clearPhaseCheckOnZoneChange or (isMergedEvent and TRP3FW_Settings.clearPhaseCheckOnPhaseChange) then
@@ -648,7 +653,10 @@ function CacheService:InitializeZoneCacheClearing()
                 if CI then CI:Clear("whoName") end
             end
             if TRP3FW_Settings.clearSpvpOnZoneChange or (isMergedEvent and TRP3FW_Settings.clearSpvpOnPhaseChange) then
-                if CI then CI:Clear("spvpVerified") end
+                if CI then 
+                    CI:Clear("spvpVerified")
+                    CI:Clear("spvpPhaseSalt") 
+                end
             end
 
         elseif event == "PLAYER_ENTERING_WORLD" then
@@ -661,6 +669,7 @@ function CacheService:InitializeZoneCacheClearing()
                 CI:Clear("whoZone")
                 CI:Clear("whoName")
                 CI:Clear("spvpVerified")
+                CI:Clear("spvpPhaseSalt")
             end
             TRP3FW.recentScanRequests = {}
         end

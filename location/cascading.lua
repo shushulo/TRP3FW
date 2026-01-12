@@ -113,10 +113,10 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
             local canEarlySuccess = (results.phaseCheck == true and results.mapCheck == true)
             -- Only allow early success if phase verification is strong (Targeting/Nameplate/Group)
             -- We don't trust "cached" alone for early exit without SPVP confirming
-            local function isMethodStrong(m) 
-                return m and (m:find("target") or m == "nameplate" or m == "group") 
+            local function isMethodStrongLocal(m) 
+                return m and (m:find("target") or m:find("batch") or m == "nameplate" or m == "group") 
             end
-            local isStrongPhase = isMethodStrong(results.phaseMethod)
+            local isStrongPhase = isMethodStrongLocal(results.phaseMethod)
             
             if canEarlySuccess and isStrongPhase and spvpMode ~= "required" then
                 TRP3FW:Debug("Early Success triggered: Phase/Map verified via "..tostring(results.phaseMethod).." (skipping pending SPVP wait)", "location")
@@ -178,7 +178,7 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
             -- Nearness signal: proves they are physically nearby (not just same-phase)
             -- We check both phase and map methods for targeting evidence
             local function isMethodTargeting(m) 
-                return m and (m:find("target") or m == "nameplate") 
+                return m and (m:find("target") or m:find("batch") or m == "nameplate") 
             end
             local isNear = isMethodTargeting(results.phaseMethod) or isMethodTargeting(results.mapMethod)
 
@@ -202,7 +202,7 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
         end
 
         local function isMethodStrong(m) 
-            return m and (m:find("target") or m == "nameplate" or m == "group") 
+            return m and (m:find("target") or m:find("batch") or m == "nameplate" or m == "group") 
         end
         local isPhaseStrong = isMethodStrong(results.phaseMethod) or (results.phaseMethod == "spvp" and results.mapMethod == "target")
 
@@ -317,8 +317,7 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
                     -- Definitive results (who_query, who_not_found, cached) should NOT.
                     local isTechnicalFailure = source:find("timeout") or source:find("backoff") or source:find("rate_limit") or source:find("error") or source:find("full")
                     
-                    if isTechnicalFailure and not TRP3FW.detectedAddons.TRP3 then
-                         -- On Non-Epsilon/Non-TRP3 environments we'd fallback, but WHO is Epsilon-only.
+                    if isTechnicalFailure and TRP3FW.detectedAddons.MapScanner then
                          -- If WHO failed due to technical reasons, try Map Scan if available.
                          TRP3FW:Debug("WHO failed technically ("..tostring(source).."), falling back to Map Scan", "location")
                          runMapScan()
