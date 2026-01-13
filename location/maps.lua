@@ -336,8 +336,16 @@ function TRP3FW:MapScan(name, sendId, callback)
     if CI then
         cached = CI:Get("mapScan", name)
     end
-    
+
     local currentMapID = self:GetCurrentMapID()
+
+    -- Skip map scan if we don't have a map ID
+    if not currentMapID then
+        self:Debug("Map scan skipped: no map ID available (likely in instance/protected area)", "channel")
+        if callback then callback(false, "no_mapid") end
+        return
+    end
+
     if cached then
         local allowedDuration = TRP3FW_Settings.scanCacheDuration or 120
         if cached.found == false then

@@ -302,7 +302,7 @@ StaticPopupDialogs["TRP3FW_WHITELIST_CONFIRM"] = {
             uiElements.whitelistBypassEnabled:SetChecked(true)
         end
         if uiElements and uiElements.whitelistEdit then
-            uiElements.whitelistEdit:SetEnabled(true)
+            uiElements.whitelistEdit:Enable()
             uiElements.whitelistEdit:SetAlpha(1)
         end
         if uiElements and uiElements.whitelistScroll then
@@ -316,7 +316,7 @@ StaticPopupDialogs["TRP3FW_WHITELIST_CONFIRM"] = {
             uiElements.whitelistBypassEnabled:SetChecked(false)
         end
         if uiElements and uiElements.whitelistEdit then
-            uiElements.whitelistEdit:SetEnabled(false)
+            uiElements.whitelistEdit:Disable()
             uiElements.whitelistEdit:SetAlpha(0.5)
         end
         if uiElements and uiElements.whitelistScroll then
@@ -1351,7 +1351,11 @@ local function RefreshUI()
     if uiElements.scanResponseWhitelistEnabled then
         uiElements.scanResponseWhitelistEnabled:SetChecked(TRP3FW_Settings.scanResponseWhitelistEnabled)
         local enabled = TRP3FW_Settings.scanResponseWhitelistEnabled
-        uiElements.scanResponseWhitelistEdit:SetEnabled(enabled)
+        if enabled then
+            uiElements.scanResponseWhitelistEdit:Enable()
+        else
+            uiElements.scanResponseWhitelistEdit:Disable()
+        end
         uiElements.scanResponseWhitelistEdit:SetAlpha(enabled and 1 or 0.5)
         if uiElements.scanResponseWhitelistScroll then
             uiElements.scanResponseWhitelistScroll:SetAlpha(enabled and 1 or 0.5)
@@ -1408,7 +1412,7 @@ local function RefreshUI()
         if uiElements.scanResponseWhitelistEnabled then
             uiElements.scanResponseWhitelistEnabled:Disable()
             uiElements.scanResponseWhitelistEnabled:SetAlpha(0.5)
-            uiElements.scanResponseWhitelistEdit:SetEnabled(false)
+            uiElements.scanResponseWhitelistEdit:Disable()
             uiElements.scanResponseWhitelistEdit:SetAlpha(0.5)
             if uiElements.scanResponseWhitelistScroll then
                 uiElements.scanResponseWhitelistScroll:SetAlpha(0.5)
@@ -1456,7 +1460,11 @@ local function RefreshUI()
                 uiElements.scanResponseWhitelistEnabled:SetAlpha(0.5)
             end
             local enabled = gatingActive and TRP3FW_Settings.scanResponseWhitelistEnabled
-            uiElements.scanResponseWhitelistEdit:SetEnabled(enabled)
+            if enabled then
+                uiElements.scanResponseWhitelistEdit:Enable()
+            else
+                uiElements.scanResponseWhitelistEdit:Disable()
+            end
             uiElements.scanResponseWhitelistEdit:SetAlpha(enabled and 1 or 0.5)
             if uiElements.scanResponseWhitelistScroll then
                 uiElements.scanResponseWhitelistScroll:SetAlpha(enabled and 1 or 0.5)
@@ -1528,7 +1536,11 @@ local function RefreshUI()
 	if uiElements.whitelistEdit then
 		uiElements.whitelistEdit:SetText(TRP3FW_Settings.whitelistEntries or "")
 		local enabled = TRP3FW_Settings.whitelistEnabled
-		uiElements.whitelistEdit:SetEnabled(enabled)
+		if enabled then
+			uiElements.whitelistEdit:Enable()
+		else
+			uiElements.whitelistEdit:Disable()
+		end
 		uiElements.whitelistEdit:SetAlpha(enabled and 1 or 0.5)
         if uiElements.whitelistScroll then
             uiElements.whitelistScroll:SetAlpha(enabled and 1 or 0.5)
@@ -1546,7 +1558,11 @@ local function RefreshUI()
     if uiElements.ghostProfileWhitelistEdit then
         uiElements.ghostProfileWhitelistEdit:SetText(TRP3FW_Settings.ghostProfileWhitelist or "")
         local enabled = TRP3FW_Settings.ghostProfileWhitelistEnabled
-        uiElements.ghostProfileWhitelistEdit:SetEnabled(enabled)
+        if enabled then
+            uiElements.ghostProfileWhitelistEdit:Enable()
+        else
+            uiElements.ghostProfileWhitelistEdit:Disable()
+        end
         uiElements.ghostProfileWhitelistEdit:SetAlpha(enabled and 1 or 0.5)
         if uiElements.ghostProfileWhitelistScroll then
             uiElements.ghostProfileWhitelistScroll:SetAlpha(enabled and 1 or 0.5)
@@ -1588,6 +1604,10 @@ local function RefreshUI()
     end
     if uiElements.spvpAutoInitialize then
         uiElements.spvpAutoInitialize:SetChecked(TRP3FW_Settings.spvpAutoInitialize)
+    end
+    if uiElements.spvpBlockDurationSlider then
+        local duration = TRP3FW_Settings.spvpBlockDuration or 60
+        uiElements.spvpBlockDurationSlider:SetValue(duration)
     end
     if uiElements.spvpSaltCacheDurationSlider then
         local duration = TRP3FW_Settings.spvpSaltCacheDuration or 10800
@@ -1683,7 +1703,7 @@ local function RefreshUI()
             uiElements.ghostProfileWhitelistEnabled:SetAlpha(0.5)
         end
         if uiElements.ghostProfileWhitelistEdit then
-            uiElements.ghostProfileWhitelistEdit:SetEnabled(false)
+            uiElements.ghostProfileWhitelistEdit:Disable()
             uiElements.ghostProfileWhitelistEdit:SetAlpha(0.5)
             if uiElements.ghostProfileWhitelistScroll then
                 uiElements.ghostProfileWhitelistScroll:SetAlpha(0.5)
@@ -2617,7 +2637,7 @@ local function CreateAlertsTab(tab3)
             TRP3FW_Settings.whitelistEnabled = false
             TRP3FW:RefreshWhitelistCache()
             if uiElements.whitelistEdit then
-                uiElements.whitelistEdit:SetEnabled(false)
+                uiElements.whitelistEdit:Disable()
                 uiElements.whitelistEdit:SetAlpha(0.5)
             end
             if uiElements.whitelistScroll then
@@ -2690,7 +2710,11 @@ local function CreateAlertsTab(tab3)
     -- Apply enabled state based on current setting
     do
         local enabled = TRP3FW_Settings.whitelistEnabled
-        whitelistEdit:SetEnabled(enabled)
+        if enabled then
+            whitelistEdit:Enable()
+        else
+            whitelistEdit:Disable()
+        end
         whitelistEdit:SetAlpha(enabled and 1 or 0.5)
         whitelistScroll:SetAlpha(enabled and 1 or 0.5)
     end
@@ -2858,7 +2882,11 @@ local function CreateAlertsTab(tab3)
         TRP3FW_Settings.ghostProfileWhitelistEnabled = self:GetChecked()
         if uiElements.ghostProfileWhitelistEdit then
             local enabled = self:GetChecked()
-            uiElements.ghostProfileWhitelistEdit:SetEnabled(enabled)
+            if enabled then
+                uiElements.ghostProfileWhitelistEdit:Enable()
+            else
+                uiElements.ghostProfileWhitelistEdit:Disable()
+            end
             uiElements.ghostProfileWhitelistEdit:SetAlpha(enabled and 1 or 0.5)
             uiElements.ghostProfileWhitelistScroll:SetAlpha(enabled and 1 or 0.5)
         end
@@ -2940,7 +2968,11 @@ local function CreateAlertsTab(tab3)
     -- Apply enabled state based on current setting
     do
         local enabled = TRP3FW_Settings.ghostProfileWhitelistEnabled
-        whitelistEdit:SetEnabled(enabled)
+        if enabled then
+            whitelistEdit:Enable()
+        else
+            whitelistEdit:Disable()
+        end
         whitelistEdit:SetAlpha(enabled and 1 or 0.5)
         whitelistScroll:SetAlpha(enabled and 1 or 0.5)
     end
@@ -3049,6 +3081,12 @@ local function CreateAlertsTab(tab3)
         end
         uiElements.spvpBlockDurationSlider.Text:SetText("Block Duration: " .. text)
     end)
+
+    -- Ensure thumb is visible at load
+    C_Timer.After(0, function()
+        uiElements.spvpBlockDurationSlider:SetValue(TRP3FW_Settings.spvpBlockDuration or 60)
+    end)
+
     table.insert(epsilonControls, uiElements.spvpBlockDurationSlider)
     y3 = y3 - 60  -- Increased from 45
 
@@ -3084,6 +3122,12 @@ local function CreateAlertsTab(tab3)
         end
         uiElements.spvpSaltCacheDurationSlider.Text:SetText("Salt Cache: " .. text)
     end)
+
+    -- Ensure thumb is visible at load
+    C_Timer.After(0, function()
+        uiElements.spvpSaltCacheDurationSlider:SetValue(TRP3FW_Settings.spvpSaltCacheDuration or 3600)
+    end)
+
     table.insert(epsilonControls, uiElements.spvpSaltCacheDurationSlider)
     y3 = y3 - 60  -- Increased from 45
 

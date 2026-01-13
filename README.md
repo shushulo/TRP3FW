@@ -31,6 +31,7 @@ On first launch, you will be prompted to choose a preset. These can be changed l
 ### 3. Usage
 *   **Open Settings:** `/trp3fwui`
 *   **Check Status:** `/trp3fw status`
+*   **Show Location:** `/trp3fw location` (displays current map ID and zone)
 *   **Note:** You can always **request** other players' profiles. TRP3FW only blocks *your* outgoing data.
 
 ---
