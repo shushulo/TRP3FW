@@ -27,6 +27,42 @@ SlashCmdList.TRP3FW = function(msg)
         TRP3FW:TestNotifications()
         return
 
+    elseif cmd == "location" or cmd == "where" then
+        -- Show current map ID and zone name
+        local mapID = TRP3FW:GetCurrentMapID()
+        local zoneName = TRP3FW.currentZoneName or GetRealZoneText() or GetZoneText() or "Unknown"
+        local subZone = GetSubZoneText() or ""
+        local minimapZone = GetMinimapZoneText() or ""
+
+        TRP3FW:Info("|cff00ffffCurrent Location Information|r")
+        TRP3FW:Info("|cff00ccffMap ID:|r " .. (mapID and tostring(mapID) or "|cffff0000[Not Available]|r"))
+        if mapID then
+            local mapName = TRP3FW:GetMapName(mapID)
+            if mapName then
+                TRP3FW:Info("|cff00ccffMap Name:|r " .. mapName)
+            end
+        end
+        TRP3FW:Info("|cff00ccffZone:|r " .. zoneName)
+        if subZone and subZone ~= "" then
+            TRP3FW:Info("|cff00ccffSubzone:|r " .. subZone)
+        end
+        if minimapZone and minimapZone ~= "" and minimapZone ~= zoneName then
+            TRP3FW:Info("|cff00ccffMinimap Zone:|r " .. minimapZone)
+        end
+
+        -- Show Epsilon phase info if available
+        if TRP3FW.hasEpsilonAPI then
+            local phaseID = TRP3FW:GetCurrentPhaseID()
+            if phaseID then
+                TRP3FW:Info("|cff00ccffEpsilon Phase ID:|r " .. tostring(phaseID))
+            end
+        end
+
+        TRP3FW:Info("|cffaaaaaa━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━|r")
+        TRP3FW:Info("|cffaaaaaaDifference:|r |cff00ff00Map ID|r = numeric ID used by WoW's map system")
+        TRP3FW:Info("           |cff00ff00Zone|r = text name of the area you're in")
+        return
+
     elseif cmd == "notify" then
         local arg = rest:lower()
         local function b(flag) return flag and "|cff00ff00ON|r" or "|cffaaaaaaOFF|r" end
