@@ -501,7 +501,32 @@ function TRP3FW:ApplyLocationDecision(context, shouldBlock, shouldAlert, useGhos
         end
     end
 
-    self:RecordHistory(context.playerName, context.addon, shouldAlert, shouldBlock)
+    self:RecordHistory(context.playerName, context.addon, shouldAlert, shouldBlock, useGhostMode, alertType)
+
+    -- Update session metrics
+    local historyService = self.ServiceContainer:Get("HistoryService")
+    if historyService then
+        if shouldAlert then historyService:IncrementStat("alerts") end
+        if shouldBlock then 
+            if useGhostMode then
+                historyService:IncrementStat("ghostSends")
+            else
+                historyService:IncrementStat("blocks")
+            end
+        end
+        
+        if alertType then
+            if alertType == "start_phase_block" then
+                historyService:IncrementStat("startPhaseBlocks")
+            elseif alertType:find("phase") then
+                historyService:IncrementStat("phaseAlerts")
+            end
+            
+            if alertType:find("map") then
+                historyService:IncrementStat("mapAlerts")
+            end
+        end
+    end
 
     if shouldBlock then
         if useGhostMode then

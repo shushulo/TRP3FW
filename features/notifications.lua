@@ -29,9 +29,9 @@ function TRP3FW:DebugNotificationSuppression(...)
     if service then service:DebugNotificationSuppression(...) end
 end
 
-function TRP3FW:RecordHistory(playerName, addon, wasAlert, wasBlocked)
+function TRP3FW:RecordHistory(playerName, addon, wasAlert, wasBlocked, wasGhost, alertType)
     local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
     if historyService then
-        historyService:RecordHistory(playerName, addon, wasAlert, wasBlocked)
+        historyService:RecordHistory(playerName, addon, wasAlert, wasBlocked, wasGhost, alertType)
     end
 end

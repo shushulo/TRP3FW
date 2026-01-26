@@ -1098,7 +1098,9 @@ local function UpdateStatusTab()
         end
 
         local function outcomeText(entry)
-            if entry.wasBlocked then
+            if entry.wasGhost then
+                return "|cff88ccffGHOST|r"
+            elseif entry.wasBlocked then
                 return "|cffff4444BLOCK|r"
             elseif entry.wasAlert then
                 return "|cffffcc33ALERT|r"
