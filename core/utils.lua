@@ -786,6 +786,20 @@ function TRP3FW:StripAllColorCodes(text)
     return text
 end
 
+-- Icon removal functions
+function TRP3FW:StripAllIcons(text)
+    if not text or type(text) ~= "string" then
+        return text
+    end
+
+    -- Strip WoW texture tags: |Tpath:size...|t
+    -- Pattern matches: |T (or |t) followed by anything until |t (or |T)
+    -- Non-greedy match (.-) ensures we don't consume multiple icons as one
+    text = text:gsub("|[Tt].-|[Tt]", "")
+
+    return text
+end
+
 -- OPTIMIZATION: Helper function to count table entries efficiently
 function TRP3FW:CountTableEntries(tbl)
     if not tbl or type(tbl) ~= "table" then return 0 end

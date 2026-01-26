@@ -34,6 +34,7 @@ location\check_interface.lua
 
 # Hook systems
 hooks\gradient.lua
+hooks\icon.lua
 hooks\fontsize.lua
 hooks\msp.lua
 hooks\trp3_chomp_pipeline.lua

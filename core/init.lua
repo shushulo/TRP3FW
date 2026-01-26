@@ -223,6 +223,7 @@ TRP3FW.defaultSettings = {
     cacheUserWhoResults = false, -- Cache results from user /who queries (zone/name with map)
 
 	filterGradients = false,
+	filterIcons = false,
 	filterMinimumFontSize = false,  -- Inject minimum font size into incoming profiles
 	minimumFontSizeLevel = "h3",    -- Font size level to inject (h1, h2, h3, p)
 
