@@ -237,7 +237,7 @@ function HistoryService:RecordPerformance(duration, context)
     end
 end
 
-function HistoryService:RecordHistory(playerName, addon, wasAlert, wasBlocked)
+function HistoryService:RecordHistory(playerName, addon, wasAlert, wasBlocked, wasGhost, alertType)
     if not TRP3FW_Settings.trackHistory then return end
     
     -- Use SecurityService for sanitization
@@ -252,7 +252,9 @@ function HistoryService:RecordHistory(playerName, addon, wasAlert, wasBlocked)
         addon = addon,
         timestamp = TRP3FW:GetCurrentTime(),
         wasAlert = wasAlert,
-        wasBlocked = wasBlocked
+        wasBlocked = wasBlocked,
+        wasGhost = wasGhost,
+        alertType = alertType
     })
     
     while #self.notificationHistory > TRP3FW_Settings.maxHistorySize do

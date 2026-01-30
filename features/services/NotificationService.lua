@@ -170,7 +170,7 @@ function NotificationService:Notify(playerName, context)
         location.theirZone,
         location.ourZone,
         context.alertType,
-        isBlock,
+        isBlock or isGhost,
         location.mapCacheAge or 0,
         context.cacheInfo,
         location.recentTransition,
@@ -191,7 +191,10 @@ function NotificationService:Notify(playerName, context)
             location.theirZone,
             location.ourZone,
             context.alertType,
-            isBlock or isGhost
+            isBlock or isGhost,
+            location.recentTransition,
+            location.timeSinceTransition,
+            isGhost
         )
     end
 

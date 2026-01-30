@@ -67,6 +67,7 @@ local SETTING_LEVELS = {
     ghostProfileSwitch = 2,
     ghostProfileName = 2,
     filterGradients = 2,
+    filterIcons = 2,
     filterMinimumFontSize = 2,
     minimumFontSizeLevel = 2,
     trackHistory = 2,
@@ -1097,7 +1098,9 @@ local function UpdateStatusTab()
         end
 
         local function outcomeText(entry)
-            if entry.wasBlocked then
+            if entry.wasGhost then
+                return "|cff88ccffGHOST|r"
+            elseif entry.wasBlocked then
                 return "|cffff4444BLOCK|r"
             elseif entry.wasAlert then
                 return "|cffffcc33ALERT|r"
@@ -1725,6 +1728,7 @@ local function RefreshUI()
 
     -- Filters & Addons tab
     uiElements.filterGradients:SetChecked(TRP3FW_Settings.filterGradients)
+    uiElements.filterIcons:SetChecked(TRP3FW_Settings.filterIcons)
     uiElements.filterMinimumFontSize:SetChecked(TRP3FW_Settings.filterMinimumFontSize)
 
     -- Set dropdown text based on current setting
@@ -4318,6 +4322,18 @@ function TRP3FW:InitializeUI()
             TRP3FW:Info("Gradient filter enabled - please /reload for changes to take effect")
         else
             TRP3FW:Info("Gradient filter disabled - please /reload for changes to take effect")
+        end
+    end)
+    y4 = y4 - 40
+
+    uiElements.filterIcons = CreateCheckbox(tab4, "Strip Icons from Titles", "Remove embedded icons from incoming player titles (requires /reload)", "filterIcons")
+    uiElements.filterIcons:SetPoint("TOPLEFT", 20, y4)
+    uiElements.filterIcons:SetScript("OnClick", function(self)
+        TRP3FW_Settings.filterIcons = self:GetChecked()
+        if self:GetChecked() then
+            TRP3FW:Info("Icon filter enabled - please /reload for changes to take effect")
+        else
+            TRP3FW:Info("Icon filter disabled - please /reload for changes to take effect")
         end
     end)
     y4 = y4 - 40
