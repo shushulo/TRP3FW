@@ -847,7 +847,7 @@ SlashCmdList.TRP3FW = function(msg)
             TRP3FW_Settings.filterIcons = not TRP3FW_Settings.filterIcons
             TRP3FW:Info("Icon filter "..(TRP3FW_Settings.filterIcons and "|cff00ff00enabled|r" or "|cffaaaaaadisabled|r"))
             if TRP3FW_Settings.filterIcons then
-                TRP3FW:Info("Icons will be stripped from incoming profile titles")
+                TRP3FW:Info("Icons will be stripped from incoming profiles")
                 TRP3FW:Warn("Please /reload for icon filter to take effect")
             else
                 TRP3FW:Info("Icons will be displayed normally")
