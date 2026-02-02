@@ -4326,7 +4326,7 @@ function TRP3FW:InitializeUI()
     end)
     y4 = y4 - 40
 
-    uiElements.filterIcons = CreateCheckbox(tab4, "Strip Icons from Titles", "Remove embedded icons from incoming player titles (requires /reload)", "filterIcons")
+    uiElements.filterIcons = CreateCheckbox(tab4, "Strip Icons from Profiles", "Remove embedded icons from player names, titles, class, currently, OOC, nicknames, and house fields (requires /reload)", "filterIcons")
     uiElements.filterIcons:SetPoint("TOPLEFT", 20, y4)
     uiElements.filterIcons:SetScript("OnClick", function(self)
         TRP3FW_Settings.filterIcons = self:GetChecked()

@@ -4,6 +4,7 @@
 ## Author: Community
 ## Version: 2.9.2-hotfix
 ## SavedVariables: TRP3FW_Settings, TRP3FW_MinimapSettings, TRP3FW_ValidatedNames
+## OptionalDeps: TotalRP3, MyRolePlay, XRP
 
 # Core systems (load first)
 core\init.lua
