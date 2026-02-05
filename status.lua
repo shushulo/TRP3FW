@@ -128,15 +128,15 @@ function TRP3FW:ShowStatus()
     print("  Latency (Inst/Avg/Peak): |cffffff00"..string.format("%.2f / %.2f / %.2f", instLatency, avgLatency, peakLatency).." ms|r")
     print("  CPU Load (Inst/Avg/Peak): |cffffff00"..string.format("%.2f / %.2f / %.2f", instLoad, avgLoad, peakLoad).." %|r")
     print("  Throughput (Inst/Avg/Peak): |cffffff00"..string.format("%.2f / %.2f / %.2f", instThroughput, avgThroughput, peakThroughput).." req/s|r")
-    print("  Notifications: "..self:EnabledDisabled(TRP3FW_Settings.notifyEnabled))
-    print("  Suppression: |cffffff00"..TRP3FW_Settings.suppressionTime.."s|r")
-    print("  Chat: "..self:OnOff(TRP3FW_Settings.showInChat))
-    print("  Screen: "..self:OnOff(TRP3FW_Settings.showOnScreen))
-    print("  Sound: "..self:OnOff(TRP3FW_Settings.playSound))
-    print("  Show addon source: "..self:OnOff(TRP3FW_Settings.showAddonSource))
-    print("  Cache info in notifications: "..self:OnOff(TRP3FW_Settings.showCacheInfo))
-    print("  Check results in notifications: "..self:OnOff(TRP3FW_Settings.showCheckResults))
-    print("  Ghost notifications: "..self:OnOff(TRP3FW_Settings.showGhostNotifications))
+    print("  Notifications: "..self:EnabledDisabled(TRP3FW.Prefs.notifyEnabled))
+    print("  Suppression: |cffffff00"..TRP3FW.Prefs.suppressionTime.."s|r")
+    print("  Chat: "..self:OnOff(TRP3FW.Prefs.showInChat))
+    print("  Screen: "..self:OnOff(TRP3FW.Prefs.showOnScreen))
+    print("  Sound: "..self:OnOff(TRP3FW.Prefs.playSound))
+    print("  Show addon source: "..self:OnOff(TRP3FW.Prefs.showAddonSource))
+    print("  Cache info in notifications: "..self:OnOff(TRP3FW.Prefs.showCacheInfo))
+    print("  Check results in notifications: "..self:OnOff(TRP3FW.Prefs.showCheckResults))
+    print("  Ghost notifications: "..self:OnOff(TRP3FW.Prefs.showGhostNotifications))
 
     -- Location check settings
     print("|cff00ffffLocation Check Settings:|r")
@@ -149,59 +149,59 @@ function TRP3FW:ShowStatus()
         ["alert_block"] = "|cffff0000 Alert + Block",
         ["alert_ghost"] = "|cffffaa00 Alert + Ghost"
     }
-    local phaseMode = TRP3FW_Settings.phaseCheckMode or "off"
-    local mapMode = TRP3FW_Settings.mapCheckMode or "off"
+    local phaseMode = TRP3FW.Prefs.phaseCheckMode or "off"
+    local mapMode = TRP3FW.Prefs.mapCheckMode or "off"
     print("  Phase check mode: "..(modeNames[phaseMode] or "|cffaaaaaa unknown").."|r"..(self.hasEpsilonAPI and " |cff00ff00(API available)|r" or " |cffff0000(API not available)|r"))
     print("  Map check mode: "..(modeNames[mapMode] or "|cffaaaaaa unknown").."|r")
-    print("  Use WHO query: "..self:OnOff(TRP3FW_Settings.useWhoQuery)..(self.hasEpsilonAPI and " |cff00ff00(API available)|r" or " |cffff0000(API not available)|r"))
-    print("  Block in start phase: "..self:OnOff(TRP3FW_Settings.blockStartPhase).." |cffaaaaaa(Phase 169)|r")
-    print("  Ghost in start phase: "..self:OnOff(TRP3FW_Settings.ghostOnStartPhase).." |cffaaaaaa(Phase 169)|r")
-    print("  Party/raid auto-allow: "..self:OnOff(TRP3FW_Settings.allowGroupPhaseBypass).." |cffaaaaaa(group members skip checks when enabled)|r")
+    print("  Use WHO query: "..self:OnOff(TRP3FW.Prefs.useWhoQuery)..(self.hasEpsilonAPI and " |cff00ff00(API available)|r" or " |cffff0000(API not available)|r"))
+    print("  Block in start phase: "..self:OnOff(TRP3FW.Prefs.blockStartPhase).." |cffaaaaaa(Phase 169)|r")
+    print("  Ghost in start phase: "..self:OnOff(TRP3FW.Prefs.ghostOnStartPhase).." |cffaaaaaa(Phase 169)|r")
+    print("  Party/raid auto-allow: "..self:OnOff(TRP3FW.Prefs.allowGroupPhaseBypass).." |cffaaaaaa(group members skip checks when enabled)|r")
 
     -- Notification types
     print("|cff00ffffNotification Types:|r")
-    print("  Broadcasts: "..self:EnabledDisabled(TRP3FW_Settings.notifyOnBroadcast))
-    print("  Whispers: "..self:EnabledDisabled(TRP3FW_Settings.notifyOnWhisper))
+    print("  Broadcasts: "..self:EnabledDisabled(TRP3FW.Prefs.notifyOnBroadcast))
+    print("  Whispers: "..self:EnabledDisabled(TRP3FW.Prefs.notifyOnWhisper))
 
     -- Cache settings
     print("|cff00ffffCache Settings:|r")
-    print("  Phase cache: |cffffff00"..TRP3FW_Settings.phaseCacheDuration.."s|r")
-    print("  Phase fail cache: |cffffff00"..(TRP3FW_Settings.phaseCacheFailureDuration or 10).."s|r")
-    print("  Scan cache: |cffffff00"..TRP3FW_Settings.scanCacheDuration.."s|r")
-    print("  WHO zone cache: |cffffff00"..(TRP3FW_Settings.whoZoneCacheDuration or 180).."s|r")
-    print("  WHO name cache: |cffffff00"..(TRP3FW_Settings.whoNameCacheDuration or 180).."s|r")
-    print("  Send cache: |cffffff00"..TRP3FW_Settings.sendCacheDuration.."s|r")
-    print("  Interaction cache: |cffffff00"..(TRP3FW_Settings.interactionCacheDuration or 600).."s|r (mouseover/target)")
-    print("  Cache size limit: |cffffff00"..(TRP3FW_Settings.cacheSizeLimit or 1000).."|r entries")
+    print("  Phase cache: |cffffff00"..TRP3FW.Prefs.phaseCacheDuration.."s|r")
+    print("  Phase fail cache: |cffffff00"..(TRP3FW.Prefs.phaseCacheFailureDuration or 10).."s|r")
+    print("  Scan cache: |cffffff00"..TRP3FW.Prefs.scanCacheDuration.."s|r")
+    print("  WHO zone cache: |cffffff00"..(TRP3FW.Prefs.whoZoneCacheDuration or 180).."s|r")
+    print("  WHO name cache: |cffffff00"..(TRP3FW.Prefs.whoNameCacheDuration or 180).."s|r")
+    print("  Send cache: |cffffff00"..TRP3FW.Prefs.sendCacheDuration.."s|r")
+    print("  Interaction cache: |cffffff00"..(TRP3FW.Prefs.interactionCacheDuration or 600).."s|r (mouseover/target)")
+    print("  Cache size limit: |cffffff00"..(TRP3FW.Prefs.cacheSizeLimit or 1000).."|r entries")
 
     -- Addon monitoring
     print("|cff00ffffAddon Monitoring:|r")
     print("  Detected addons: |cffffff00"..self:GetDetectedAddonsString().."|r")
-    print("  TotalRP3: "..self:EnabledDisabled(TRP3FW_Settings.monitorTRP3)..(self.detectedAddons.TRP3 and " |cff00ff00(Found)|r" or " |cffaaaaaa(Not Found)|r"))
-    print("  MyRolePlay: "..self:EnabledDisabled(TRP3FW_Settings.monitorMRP)..(self.detectedAddons.MRP and " |cff00ff00(Found)|r" or " |cffaaaaaa(Not Found)|r"))
-    print("  XRP: "..self:EnabledDisabled(TRP3FW_Settings.monitorXRP)..(self.detectedAddons.XRP and " |cff00ff00(Found)|r" or " |cffaaaaaa(Not Found)|r"))
-    print("  MSP/Other: "..self:EnabledDisabled(TRP3FW_Settings.monitorMSP)..(self.detectedAddons.MSP and " |cff00ff00(Found)|r" or " |cffaaaaaa(Not Found)|r"))
+    print("  TotalRP3: "..self:EnabledDisabled(TRP3FW.Prefs.monitorTRP3)..(self.detectedAddons.TRP3 and " |cff00ff00(Found)|r" or " |cffaaaaaa(Not Found)|r"))
+    print("  MyRolePlay: "..self:EnabledDisabled(TRP3FW.Prefs.monitorMRP)..(self.detectedAddons.MRP and " |cff00ff00(Found)|r" or " |cffaaaaaa(Not Found)|r"))
+    print("  XRP: "..self:EnabledDisabled(TRP3FW.Prefs.monitorXRP)..(self.detectedAddons.XRP and " |cff00ff00(Found)|r" or " |cffaaaaaa(Not Found)|r"))
+    print("  MSP/Other: "..self:EnabledDisabled(TRP3FW.Prefs.monitorMSP)..(self.detectedAddons.MSP and " |cff00ff00(Found)|r" or " |cffaaaaaa(Not Found)|r"))
     print("  Map Scanner: "..(self.detectedAddons.MapScanner and "|cff00ff00"..self.detectedAddons.MapScanner.."|r" or "|cffff0000Not Available|r"))
 
     -- Filter settings
     print("|cff00ffffFilters:|r")
-    print("  Gradient filter: "..self:EnabledDisabled(TRP3FW_Settings.filterGradients))
-    print("  Font size filter: "..self:EnabledDisabled(TRP3FW_Settings.filterMinimumFontSize))
-    print("    Font size level: |cffffff00"..(TRP3FW_Settings.minimumFontSizeLevel or "h3").."|r")
+    print("  Gradient filter: "..self:EnabledDisabled(TRP3FW.Prefs.filterGradients))
+    print("  Font size filter: "..self:EnabledDisabled(TRP3FW.Prefs.filterMinimumFontSize))
+    print("    Font size level: |cffffff00"..(TRP3FW.Prefs.minimumFontSizeLevel or "h3").."|r")
 
     -- Debug settings
     print("|cff00ffffDebug:|r")
-    print("  Debug mode: "..self:OnOff(TRP3FW_Settings.debug))
-    print("  Debug timestamps: "..self:OnOff(TRP3FW_Settings.debugTimestamp))
+    print("  Debug mode: "..self:OnOff(TRP3FW.Prefs.debug))
+    print("  Debug timestamps: "..self:OnOff(TRP3FW.Prefs.debugTimestamp))
 
     print("|cffaaaaaa━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━|r")
 end
 
 function TRP3FW:ShowWelcomeMessage()
     -- Only show once per character
-    if TRP3FW_Settings.hasSeenWelcome then return end
+    if TRP3FW.Prefs.hasSeenWelcome then return end
 
-    TRP3FW_Settings.hasSeenWelcome = true
+    TRP3FW.Prefs.hasSeenWelcome = true
 
     print("|cffaaaaaa━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━|r")
     print("|cff00ffffWelcome to TRP3 Firewall v"..self.VERSION.."!|r")
@@ -226,10 +226,10 @@ function TRP3FW:TestNotifications()
     -- Test 1: Allow notification
     print("|cff00ccff[Test 1/5]|r Normal allow notification:")
     C_Timer.After(1, function()
-        if TRP3FW_Settings.showInChat then
+        if TRP3FW.Prefs.showInChat then
             print("Your profile was sent to |cff00ccffTestPlayer|r via |cff00ff00TRP3|r")
         end
-        if TRP3FW_Settings.showOnScreen then
+        if TRP3FW.Prefs.showOnScreen then
             RaidNotice_AddMessage(RaidWarningFrame, "Profile sent: |cff00ff00TestPlayer|r", ChatTypeInfo["RAID_WARNING"])
         end
         self:PlayNotificationSound()
@@ -238,10 +238,10 @@ function TRP3FW:TestNotifications()
     -- Test 2: Phase alert
     print("|cff00ccff[Test 2/5]|r Phase alert notification:")
     C_Timer.After(3, function()
-        if TRP3FW_Settings.showInChat then
+        if TRP3FW.Prefs.showInChat then
             print("|cffff0000[ALERT]|r Your profile was sent to |cff00ccffTestPlayer|r via |cff00ff00TRP3|r |cffff0000(NOT IN YOUR PHASE)|r")
         end
-        if TRP3FW_Settings.showOnScreen then
+        if TRP3FW.Prefs.showOnScreen then
             RaidNotice_AddMessage(RaidWarningFrame, "[ALERT]: |cff00ff00TestPlayer|r\n|cffff0000Not in your phase!|r", ChatTypeInfo["RAID_WARNING"])
         end
         self:PlayNotificationSound()
@@ -250,10 +250,10 @@ function TRP3FW:TestNotifications()
     -- Test 3: Map alert
     print("|cff00ccff[Test 3/5]|r Map alert notification:")
     C_Timer.After(5, function()
-        if TRP3FW_Settings.showInChat then
+        if TRP3FW.Prefs.showInChat then
             print("|cffff0000[ALERT]|r Your profile was sent to |cff00ccffTestPlayer|r via |cff00ff00TRP3|r |cffff0000(They're in Stormwind City, you're in Elwynn Forest)|r")
         end
-        if TRP3FW_Settings.showOnScreen then
+        if TRP3FW.Prefs.showOnScreen then
             RaidNotice_AddMessage(RaidWarningFrame, "[ALERT]: |cff00ff00TestPlayer|r\n|cffff0000They're in Stormwind City, you're in Elwynn Forest|r", ChatTypeInfo["RAID_WARNING"])
         end
         self:PlayNotificationSound()
@@ -262,10 +262,10 @@ function TRP3FW:TestNotifications()
     -- Test 4: Block notification
     print("|cff00ccff[Test 4/5]|r Block notification:")
     C_Timer.After(7, function()
-        if TRP3FW_Settings.showInChat then
+        if TRP3FW.Prefs.showInChat then
             print("|cffff0000[BLOCKED]|r Your profile was blocked for |cff00ccffTestPlayer|r via |cff00ff00TRP3|r |cffff0000(NOT IN YOUR PHASE)|r")
         end
-        if TRP3FW_Settings.showOnScreen then
+        if TRP3FW.Prefs.showOnScreen then
             RaidNotice_AddMessage(RaidWarningFrame, "[BLOCKED]: |cff00ff00TestPlayer|r\n|cffff0000Not in your phase!|r", ChatTypeInfo["RAID_WARNING"])
         end
         self:PlayNotificationSound()
@@ -274,10 +274,10 @@ function TRP3FW:TestNotifications()
     -- Test 5: Ghost mode notification
     print("|cff00ccff[Test 5/5]|r Ghost mode notification:")
     C_Timer.After(9, function()
-        if TRP3FW_Settings.showInChat then
+        if TRP3FW.Prefs.showInChat then
             print("|cffffaa00[GHOST MODE]|r Your profile was sent BLANK profile to |cff00ccffTestPlayer|r via |cff00ff00TRP3|r |cffff0000(NOT IN YOUR PHASE)|r")
         end
-        if TRP3FW_Settings.showOnScreen then
+        if TRP3FW.Prefs.showOnScreen then
             RaidNotice_AddMessage(RaidWarningFrame, "[GHOST MODE]: |cff00ff00TestPlayer|r\n|cffff0000Not in your phase!|r", ChatTypeInfo["RAID_WARNING"])
         end
         self:PlayNotificationSound()
@@ -285,9 +285,9 @@ function TRP3FW:TestNotifications()
 
     print("|cffaaaaaa━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━|r")
     print("|cffaaaaaaTest complete in 10 seconds. Check your display settings:|r")
-    print("|cffaaaaaa  Chat: "..(TRP3FW_Settings.showInChat and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
-    print("|cffaaaaaa  Screen: "..(TRP3FW_Settings.showOnScreen and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
-    print("|cffaaaaaa  Sound: "..(TRP3FW_Settings.playSound and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+    print("|cffaaaaaa  Chat: "..(TRP3FW.Prefs.showInChat and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+    print("|cffaaaaaa  Screen: "..(TRP3FW.Prefs.showOnScreen and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+    print("|cffaaaaaa  Sound: "..(TRP3FW.Prefs.playSound and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
 end
 
 function TRP3FW:ShowHelp()

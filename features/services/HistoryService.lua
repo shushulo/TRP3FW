@@ -150,7 +150,7 @@ function HistoryService:RecordPerformance(duration, context)
     stats.windowTime = stats.windowTime + duration
 
     -- Update Interval Stats (Always track for UI Window Avg)
-    local refreshRate = TRP3FW_Settings.statusRefreshRate or 30
+    local refreshRate = TRP3FW.Prefs.statusRefreshRate or 30
     
     -- Initialize interval start if needed
     if stats.intervalStart == 0 then stats.intervalStart = now end
@@ -202,7 +202,7 @@ function HistoryService:RecordPerformance(duration, context)
         end
 
         -- History Recording (if enabled)
-        if TRP3FW_Settings.performanceHistoryEnabled then
+        if TRP3FW.Prefs.performanceHistoryEnabled then
             local avgLat = stats.intervalRequests > 0 and (stats.intervalTime / stats.intervalRequests) or 0
             local avgLoad = (stats.intervalTime / (refreshRate * 1000)) * 100
             local tput = stats.intervalRequests / refreshRate
@@ -238,7 +238,7 @@ function HistoryService:RecordPerformance(duration, context)
 end
 
 function HistoryService:RecordHistory(playerName, addon, wasAlert, wasBlocked, wasGhost, alertType)
-    if not TRP3FW_Settings.trackHistory then return end
+    if not TRP3FW.Prefs.trackHistory then return end
     
     -- Use SecurityService for sanitization
     local security = TRP3FW.ServiceContainer:Get("SecurityService")
@@ -257,7 +257,7 @@ function HistoryService:RecordHistory(playerName, addon, wasAlert, wasBlocked, w
         alertType = alertType
     })
     
-    while #self.notificationHistory > TRP3FW_Settings.maxHistorySize do
+    while #self.notificationHistory > TRP3FW.Prefs.maxHistorySize do
         table.remove(self.notificationHistory)
     end
 end

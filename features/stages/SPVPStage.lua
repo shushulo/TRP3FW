@@ -21,7 +21,7 @@ end
 --- @return table - {handled = boolean, allowed = boolean (optional)}
 function TRP3FW.SPVPStage:Process(context)
     -- Master toggle
-    local spvpEnabled = (context.settings and context.settings.spvpEnabled ~= nil) and context.settings.spvpEnabled or TRP3FW_Settings.spvpEnabled
+    local spvpEnabled = (context.settings and context.settings.spvpEnabled ~= nil) and context.settings.spvpEnabled or TRP3FW.Prefs.spvpEnabled
     
     if not spvpEnabled then
         TRP3FW:Debug("SPVP skipped: Master toggle (spvpEnabled) is disabled in settings", "spvp")

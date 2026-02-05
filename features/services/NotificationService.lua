@@ -101,7 +101,7 @@ function NotificationService:Notify(playerName, context)
         }
     ]]
 
-    local settings = context.settings or TRP3FW_Settings -- Fallback if not snapshotted
+    local settings = context.settings or TRP3FW.Prefs -- Fallback if not snapshotted
 
     -- Back-compat: accept locationResult payloads
     if context.location == nil and context.locationResult then
@@ -222,12 +222,12 @@ end
 -- ===================== Display Logic =====================
 
 function NotificationService:PlayNotificationSound()
-    if TRP3FW_Settings.playSound then PlaySound(8959) end
+    if TRP3FW.Prefs.playSound then PlaySound(8959) end
 end
 
 function NotificationService:ShowStartPhaseBlockNotification(playerName, addon)
     -- Honor master notification toggle
-    if not TRP3FW_Settings.notifyEnabled then return end
+    if not TRP3FW.Prefs.notifyEnabled then return end
 
     -- Check suppression
     if not self.startPhaseNotifications then
@@ -236,7 +236,7 @@ function NotificationService:ShowStartPhaseBlockNotification(playerName, addon)
 
     local now = TRP3FW:GetCurrentTime()
     local lastNotification = self.startPhaseNotifications[playerName]
-    local suppressionTime = TRP3FW_Settings.suppressionTime
+    local suppressionTime = TRP3FW.Prefs.suppressionTime
     local isFirstTime = true
     local suppressedCount = 0
 
@@ -261,16 +261,16 @@ function NotificationService:ShowStartPhaseBlockNotification(playerName, addon)
     }
 
     -- Determine if this is a ghost mode send for start phase
-    local isGhostMode = TRP3FW_Settings.ghostOnStartPhase and
+    local isGhostMode = TRP3FW.Prefs.ghostOnStartPhase and
                         TRP3FW.hasTRP3ExchangeHooks
 
     local prefix, action
     if isGhostMode then
         -- Get profile name for ghost mode
         local profileLabel = "BLANK"
-        if TRP3FW_Settings.ghostProfileID then
-            local profile = TRP3FW:GetProfileByID(TRP3FW_Settings.ghostProfileID)
-            profileLabel = (profile and profile.name) or TRP3FW_Settings.ghostProfileID
+        if TRP3FW.Prefs.ghostProfileID then
+            local profile = TRP3FW:GetProfileByID(TRP3FW.Prefs.ghostProfileID)
+            profileLabel = (profile and profile.name) or TRP3FW.Prefs.ghostProfileID
         end
         prefix = "|cffffaa00[GHOST MODE]|r (Profile: "..profileLabel..") "
         action = "sent alternate profile to"
@@ -280,9 +280,9 @@ function NotificationService:ShowStartPhaseBlockNotification(playerName, addon)
     end
 
     -- Chat notification
-    if TRP3FW_Settings.showInChat then
+    if TRP3FW.Prefs.showInChat then
         local msg = string.format("%sYour profile was %s |cff00ccff%s|r", prefix, action, playerName)
-        if TRP3FW_Settings.showAddonSource and addon then
+        if TRP3FW.Prefs.showAddonSource and addon then
             msg = msg .. string.format(" via |cff%s%s|r", TRP3FW:GetAddonColor(addon), TRP3FW:GetAddonName(addon))
         end
         if not isFirstTime and suppressedCount > 0 then
@@ -293,16 +293,16 @@ function NotificationService:ShowStartPhaseBlockNotification(playerName, addon)
     end
 
     -- On-screen notification
-    if TRP3FW_Settings.notifyEnabled and TRP3FW_Settings.showOnScreen then
+    if TRP3FW.Prefs.notifyEnabled and TRP3FW.Prefs.showOnScreen then
         local screenPrefix
         if isGhostMode then
             local ghostProfileLabel = "BLANK"
-            if TRP3FW_Settings.ghostProfileID then
-                local ghostProfile = TRP3FW:GetProfileByID(TRP3FW_Settings.ghostProfileID)
+            if TRP3FW.Prefs.ghostProfileID then
+                local ghostProfile = TRP3FW:GetProfileByID(TRP3FW.Prefs.ghostProfileID)
                 if ghostProfile and ghostProfile.name then
                     ghostProfileLabel = ghostProfile.name
                 else
-                    ghostProfileLabel = TRP3FW_Settings.ghostProfileID
+                    ghostProfileLabel = TRP3FW.Prefs.ghostProfileID
                 end
             end
             screenPrefix = "[GHOST MODE] (Profile: "..ghostProfileLabel..")"
@@ -311,7 +311,7 @@ function NotificationService:ShowStartPhaseBlockNotification(playerName, addon)
         end
 
         local screenMsg
-        if TRP3FW_Settings.showAddonSource and addon then
+        if TRP3FW.Prefs.showAddonSource and addon then
             screenMsg = string.format("%s: |cff00ff00%s|r via |cff%s%s|r\n|cffff0000Start Phase Block|r",
                 screenPrefix, playerName, TRP3FW:GetAddonColor(addon), TRP3FW:GetAddonName(addon))
         else
@@ -322,13 +322,13 @@ function NotificationService:ShowStartPhaseBlockNotification(playerName, addon)
     end
 
     -- Sound
-    if TRP3FW_Settings.notifyEnabled then
+    if TRP3FW.Prefs.notifyEnabled then
         self:PlayNotificationSound()
     end
 end
 
 function NotificationService:ShowOnScreenNotification(playerName, addon, isFirstTime, isAlert, theirMap, ourMap, theirZone, ourZone, alertType, wasBlocked, recentTransition, timeSinceTransition, isGhost)
-    if not TRP3FW_Settings.notifyEnabled or not TRP3FW_Settings.showOnScreen then return end
+    if not TRP3FW.Prefs.notifyEnabled or not TRP3FW.Prefs.showOnScreen then return end
     local prefix
 
     -- Check if this was a ghost mode send (passed as parameter or check cache for backwards compatibility)
@@ -341,16 +341,16 @@ function NotificationService:ShowOnScreenNotification(playerName, addon, isFirst
 
     -- Also check if this is a start phase block with ghost mode enabled
     local isStartPhaseGhost = (alertType == "start_phase_block" and
-                               TRP3FW_Settings.ghostOnStartPhase and
+                               TRP3FW.Prefs.ghostOnStartPhase and
                                TRP3FW.hasTRP3ExchangeHooks)
 
     local ghostProfileLabel = "BLANK"
-    if TRP3FW_Settings.ghostProfileID then
-        local ghostProfile = TRP3FW:GetProfileByID(TRP3FW_Settings.ghostProfileID)
+    if TRP3FW.Prefs.ghostProfileID then
+        local ghostProfile = TRP3FW:GetProfileByID(TRP3FW.Prefs.ghostProfileID)
         if ghostProfile and ghostProfile.name then
             ghostProfileLabel = ghostProfile.name
         else
-            ghostProfileLabel = TRP3FW_Settings.ghostProfileID
+            ghostProfileLabel = TRP3FW.Prefs.ghostProfileID
         end
     end
 
@@ -379,7 +379,7 @@ function NotificationService:ShowOnScreenNotification(playerName, addon, isFirst
 
     local color  = isFirstTime and "00ff00" or "ffff00"
     local msg
-    if TRP3FW_Settings.showAddonSource and addon then
+    if TRP3FW.Prefs.showAddonSource and addon then
         msg = string.format("%s: |cff%s%s|r via |cff%s%s|r", prefix, color, playerName, TRP3FW:GetAddonColor(addon), TRP3FW:GetAddonName(addon))
         if not isFirstTime then msg = msg .. " (again)" end
     else
@@ -432,10 +432,10 @@ function NotificationService:ShowChatNotification(playerName, addon, isFirstTime
     TRP3FW:Debug("[NOTIF] Calling ShowChatNotification for "..playerName, "send")
 	TRP3FW:Debug(function()
 		return string.format("[Notifications] ShowChatNotification enter: showInChat=%s player=%s addon=%s isAlert=%s wasBlocked=%s isFirstTime=%s",
-			tostring(TRP3FW_Settings.showInChat), tostring(playerName), tostring(addon), tostring(isAlert), tostring(wasBlocked), tostring(isFirstTime))
+			tostring(TRP3FW.Prefs.showInChat), tostring(playerName), tostring(addon), tostring(isAlert), tostring(wasBlocked), tostring(isFirstTime))
 	end, "send")
 
-	if not TRP3FW_Settings.showInChat then
+	if not TRP3FW.Prefs.showInChat then
 		self:DebugNotificationSuppression("showInChat=false", playerName, addon, nil, {showInChat=false, isAlert=isAlert, wasBlocked=wasBlocked})
 		return
 	end
@@ -461,15 +461,15 @@ function NotificationService:ShowChatNotification(playerName, addon, isFirstTime
 
     -- Also check if this is a start phase block with ghost mode enabled
     local isStartPhaseGhost = (alertType == "start_phase_block" and
-                               TRP3FW_Settings.ghostOnStartPhase and
+                               TRP3FW.Prefs.ghostOnStartPhase and
                                TRP3FW.hasTRP3ExchangeHooks)
 
     if wasBlocked then
         if isGhostMode or isStartPhaseGhost then
             local profileLabel = "BLANK"
-            if TRP3FW_Settings.ghostProfileID then
-                local profile = TRP3FW:GetProfileByID(TRP3FW_Settings.ghostProfileID)
-                profileLabel = (profile and profile.name) or TRP3FW_Settings.ghostProfileID
+            if TRP3FW.Prefs.ghostProfileID then
+                local profile = TRP3FW:GetProfileByID(TRP3FW.Prefs.ghostProfileID)
+                profileLabel = (profile and profile.name) or TRP3FW.Prefs.ghostProfileID
             end
             prefix = "|cffffaa00[GHOST MODE]|r (Profile: "..profileLabel..") "
             action = "sent alternate profile to"
@@ -504,14 +504,14 @@ function NotificationService:ShowChatNotification(playerName, addon, isFirstTime
 	end
 
 	local msg = string.format("%s%sYour %s was %s |cff00ccff%s|r", contextPrefix, prefix, GetSubjectText(), action, playerName)
-	if TRP3FW_Settings.showAddonSource and addon then
+	if TRP3FW.Prefs.showAddonSource and addon then
 		msg = msg .. string.format(" via |cff%s%s|r", TRP3FW:GetAddonColor(addon), TRP3FW:GetAddonName(addon))
 	end
 	if contextNote and contextNote ~= "" then
 		msg = msg .. string.format(" |cffaaaaaa(%s)|r", contextNote)
 	end
 	if not isFirstTime and suppressedCount > 0 then
-		msg = msg .. string.format(" |cffaaaaaa(+%d suppressed in last %s)|r", suppressedCount, TRP3FW:FormatTime(TRP3FW_Settings.suppressionTime))
+		msg = msg .. string.format(" |cffaaaaaa(+%d suppressed in last %s)|r", suppressedCount, TRP3FW:FormatTime(TRP3FW.Prefs.suppressionTime))
 	end
 
     -- Add alert details
@@ -572,7 +572,7 @@ function NotificationService:ShowChatNotification(playerName, addon, isFirstTime
     end
 
     -- Append check result details if enabled
-    if TRP3FW_Settings.showCheckResults and checkDetails then
+    if TRP3FW.Prefs.showCheckResults and checkDetails then
         local parts = {}
 
         local function formatResult(label, info)
@@ -613,7 +613,7 @@ function NotificationService:ShowChatNotification(playerName, addon, isFirstTime
     end
 
     -- Append cache info if enabled and not an alert/block
-    if TRP3FW_Settings.showCacheInfo and not isAlert and not wasBlocked and cacheInfo then
+    if TRP3FW.Prefs.showCacheInfo and not isAlert and not wasBlocked and cacheInfo then
         local caches = {}
 
         -- Check which caches were hit
@@ -668,7 +668,7 @@ function NotificationService:ShowChatNotification(playerName, addon, isFirstTime
 end
 
 function NotificationService:DebugNotificationSuppression(context, playerName, addon, isWhisper, reasonTable)
-    if not TRP3FW_Settings.debug then return end
+    if not TRP3FW.Prefs.debug then return end
     local parts = {}
     for k, v in pairs(reasonTable or {}) do
         table.insert(parts, k..":"..tostring(v))

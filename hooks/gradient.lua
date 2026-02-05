@@ -5,7 +5,7 @@ local addonName, TRP3FW = ...
 
 -- Install gradient filtering hooks
 function TRP3FW:InstallGradientHooks()
-    if not TRP3FW_Settings.filterGradients then
+    if not TRP3FW.Prefs.filterGradients then
         return
     end
 

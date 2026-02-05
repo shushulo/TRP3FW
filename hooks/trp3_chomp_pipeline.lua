@@ -8,11 +8,11 @@ local function getBurstFingerprintSafe()
         return TRP3FW:GetBurstSettingsFingerprint()
     end
     return table.concat({
-        tostring(TRP3FW_Settings and TRP3FW_Settings.phaseCheckMode or "nil"),
-        tostring(TRP3FW_Settings and TRP3FW_Settings.mapCheckMode or "nil"),
-        tostring(TRP3FW_Settings and TRP3FW_Settings.blockStartPhase),
-        tostring(TRP3FW_Settings and TRP3FW_Settings.ghostOnStartPhase),
-        tostring(TRP3FW_Settings and TRP3FW_Settings.ghostProfileID or "")
+        tostring(TRP3FW.Prefs and TRP3FW.Prefs.phaseCheckMode or "nil"),
+        tostring(TRP3FW.Prefs and TRP3FW.Prefs.mapCheckMode or "nil"),
+        tostring(TRP3FW.Prefs and TRP3FW.Prefs.blockStartPhase),
+        tostring(TRP3FW.Prefs and TRP3FW.Prefs.ghostOnStartPhase),
+        tostring(TRP3FW.Prefs and TRP3FW.Prefs.ghostProfileID or "")
     }, "|")
 end
 
@@ -48,7 +48,7 @@ function TRP3FW:ChompPipeline_GuardChecks_V2(prefix, text, chatType, target, pri
     end
 
     -- Check if addon is enabled
-    if not TRP3FW_Settings.enabled then -- Assumes global enabled setting exists, otherwise check specific modules
+    if not TRP3FW.Prefs.enabled then -- Assumes global enabled setting exists, otherwise check specific modules
         -- For now, just continue as there isn't a global 'enabled' toggle in defaultSettings
     end
 
@@ -72,7 +72,7 @@ function TRP3FW:ChompPipeline_PhaseInDelay_V2(playerName, prefix, text, chatType
     self.hookState.chomp = self.hookState.chomp or {}
     local chompState = self.hookState.chomp
 
-    local phaseInDelay = TRP3FW_Settings.phaseInDelay or 4
+    local phaseInDelay = TRP3FW.Prefs.phaseInDelay or 4
     if phaseInDelay > 0 and not chompState.replayingPhaseInSend then
         local now = self:GetCurrentTime()
         local timeSinceZoneChange = now - self.lastZoneChangeTime
@@ -85,7 +85,7 @@ function TRP3FW:ChompPipeline_PhaseInDelay_V2(playerName, prefix, text, chatType
             -- Bound queue size and evict stale entries before enqueue
             local queueList = self.pendingPhaseInSends
             local queueLimit = self.PHASE_IN_QUEUE_LIMIT or 200
-            local ttl = math.max((TRP3FW_Settings.phaseInDelay or 4) * 3, 10)
+            local ttl = math.max((TRP3FW.Prefs.phaseInDelay or 4) * 3, 10)
 
             for i = #queueList, 1, -1 do
                 local age = now - (queueList[i].queuedAt or 0)
@@ -212,7 +212,7 @@ function TRP3FW:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatT
             if isMSPMessage then
                 -- MSP GHOST MODE: Let the send through normally (metatable handled it)
                 self:Debug("[Chomp Hook] MSP ghost mode - letting send through", "hooks")
-                if TRP3FW_Settings.notifyOnStartPhaseBlock and cleanTarget then
+                if TRP3FW.Prefs.notifyOnStartPhaseBlock and cleanTarget then
                     self:ShowStartPhaseBlockNotification(cleanTarget, "MSP (ghost)")
                 end
                 self.sessionStats.ghostSends = self.sessionStats.ghostSends + 1
@@ -220,11 +220,11 @@ function TRP3FW:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatT
             else
                 -- TRP3 GHOST MODE: Enable ghost flag
                 self:Debug("[Chomp Hook] TRP3 start phase ghost mode - enabling ghost flag for "..cleanTarget, "ghost")
-                local alternateProfileID = TRP3FW_Settings.ghostProfileID
+                local alternateProfileID = TRP3FW.Prefs.ghostProfileID
                 local success = self:EnableGhostForNextSend(cleanTarget, alternateProfileID)
 
                 if success then
-                    if TRP3FW_Settings.notifyOnStartPhaseBlock and cleanTarget then
+                    if TRP3FW.Prefs.notifyOnStartPhaseBlock and cleanTarget then
                         self:ShowStartPhaseBlockNotification(cleanTarget, "TRP3 (ghost)")
                     end
                     self.sessionStats.ghostSends = self.sessionStats.ghostSends + 1
@@ -238,7 +238,7 @@ function TRP3FW:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatT
 
         -- Block the send
         self:Debug("[Chomp Hook] Blocking transmission in start phase", "hooks")
-        if TRP3FW_Settings.notifyOnStartPhaseBlock and cleanTarget then
+        if TRP3FW.Prefs.notifyOnStartPhaseBlock and cleanTarget then
             self:ShowStartPhaseBlockNotification(cleanTarget, addonType)
         end
         return {shouldContinue = false, blocked = true, ghost = false} -- Block
@@ -254,7 +254,7 @@ function TRP3FW:ChompPipeline_BurstDetection_V2(playerName, prefix, text, chatTy
         Returns: {shouldContinue=bool, queued=bool}
     ]]
 
-    local blockingPossible = self:ShouldBlockOnPhase() or self:ShouldBlockOnMap() or TRP3FW_Settings.blockStartPhase or TRP3FW_Settings.ghostOnStartPhase
+    local blockingPossible = self:ShouldBlockOnPhase() or self:ShouldBlockOnMap() or TRP3FW.Prefs.blockStartPhase or TRP3FW.Prefs.ghostOnStartPhase
 
     if blockingPossible then
         -- Burst detection

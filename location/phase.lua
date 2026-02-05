@@ -51,7 +51,7 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority)
     local available = TRP3FW:GetAvailablePrivilegedTokens()
     
     -- Calculate capacity for immediate firing (aggressive) - matching ProcessPhaseCheckBatch formula
-    local reserved = TRP3FW_Settings.privilegedReservedTokens or 2
+    local reserved = TRP3FW.Prefs.privilegedReservedTokens or 2
     local overhead = math.max(1, reserved)
     
     local immediateCap = math.floor(available) - overhead
@@ -63,7 +63,7 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority)
     local healthyCapacity = (immediateCap >= 5)
     local shouldFire = false
     
-    if #self.pendingPhaseChecks >= immediateCap and TRP3FW_Settings.phaseCheckBatchMode then
+    if #self.pendingPhaseChecks >= immediateCap and TRP3FW.Prefs.phaseCheckBatchMode then
         if self.phaseCheckBatchTimer then
             if healthyCapacity then
                 shouldFire = true
@@ -90,15 +90,15 @@ function TRP3FW:SchedulePhaseCheckProcessing(customDelay)
     if self.phaseCheckBatchTimer or self.targetingInProgress then return end
 
     -- Use custom delay if provided (e.g. for refill waiting), otherwise default to setting
-    local delay = customDelay or TRP3FW_Settings.phaseCheckBatchDelay or 1.0
+    local delay = customDelay or TRP3FW.Prefs.phaseCheckBatchDelay or 1.0
     
     self.phaseCheckBatchTimer = C_Timer.After(delay, function()
         self.phaseCheckBatchTimer = nil
         
         local queueSize = #self.pendingPhaseChecks
-        local minSize = TRP3FW_Settings.phaseCheckBatchMinSize or 3
+        local minSize = TRP3FW.Prefs.phaseCheckBatchMinSize or 3
         
-        if queueSize >= minSize and TRP3FW_Settings.phaseCheckBatchMode then
+        if queueSize >= minSize and TRP3FW.Prefs.phaseCheckBatchMode then
             self:ProcessPhaseCheckBatch()
         else
             self:ProcessPhaseCheckQueue()
@@ -109,7 +109,7 @@ end
 -- OPTIMIZATION #2: Batch Phase Check Processing
 -- Processes a batch of phase checks with a single target restoration
 function TRP3FW:ProcessPhaseCheckBatch()
-    if not TRP3FW_Settings.phaseCheckBatchMode then
+    if not TRP3FW.Prefs.phaseCheckBatchMode then
         -- Batch mode disabled, process individually
         self:ProcessPhaseCheckQueue()
         return
@@ -127,13 +127,13 @@ function TRP3FW:ProcessPhaseCheckBatch()
     -- Formula: available - max(1, reserved)
     -- We need at least 1 token for the restore action (HIGH priority), 
     -- and we must respect the reserved amount for NORMAL priority targeting calls.
-    local reserved = TRP3FW_Settings.privilegedReservedTokens or 2
+    local reserved = TRP3FW.Prefs.privilegedReservedTokens or 2
     local overhead = math.max(1, reserved)
     
     local dynamicMax = math.floor(availableTokens) - overhead
     if dynamicMax < 1 then dynamicMax = 1 end -- Always try at least one if we're running
     
-    local settingsMax = TRP3FW_Settings.phaseCheckBatchSize or 5
+    local settingsMax = TRP3FW.Prefs.phaseCheckBatchSize or 5
     
     -- If we have plenty of tokens (full bucket), allow larger batches than default settings
     -- to clear the queue faster ("3 second window" accumulation implies larger bursts)
@@ -292,7 +292,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
         local interactionCached = CI and CI:Get("interaction", check.playerName)
         if interactionCached then
              local now = TRP3FW:GetCurrentTime()
-             local ttl = TRP3FW_Settings.interactionCacheDuration or 600
+             local ttl = TRP3FW.Prefs.interactionCacheDuration or 600
              if (now - interactionCached.timestamp) < ttl then
                  TRP3FW:Debug("[Batch] "..check.playerName.." - Interaction Cache HIT (skipping target)", "phase")
                  
@@ -313,7 +313,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
         local allowedCached = CI and CI:Get("allowedSenders", check.playerName)
         if allowedCached then
             local now = TRP3FW:GetCurrentTime()
-            local ttl = TRP3FW_Settings.sendCacheDuration or 600
+            local ttl = TRP3FW.Prefs.sendCacheDuration or 600
             if (now - allowedCached.timestamp) < ttl then
                  local r = allowedCached.reason
                  -- Only trust strong signals that imply phase presence
@@ -340,9 +340,9 @@ function TRP3FW:ProcessPhaseCheckBatch()
 
                      local now = TRP3FW:GetCurrentTime()
 
-                     local ttl = TRP3FW_Settings.phaseCacheDuration or 300
+                     local ttl = TRP3FW.Prefs.phaseCacheDuration or 300
 
-                     if cached.inPhase == false then ttl = TRP3FW_Settings.phaseCacheFailureDuration or 10 end
+                     if cached.inPhase == false then ttl = TRP3FW.Prefs.phaseCacheFailureDuration or 10 end
 
                      
 
@@ -352,7 +352,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
 
                      local isRefresh = (check.priority == "LOW")
 
-                     local refreshThreshold = ttl * (TRP3FW_Settings.phaseCacheRefreshThreshold or 0.2)
+                     local refreshThreshold = ttl * (TRP3FW.Prefs.phaseCacheRefreshThreshold or 0.2)
 
                      local isFresh = (now - cached.timestamp) < refreshThreshold
 
@@ -482,7 +482,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
 
         if success then
             -- Set timeout timer
-            local interDelay = TRP3FW_Settings.phaseCheckInterTargetDelay or 0.1
+            local interDelay = TRP3FW.Prefs.phaseCheckInterTargetDelay or 0.1
             batchTimer = C_Timer.NewTimer(interDelay, function()
                 if processedThisStep then return end
                 
@@ -613,8 +613,8 @@ function TRP3FW:ExecutePhaseCheck(check)
             -- Process next
             if #self.pendingPhaseChecks > 0 then
                 -- Check if we should switch to batch mode based on queue size
-                local minSize = TRP3FW_Settings.phaseCheckBatchMinSize or 3
-                if TRP3FW_Settings.phaseCheckBatchMode and #self.pendingPhaseChecks >= minSize then
+                local minSize = TRP3FW.Prefs.phaseCheckBatchMinSize or 3
+                if TRP3FW.Prefs.phaseCheckBatchMode and #self.pendingPhaseChecks >= minSize then
                      -- Trigger batch accumulation/processing
                      if not self.phaseCheckBatchTimer then
                          self:ProcessPhaseCheckBatch()
@@ -679,7 +679,7 @@ function TRP3FW:ExecutePhaseCheck(check)
                 end
             else
                 -- OPTIMIZATION #5: Refund token if target didn't change
-                if TRP3FW_Settings.phaseCheckRefundOnNoChange then
+                if TRP3FW.Prefs.phaseCheckRefundOnNoChange then
                     self:Debug("[Phase Check] Target didn't change, refunding token", "phase")
                     self:RefundToken("phase_restore_skipped", 1)
                 else
@@ -747,7 +747,7 @@ function TRP3FW:CheckPlayerPhase(playerName, sendId, callback, priority)
     end
 
     -- Group Check (Optional Bypass)
-    if TRP3FW_Settings.allowGroupPhaseBypass then
+    if TRP3FW.Prefs.allowGroupPhaseBypass then
         if UnitInParty(sanitizedName) or UnitInRaid(sanitizedName) then
             self:Debug("Phase check passed (Group Bypass) for "..sanitizedName, "phase")
             if callback then callback(true, "group", nil, "group") end
@@ -764,12 +764,12 @@ function TRP3FW:CheckPlayerPhase(playerName, sendId, callback, priority)
     if cached then
         local now = self:GetCurrentTime()
         local age = now - cached.timestamp
-        local ttl = TRP3FW_Settings.phaseCacheDuration or 300
-        local refreshThreshold = ttl * (TRP3FW_Settings.phaseCacheRefreshThreshold or 0.2)
+        local ttl = TRP3FW.Prefs.phaseCacheDuration or 300
+        local refreshThreshold = ttl * (TRP3FW.Prefs.phaseCacheRefreshThreshold or 0.2)
         
         -- Short failure TTL
         if cached.inPhase == false then
-            ttl = TRP3FW_Settings.phaseCacheFailureDuration or 10
+            ttl = TRP3FW.Prefs.phaseCacheFailureDuration or 10
         end
 
         if age < refreshThreshold then

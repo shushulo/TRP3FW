@@ -17,7 +17,7 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     local now = self:GetCurrentTime()
 
     -- OPTIMIZATION #1: Start Phase Early Exit (Fail Fast)
-    if TRP3FW_Settings.blockStartPhase then
+    if TRP3FW.Prefs.blockStartPhase then
         local currentPhaseID = self:GetCurrentPhaseID()
         if currentPhaseID == START_PHASE_ID then
             TRP3FW.profiler.stop("CheckLocationCascading")
@@ -29,8 +29,8 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     -- OPTIMIZATION #2: Interaction Cache Fast-Path (Success Fast)
     local CI = self.CacheInterface
     local interaction = CI and CI:Get("interaction", playerName)
-    if interaction and (now - interaction.timestamp) < TRP3FW_Settings.interactionCacheDuration then
-        local inTransitionGracePeriod = (now - (self.lastZoneChangeTime or 0)) < (TRP3FW_Settings.transitionGracePeriod or 3)
+    if interaction and (now - interaction.timestamp) < TRP3FW.Prefs.interactionCacheDuration then
+        local inTransitionGracePeriod = (now - (self.lastZoneChangeTime or 0)) < (TRP3FW.Prefs.transitionGracePeriod or 3)
         TRP3FW.profiler.stop("CheckLocationCascading")
         if callback then callback(true, nil, "interaction_cache", now - interaction.timestamp, nil, nil, { interactionCache = "hit" }, inTransitionGracePeriod, 0, nil) end
         return
@@ -42,7 +42,7 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     local timeSinceZoneChange = now - (self.lastZoneChangeTime or 0)
     local timeSincePhaseChange = now - (self.lastPhaseChangeTime or 0)
     local timeSinceTransition = math.min(timeSinceZoneChange, timeSincePhaseChange)
-    local inTransitionGracePeriod = timeSinceTransition < (TRP3FW_Settings.transitionGracePeriod or 3)
+    local inTransitionGracePeriod = timeSinceTransition < (TRP3FW.Prefs.transitionGracePeriod or 3)
 
     local phaseCheckEnabled = self.hasEpsilonAPI and (options.phaseCheckEnabled ~= false and self:IsPhaseCheckEnabled())
     local mapCheckEnabled = options.mapCheckEnabled ~= false and self:IsMapCheckEnabled()
@@ -51,7 +51,7 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     local spvpSalt = options.spvpSalt
 
     -- Fallback: If SPVPStage skipped it (e.g. during async load), try to resolve now
-    if spvpEnabled == nil and TRP3FW_Settings.spvpEnabled and self.hasEpsilonAPI then
+    if spvpEnabled == nil and TRP3FW.Prefs.spvpEnabled and self.hasEpsilonAPI then
         local currentPhaseID = self:GetCurrentPhaseID()
         local salt = self:GetPhaseSalt(currentPhaseID)
         if salt and salt ~= "" then
@@ -73,7 +73,7 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
         end
     end
 
-    local spvpMode = TRP3FW_Settings.spvpMode or "off"
+    local spvpMode = TRP3FW.Prefs.spvpMode or "off"
 
     -- Results storage
     local results = {

@@ -8,7 +8,7 @@ local START_MAP_ID = 1605
 
 -- Get the profile name from settings (defaults to TRP3FW_BLANK)
 local function GetBlankProfileName()
-    return TRP3FW_Settings.ghostProfileName or "TRP3FW_BLANK"
+    return TRP3FW.Prefs.ghostProfileName or "TRP3FW_BLANK"
 end
 
 -- Track original profile to restore later
@@ -26,40 +26,40 @@ local profileSwitchTxn = {
 
 -- Initialize saved profile tracking
 local function InitializeProfileTracking()
-    -- Ensure TRP3FW_Settings has profile tracking table
-    if not TRP3FW_Settings.savedProfiles then
-        TRP3FW_Settings.savedProfiles = {}
+    -- Ensure TRP3FW.Prefs has profile tracking table
+    if not TRP3FW.Prefs.savedProfiles then
+        TRP3FW.Prefs.savedProfiles = {}
     end
 
     -- Restore from SavedVariables if available
-    if TRP3FW_Settings.savedProfiles.original then
-        TRP3FW.originalProfile = TRP3FW_Settings.savedProfiles.original
+    if TRP3FW.Prefs.savedProfiles.original then
+        TRP3FW.originalProfile = TRP3FW.Prefs.savedProfiles.original
         TRP3FW:Debug("[Profile Switch] Restored original profile from SavedVariables", "hooks")
     end
 
     -- Restore blank profile snapshot
-    if TRP3FW_Settings.savedProfiles.blankSnapshot then
-        TRP3FW.blankProfileSnapshot = TRP3FW_Settings.savedProfiles.blankSnapshot
-        TRP3FW.blankProfileSnapshotHash = TRP3FW_Settings.savedProfiles.blankSnapshotHash
+    if TRP3FW.Prefs.savedProfiles.blankSnapshot then
+        TRP3FW.blankProfileSnapshot = TRP3FW.Prefs.savedProfiles.blankSnapshot
+        TRP3FW.blankProfileSnapshotHash = TRP3FW.Prefs.savedProfiles.blankSnapshotHash
         TRP3FW:Debug("[Profile Switch] Restored blank profile snapshot from SavedVariables", "hooks")
     end
 
     -- Restore last switched profile name (used to detect on login)
-    if TRP3FW_Settings.savedProfiles.lastSwitchedProfile then
-        TRP3FW.lastSwitchedProfile = TRP3FW_Settings.savedProfiles.lastSwitchedProfile
+    if TRP3FW.Prefs.savedProfiles.lastSwitchedProfile then
+        TRP3FW.lastSwitchedProfile = TRP3FW.Prefs.savedProfiles.lastSwitchedProfile
     end
 end
 
 -- Save profile tracking to SavedVariables
 local function SaveProfileTracking()
-    if not TRP3FW_Settings.savedProfiles then
-        TRP3FW_Settings.savedProfiles = {}
+    if not TRP3FW.Prefs.savedProfiles then
+        TRP3FW.Prefs.savedProfiles = {}
     end
 
-    TRP3FW_Settings.savedProfiles.original = TRP3FW.originalProfile
-    TRP3FW_Settings.savedProfiles.blankSnapshot = TRP3FW.blankProfileSnapshot
-    TRP3FW_Settings.savedProfiles.blankSnapshotHash = TRP3FW.blankProfileSnapshotHash
-    TRP3FW_Settings.savedProfiles.lastSwitchedProfile = TRP3FW.lastSwitchedProfile
+    TRP3FW.Prefs.savedProfiles.original = TRP3FW.originalProfile
+    TRP3FW.Prefs.savedProfiles.blankSnapshot = TRP3FW.blankProfileSnapshot
+    TRP3FW.Prefs.savedProfiles.blankSnapshotHash = TRP3FW.blankProfileSnapshotHash
+    TRP3FW.Prefs.savedProfiles.lastSwitchedProfile = TRP3FW.lastSwitchedProfile
 end
 
 -- Deep copy a table (for taking snapshot)
@@ -760,9 +760,9 @@ function TRP3FW:RestoreOriginalProfile()
     self.isBlankProfileActive = false
     self.lastSwitchedProfile = nil
 
-    if TRP3FW_Settings.savedProfiles then
-        TRP3FW_Settings.savedProfiles.original = nil
-        TRP3FW_Settings.savedProfiles.lastSwitchedProfile = nil
+    if TRP3FW.Prefs.savedProfiles then
+        TRP3FW.Prefs.savedProfiles.original = nil
+        TRP3FW.Prefs.savedProfiles.lastSwitchedProfile = nil
     end
 
     CommitProfileSwitch()
@@ -776,7 +776,7 @@ end
 
 -- Check if we should use blank profile
 function TRP3FW:ShouldUseBlankProfile()
-    if not TRP3FW_Settings.ghostProfileSwitch then
+    if not TRP3FW.Prefs.ghostProfileSwitch then
         return false, nil
     end
 
@@ -795,11 +795,11 @@ function TRP3FW:ShouldUseBlankProfile()
 
     -- Helper to check optional exclusion entries (phase OR phase+map)
     local function IsExcludedPhase()
-        if not TRP3FW_Settings.ghostProfileWhitelistEnabled then
+        if not TRP3FW.Prefs.ghostProfileWhitelistEnabled then
             return false
         end
 
-        local list = TRP3FW_Settings.ghostProfileWhitelist
+        local list = TRP3FW.Prefs.ghostProfileWhitelist
         if not list or list == "" then
             return false
         end
@@ -828,7 +828,7 @@ function TRP3FW:ShouldUseBlankProfile()
 
     -- Determine profile override (most specific match wins: phase+map > phase)
     local function GetOverrideProfile()
-        local overrides = TRP3FW_Settings.ghostProfileOverrides or {}
+        local overrides = TRP3FW.Prefs.ghostProfileOverrides or {}
         local best = nil
         local bestSpecificity = 0  -- 0 = none, 1 = phase, 2 = phase+map
 
@@ -866,7 +866,7 @@ function TRP3FW:ShouldUseBlankProfile()
     local targetProfile = GetOverrideProfile() or { name = GetBlankProfileName() }
 
     -- Exclusion list enabled: switch everywhere else on Epsilon
-    if TRP3FW_Settings.ghostProfileWhitelistEnabled then
+    if TRP3FW.Prefs.ghostProfileWhitelistEnabled then
         return true, targetProfile
     end
 
@@ -896,7 +896,7 @@ profileSwitchFrame:SetScript("OnEvent", function(self, event)
 
             -- Detect if blank profile is currently active
             local profileName = GetBlankProfileName()
-            local lastSwitchedName = TRP3FW_Settings.savedProfiles and TRP3FW_Settings.savedProfiles.lastSwitchedProfile
+            local lastSwitchedName = TRP3FW.Prefs.savedProfiles and TRP3FW.Prefs.savedProfiles.lastSwitchedProfile
             local targetNames = {}
             targetNames[profileName] = true
             if lastSwitchedName then
@@ -944,7 +944,7 @@ profileSwitchFrame:SetScript("OnEvent", function(self, event)
     C_Timer.After(0.5, function()
         -- CRITICAL: Only run profile switching if explicitly enabled
         -- This prevents crashes in other TRP3 addons that expect valid profile data
-        if not TRP3FW_Settings.ghostProfileSwitch then
+        if not TRP3FW.Prefs.ghostProfileSwitch then
             return
         end
 

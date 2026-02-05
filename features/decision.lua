@@ -7,11 +7,11 @@ local addonName, TRP3FW = ...
 local BURST_MAX_AGE = 2.0
 local function burstSettingsFingerprint_local()
     return table.concat({
-        tostring(TRP3FW_Settings and TRP3FW_Settings.phaseCheckMode or "nil"),
-        tostring(TRP3FW_Settings and TRP3FW_Settings.mapCheckMode or "nil"),
-        tostring(TRP3FW_Settings and TRP3FW_Settings.blockStartPhase),
-        tostring(TRP3FW_Settings and TRP3FW_Settings.ghostOnStartPhase),
-        tostring(TRP3FW_Settings and TRP3FW_Settings.ghostProfileID or "")
+        tostring(TRP3FW.Prefs and TRP3FW.Prefs.phaseCheckMode or "nil"),
+        tostring(TRP3FW.Prefs and TRP3FW.Prefs.mapCheckMode or "nil"),
+        tostring(TRP3FW.Prefs and TRP3FW.Prefs.blockStartPhase),
+        tostring(TRP3FW.Prefs and TRP3FW.Prefs.ghostOnStartPhase),
+        tostring(TRP3FW.Prefs and TRP3FW.Prefs.ghostProfileID or "")
     }, "|")
 end
 
@@ -120,8 +120,8 @@ function TRP3FW:AllowSender(playerName, reason)
     if CI then
         -- OPTIMIZATION: Only refresh cache if it's stale (prevents write churn on every packet)
         -- Refresh threshold: percentage of TTL (default 10%)
-        local ttl = TRP3FW_Settings.sendCacheDuration or 600
-        local refreshPercent = TRP3FW_Settings.sendCacheRefreshRate or 10
+        local ttl = TRP3FW.Prefs.sendCacheDuration or 600
+        local refreshPercent = TRP3FW.Prefs.sendCacheRefreshRate or 10
         local refreshThreshold = ttl * (refreshPercent / 100)
         
         local cached = CI:Get("allowedSenders", cleanName)
@@ -136,7 +136,7 @@ function TRP3FW:AllowSender(playerName, reason)
         })
     end
 
-    local duration = TRP3FW_Settings.sendCacheDuration
+    local duration = TRP3FW.Prefs.sendCacheDuration
     self:Debug("[AllowSender] ADDED to cache: '"..cleanName.."' (reason: "..(reason or "manual")..", duration: "..duration.."s)", "cache")
     self:Debug("[Send Cache] Added: "..cleanName.." (reason: "..(reason or "manual")..")", "send")
 end
@@ -190,29 +190,29 @@ function TRP3FW:CreateDecisionContext(playerName, addon, isWhisper, sendId, orig
 
         -- Settings snapshot (prevents TOCTOU)
         settings = {
-            notifyEnabled = TRP3FW_Settings.notifyEnabled,
-            notifyOnAllow = TRP3FW_Settings.notifyOnAllow,
-            notifyOnWhisper = TRP3FW_Settings.notifyOnWhisper,
-            notifyOnBroadcast = TRP3FW_Settings.notifyOnBroadcast,
-            notifyOnStartPhaseBlock = TRP3FW_Settings.notifyOnStartPhaseBlock,
-            showOnScreen = TRP3FW_Settings.showOnScreen,
-            playSound = TRP3FW_Settings.playSound,
-            showGhostNotifications = TRP3FW_Settings.showGhostNotifications,
-            refreshSuppression = TRP3FW_Settings.refreshSuppression,
-            suppressionTime = TRP3FW_Settings.suppressionTime,
-            phaseInDelay = TRP3FW_Settings.phaseInDelay,
-            phaseCheckMode = TRP3FW_Settings.phaseCheckMode,
-            mapCheckMode = TRP3FW_Settings.mapCheckMode,
-            blockStartPhase = TRP3FW_Settings.blockStartPhase,
-            ghostOnStartPhase = TRP3FW_Settings.ghostOnStartPhase,
-            ghostProfileID = TRP3FW_Settings.ghostProfileID,
-            spvpEnabled = TRP3FW_Settings.spvpEnabled,
-            spvpMode = TRP3FW_Settings.spvpMode,
-            spvpAutoInitialize = TRP3FW_Settings.spvpAutoInitialize,
-            spvpBlockDuration = TRP3FW_Settings.spvpBlockDuration,
-            spvpSaltCacheDuration = TRP3FW_Settings.spvpSaltCacheDuration,
-            spvpPerPhaseOverrides = TRP3FW_Settings.spvpPerPhaseOverrides,
-            interactionCacheDuration = TRP3FW_Settings.interactionCacheDuration,
+            notifyEnabled = TRP3FW.Prefs.notifyEnabled,
+            notifyOnAllow = TRP3FW.Prefs.notifyOnAllow,
+            notifyOnWhisper = TRP3FW.Prefs.notifyOnWhisper,
+            notifyOnBroadcast = TRP3FW.Prefs.notifyOnBroadcast,
+            notifyOnStartPhaseBlock = TRP3FW.Prefs.notifyOnStartPhaseBlock,
+            showOnScreen = TRP3FW.Prefs.showOnScreen,
+            playSound = TRP3FW.Prefs.playSound,
+            showGhostNotifications = TRP3FW.Prefs.showGhostNotifications,
+            refreshSuppression = TRP3FW.Prefs.refreshSuppression,
+            suppressionTime = TRP3FW.Prefs.suppressionTime,
+            phaseInDelay = TRP3FW.Prefs.phaseInDelay,
+            phaseCheckMode = TRP3FW.Prefs.phaseCheckMode,
+            mapCheckMode = TRP3FW.Prefs.mapCheckMode,
+            blockStartPhase = TRP3FW.Prefs.blockStartPhase,
+            ghostOnStartPhase = TRP3FW.Prefs.ghostOnStartPhase,
+            ghostProfileID = TRP3FW.Prefs.ghostProfileID,
+            spvpEnabled = TRP3FW.Prefs.spvpEnabled,
+            spvpMode = TRP3FW.Prefs.spvpMode,
+            spvpAutoInitialize = TRP3FW.Prefs.spvpAutoInitialize,
+            spvpBlockDuration = TRP3FW.Prefs.spvpBlockDuration,
+            spvpSaltCacheDuration = TRP3FW.Prefs.spvpSaltCacheDuration,
+            spvpPerPhaseOverrides = TRP3FW.Prefs.spvpPerPhaseOverrides,
+            interactionCacheDuration = TRP3FW.Prefs.interactionCacheDuration,
         },
 
         -- Request parameters
@@ -305,7 +305,7 @@ function TRP3FW:ProcessTRP3BurstBlocks(playerName, useGhostMode)
                     self:Debug("Dropping stale TRP3 burst ghost/block for "..playerName.." ("..tostring(reason)..")", "send")
                 else
                     self:Debug("Processing queued TRP3 Send request for "..playerName.." with GHOST decision (from burst)", "send")
-                    local alternateProfileID = TRP3FW_Settings.ghostProfileID
+                    local alternateProfileID = TRP3FW.Prefs.ghostProfileID
                     local success = self:EnableGhostForNextSend(playerName, alternateProfileID)
                     if success and self.originalTRP3Send then
                         local callSuccess, err = pcall(self.originalTRP3Send, queuedReq.self, queuedReq.messageType, queuedReq.data, queuedReq.target, queuedReq.priority)
@@ -335,7 +335,7 @@ function TRP3FW:ProcessTRP3BurstBlocks(playerName, useGhostMode)
                     self:Debug("Dropping stale Chomp burst ghost/block for "..playerName.." ("..tostring(reason)..")", "send")
                 else
                     self:Debug("Processing queued Chomp request for "..playerName.." with GHOST decision (from burst)", "send")
-                    local alternateProfileID = TRP3FW_Settings.ghostProfileID
+                    local alternateProfileID = TRP3FW.Prefs.ghostProfileID
                     local success = self:EnableGhostForNextSend(playerName, alternateProfileID)
                     if success and self.originalChompSend then
                         local callSuccess, err = pcall(self.originalChompSend, queuedReq.prefix, queuedReq.text, queuedReq.chatType, queuedReq.target, queuedReq.priority, queuedReq.queue, queuedReq.callback, queuedReq.callbackArg)
@@ -366,7 +366,7 @@ function TRP3FW:ProcessMSPBurstBlocks(playerName, useGhostMode)
                     self:Debug("Dropping stale MSP burst ghost/block for "..playerName.." ("..tostring(reason)..")", "send")
                 else
                     self:Debug("Processing queued MSP request for "..playerName.." with GHOST decision (from burst)", "send")
-                    local alternateProfileID = TRP3FW_Settings.ghostProfileID
+                    local alternateProfileID = TRP3FW.Prefs.ghostProfileID
                     local ghostEnabled = self:EnableGhostForNextSend(playerName, alternateProfileID)
                     if ghostEnabled and self.originalMSPReply then
                         local success, err = pcall(self.originalMSPReply, queuedReq.sender, queuedReq.fields)
@@ -530,7 +530,7 @@ function TRP3FW:ApplyLocationDecision(context, shouldBlock, shouldAlert, useGhos
 
     if shouldBlock then
         if useGhostMode then
-             local alternateProfileID = TRP3FW_Settings.ghostProfileID
+             local alternateProfileID = TRP3FW.Prefs.ghostProfileID
              self:EnableGhostForNextSend(context.playerName, alternateProfileID)
              if context.originalFunc then
                  pcall(context.originalFunc, unpack(context.originalArgs))

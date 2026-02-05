@@ -152,7 +152,7 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
     local start = debugprofilestop()
     if event == "CHAT_MSG_ADDON" and prefix == "RPB1" then
         local senderName = TRP3FW:CleanPlayerName(sender)
-        local strictNonceRequired = TRP3FW_Settings and TRP3FW_Settings.scanResponseRequireNonce
+        local strictNonceRequired = TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
 
         -- Safety check: If CleanPlayerName returns nil, use raw sender name for debugging
         if not senderName then
@@ -276,7 +276,7 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
         end
 
         TRP3FW:Debug(function()
-            return "[Map Scan Response] WHISPER from "..senderName.." - "..(wasInCache and "REFRESHED" or "CACHED").." for "..TRP3FW_Settings.scanCacheDuration.."s (scanned mapID: "..tostring(scanMapID)..")"
+            return "[Map Scan Response] WHISPER from "..senderName.." - "..(wasInCache and "REFRESHED" or "CACHED").." for "..TRP3FW.Prefs.scanCacheDuration.."s (scanned mapID: "..tostring(scanMapID)..")"
         end, "whisper")
 
         if CI then
@@ -331,7 +331,7 @@ function TRP3FW:MapScan(name, sendId, callback)
 
     -- Check cache first
     local CI = self.CacheInterface
-    local strictNonceRequired = TRP3FW_Settings and TRP3FW_Settings.scanResponseRequireNonce
+    local strictNonceRequired = TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
     local cached = nil
     if CI then
         cached = CI:Get("mapScan", name)
@@ -347,9 +347,9 @@ function TRP3FW:MapScan(name, sendId, callback)
     end
 
     if cached then
-        local allowedDuration = TRP3FW_Settings.scanCacheDuration or 120
+        local allowedDuration = TRP3FW.Prefs.scanCacheDuration or 120
         if cached.found == false then
-            allowedDuration = TRP3FW_Settings.scanCacheFailureDuration or allowedDuration
+            allowedDuration = TRP3FW.Prefs.scanCacheFailureDuration or allowedDuration
         end
         local ageNow = self:GetCurrentTime() - cached.timestamp
         if ageNow < allowedDuration then
@@ -420,11 +420,11 @@ function TRP3FW:MapScan(name, sendId, callback)
         local cachedMapID = type(recentBroadcast) == "table" and recentBroadcast.mapID or nil
         local cachedVerified = type(recentBroadcast) == "table" and recentBroadcast.verified or false
 
-        local allowedDuration = TRP3FW_Settings.scanCacheDuration or 120
+        local allowedDuration = TRP3FW.Prefs.scanCacheDuration or 120
         local ageNow = self:GetCurrentTime() - timestamp
         local mismatch = cachedMapID and cachedMapID ~= currentMapID
         if mismatch then
-            allowedDuration = TRP3FW_Settings.scanCacheFailureDuration or allowedDuration
+            allowedDuration = TRP3FW.Prefs.scanCacheFailureDuration or allowedDuration
         end
 
         if ageNow < allowedDuration then
@@ -485,7 +485,7 @@ function TRP3FW:MapScan(name, sendId, callback)
 
     -- Decide if we can proceed with a scan (or piggyback on one)
     local now = self:GetCurrentTime()
-    local minInterval = (TRP3FW_Settings and TRP3FW_Settings.mapScanMinInterval) or MAP_SCAN_MIN_INTERVAL
+    local minInterval = (TRP3FW.Prefs and TRP3FW.Prefs.mapScanMinInterval) or MAP_SCAN_MIN_INTERVAL
     if minInterval < 0 then minInterval = MAP_SCAN_MIN_INTERVAL end
     local lastScanAt = self.lastMapScanAt or 0
     local sinceLastScan = now - lastScanAt

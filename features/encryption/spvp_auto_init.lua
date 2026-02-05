@@ -13,10 +13,10 @@ local function CheckAutoInitializeSalt()
     if not TRP3FW.hasEpsilonAPI then return end
 
     -- Check if SPVP enabled
-    if not TRP3FW_Settings.spvpEnabled then return end
+    if not TRP3FW.Prefs.spvpEnabled then return end
 
     -- Check if auto-initialize enabled
-    if not TRP3FW_Settings.spvpAutoInitialize then return end
+    if not TRP3FW.Prefs.spvpAutoInitialize then return end
 
     -- Check if we have the necessary API
     if not C_Epsilon or not C_Epsilon.IsOwner or not C_Epsilon.IsOfficer then return end
@@ -42,7 +42,7 @@ local function CheckAutoInitializeSalt()
     end
 
     -- Check per-phase overrides
-    if TRP3FW_Settings.spvpPerPhaseOverrides and TRP3FW_Settings.spvpPerPhaseOverrides[phaseID] == false then
+    if TRP3FW.Prefs.spvpPerPhaseOverrides and TRP3FW.Prefs.spvpPerPhaseOverrides[phaseID] == false then
         TRP3FW:Debug(string.format("SPVP auto-init skipped: Disabled for phase %d", phaseID), "spvp")
         return
     end
