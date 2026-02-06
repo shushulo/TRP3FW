@@ -375,6 +375,22 @@ StaticPopupDialogs["TRP3FW_CREATE_PROFILE"] = {
             TRP3FW:LoadProfile(name)
             if TRP3FW.RefreshProfilesTab then TRP3FW.RefreshProfilesTab() end
             RequestRefreshUI()
+
+            -- Warn about inherited ghost settings if an alternate profile is configured
+            local hasOverrides = false
+            if TRP3FW.Prefs.ghostProfileOverrides then
+                for _, entry in pairs(TRP3FW.Prefs.ghostProfileOverrides) do
+                    if entry.profileID then
+                        hasOverrides = true
+                        break
+                    end
+                end
+            end
+
+            if TRP3FW.Prefs.ghostProfileID or hasOverrides then
+                TRP3FW:Warn("New profile '"..name.."' inherited your TRP3 ghost profile ID(s).")
+                TRP3FW:Info("Note: TRP3 profiles are account-wide. Please verify your Ghost settings and Overrides if this character requires a different profile.")
+            end
         elseif name and name ~= "" then
             TRP3FW:Error("Profile '" .. name .. "' already exists.")
         end
