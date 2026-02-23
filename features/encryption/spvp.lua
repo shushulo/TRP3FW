@@ -397,8 +397,8 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
                     phaseID, age), "spvp")
                 
                 -- Background refresh logic
-                local ttl = TRP3FW_Settings.spvpSaltCacheDuration or 10800
-                local refreshThreshold = ttl * ((TRP3FW_Settings.spvpPhaseSaltRefreshRate or 50) / 100)
+                local ttl = TRP3FW.Prefs.spvpSaltCacheDuration or 10800
+                local refreshThreshold = ttl * ((TRP3FW.Prefs.spvpPhaseSaltRefreshRate or 50) / 100)
                 
                 if age > refreshThreshold then
                     self:Debug(string.format("Phase salt cache aging (%.0fs) - triggering background refresh", age), "spvp")
@@ -497,7 +497,7 @@ end
 
 --- Prepopulate phase salt cache on login or phase change
 function TRP3FW:PrepopulatePhaseSaltCache()
-    if not TRP3FW_Settings.spvpEnabled then return end
+    if not TRP3FW.Prefs.spvpEnabled then return end
     if not self.hasEpsilonAPI then return end
 
     local phaseID = self:GetCurrentPhaseID()
@@ -684,8 +684,8 @@ function TRP3FW:CheckPlayerViaSPVP(playerName, sendId, callback)
     if cached then
         local now = TRP3FW:GetCurrentTime()
         local age = now - cached.timestamp
-        local ttl = TRP3FW_Settings.spvpVerifiedCacheDuration or 300
-        local refreshThreshold = ttl * ((TRP3FW_Settings.spvpVerifiedRefreshRate or 50) / 100)
+        local ttl = TRP3FW.Prefs.spvpVerifiedCacheDuration or 300
+        local refreshThreshold = ttl * ((TRP3FW.Prefs.spvpVerifiedRefreshRate or 50) / 100)
 
         if age < refreshThreshold then
             -- Fresh cache
@@ -933,7 +933,7 @@ function TRP3FW:HandleSPVPReply(message, sender)
 
         -- Block sender
         local now = TRP3FW:GetCurrentTime()
-        local blockDuration = TRP3FW_Settings.spvpBlockDuration or 60
+        local blockDuration = TRP3FW.Prefs.spvpBlockDuration or 60
 
         TRP3FW.spvpFailedAttempts[sender] = {
             count = (TRP3FW.spvpFailedAttempts[sender] and TRP3FW.spvpFailedAttempts[sender].count or 0) + 1,

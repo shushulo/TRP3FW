@@ -174,7 +174,7 @@ local function CreateGraphWidget(parent, title, width, height)
         end
 
         if not dataPoints or #dataPoints == 0 then
-            if TRP3FW_Settings and not TRP3FW_Settings.performanceHistoryEnabled then
+            if TRP3FW.Prefs and not TRP3FW.Prefs.performanceHistoryEnabled then
                 self.statusText:SetText("|cffff0000History Tracking Disabled|r")
             else
                 self.statusText:SetText("Waiting for data...")
@@ -820,7 +820,7 @@ historyFrame:SetScript("OnUpdate", function(self, elapsed)
 
     -- Check for updates at the same rate as data collection (statusRefreshRate)
     -- Use a minimum of 5 seconds to avoid excessive polling
-    local checkInterval = math.max(5, TRP3FW_Settings and TRP3FW_Settings.statusRefreshRate or 30)
+    local checkInterval = math.max(5, TRP3FW.Prefs and TRP3FW.Prefs.statusRefreshRate or 30)
 
     if updateTimer >= checkInterval then
         updateTimer = 0

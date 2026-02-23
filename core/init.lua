@@ -234,6 +234,9 @@ TRP3FW.defaultSettings = {
     enableChompGhost = true,
 }
 
+-- Fallback for early access
+TRP3FW.Prefs = TRP3FW.defaultSettings
+
 -- Hook state containers (recursion/replay guards and original proxies)
 TRP3FW.hookState = TRP3FW.hookState or {}
 TRP3FW.hookState.chomp = TRP3FW.hookState.chomp or {
@@ -250,45 +253,45 @@ TRP3FW.hookStatus = TRP3FW.hookStatus or {}        -- per-hook install outcomes
 -- for use throughout the codebase
 
 function TRP3FW:IsPhaseCheckEnabled()
-    return TRP3FW_Settings.phaseCheckMode ~= "off"
+    return TRP3FW.Prefs.phaseCheckMode ~= "off"
 end
 
 function TRP3FW:IsMapCheckEnabled()
-    return TRP3FW_Settings.mapCheckMode ~= "off"
+    return TRP3FW.Prefs.mapCheckMode ~= "off"
 end
 
 function TRP3FW:ShouldAlertOnPhase()
-    local mode = TRP3FW_Settings.phaseCheckMode
+    local mode = TRP3FW.Prefs.phaseCheckMode
     return mode == "alert" or mode == "alert_block" or mode == "alert_ghost"
 end
 
 function TRP3FW:ShouldAlertOnMap()
-    local mode = TRP3FW_Settings.mapCheckMode
+    local mode = TRP3FW.Prefs.mapCheckMode
     return mode == "alert" or mode == "alert_block" or mode == "alert_ghost"
 end
 
 function TRP3FW:ShouldBlockOnPhase()
-    local mode = TRP3FW_Settings.phaseCheckMode
+    local mode = TRP3FW.Prefs.phaseCheckMode
     return mode == "block" or mode == "ghost" or mode == "alert_block" or mode == "alert_ghost"
 end
 
 function TRP3FW:ShouldBlockOnMap()
-    local mode = TRP3FW_Settings.mapCheckMode
+    local mode = TRP3FW.Prefs.mapCheckMode
     return mode == "block" or mode == "ghost" or mode == "alert_block" or mode == "alert_ghost"
 end
 
 function TRP3FW:ShouldGhostOnPhase()
-    local mode = TRP3FW_Settings.phaseCheckMode
+    local mode = TRP3FW.Prefs.phaseCheckMode
     return mode == "ghost" or mode == "alert_ghost"
 end
 
 function TRP3FW:ShouldGhostOnMap()
-    local mode = TRP3FW_Settings.mapCheckMode
+    local mode = TRP3FW.Prefs.mapCheckMode
     return mode == "ghost" or mode == "alert_ghost"
 end
 
 function TRP3FW:IsProfileSwitchOverrideActive()
-    if not TRP3FW_Settings.ghostProfileSwitch then
+    if not TRP3FW.Prefs.ghostProfileSwitch then
         return false
     end
 
@@ -308,9 +311,9 @@ end
 
 function TRP3FW:IsGhostModeEnabled()
     -- Ghost mode is enabled if ANY check type is configured for ghost OR start phase ghost is enabled
-    local phaseGhost = (TRP3FW_Settings.phaseCheckMode == "ghost" or TRP3FW_Settings.phaseCheckMode == "alert_ghost")
-    local mapGhost = (TRP3FW_Settings.mapCheckMode == "ghost" or TRP3FW_Settings.mapCheckMode == "alert_ghost")
-    return phaseGhost or mapGhost or TRP3FW_Settings.ghostOnStartPhase
+    local phaseGhost = (TRP3FW.Prefs.phaseCheckMode == "ghost" or TRP3FW.Prefs.phaseCheckMode == "alert_ghost")
+    local mapGhost = (TRP3FW.Prefs.mapCheckMode == "ghost" or TRP3FW.Prefs.mapCheckMode == "alert_ghost")
+    return phaseGhost or mapGhost or TRP3FW.Prefs.ghostOnStartPhase
 end
 
 -- Runtime state
@@ -582,28 +585,85 @@ TRP3FW.PHASE_IN_QUEUE_LIMIT = 200
 TRP3FW.originalMSPSend = nil
 TRP3FW.originalMSPReply = nil
 
--- Initialize settings
-function TRP3FW:InitializeSettings()
-    TRP3FW_Settings = TRP3FW_Settings or {}
+function TRP3FW:GetCharacterKey()
+    return UnitName("player") .. " - " .. GetRealmName()
+end
 
+function TRP3FW:MigrateSettings()
+    -- Ensure Root DB exists
+    TRP3FW_DB = TRP3FW_DB or {}
+    TRP3FW_DB.profiles = TRP3FW_DB.profiles or {}
+    TRP3FW_DB.profileKeys = TRP3FW_DB.profileKeys or {}
+    TRP3FW_DB.global = TRP3FW_DB.global or { version = TRP3FW.VERSION }
+
+    -- Check if we have legacy data to migrate
+    -- TRP3FW_Settings (legacy global) might contain data if it was just loaded
+    if TRP3FW_Settings and next(TRP3FW_Settings) and not TRP3FW_Settings.profiles then
+        self:Debug("Migration: Found legacy flat settings. Migrating to 'Default' profile.", "init")
+        
+        -- Copy flat data to Default profile
+        TRP3FW_DB.profiles["Default"] = CopyTable(TRP3FW_Settings)
+        
+        -- Wipe legacy container (to avoid double-saving or confusion)
+        for k in pairs(TRP3FW_Settings) do TRP3FW_Settings[k] = nil end
+    end
+    
+    -- Ensure at least one profile exists
+    if not next(TRP3FW_DB.profiles) then
+        TRP3FW_DB.profiles["Default"] = CopyTable(self.defaultSettings)
+    end
+end
+
+function TRP3FW:LoadProfile(profileName)
+    local db = TRP3FW_DB
+    if not db.profiles[profileName] then
+        self:Debug("Profile '" .. profileName .. "' not found. Falling back to 'Default'.", "init")
+        profileName = "Default"
+    end
+    
+    -- Point Prefs to the active profile table
+    self.Prefs = db.profiles[profileName]
+    
+    -- Ensure all default keys exist in the profile
     for k, v in pairs(self.defaultSettings) do
-        if TRP3FW_Settings[k] == nil then
-            TRP3FW_Settings[k] = v
+        if self.Prefs[k] == nil then
+            self.Prefs[k] = v
         end
     end
+    
+    -- Update current character's key
+    local charKey = self:GetCharacterKey()
+    db.profileKeys[charKey] = profileName
+    
+    -- Store reference to Global DB
+    TRP3FW.GlobalDB = db
+    
+    self:Debug("Loaded profile: " .. profileName, "init")
+end
 
-    -- Set cache size constants from settings (allows runtime configuration)
-    TRP3FW.CLEAN_NAME_CACHE_MAX = TRP3FW_Settings.cleanNameCacheSize
-    TRP3FW.SANITIZED_NAME_CACHE_MAX = TRP3FW_Settings.sanitizedNameCacheSize
+-- Initialize settings
+function TRP3FW:InitializeSettings()
+    -- 1. Perform Migration
+    self:MigrateSettings()
+    
+    -- 2. Identify active profile for current character
+    local charKey = self:GetCharacterKey()
+    local profileName = TRP3FW_DB.profileKeys[charKey] or "Default"
+    
+    -- 3. Load the profile
+    self:LoadProfile(profileName)
+    
+    -- 4. Set cache size constants
+    TRP3FW.CLEAN_NAME_CACHE_MAX = self.Prefs.cleanNameCacheSize
+    TRP3FW.SANITIZED_NAME_CACHE_MAX = self.Prefs.sanitizedNameCacheSize
 
-    -- OPTIMIZATION: Initialize validated names cache (persistent across sessions)
-    -- This cache stores validated player names to skip expensive regex validation on repeat encounters
+    -- 5. Persistent global caches
     TRP3FW_ValidatedNames = TRP3FW_ValidatedNames or {}
 
-    -- MIGRATION: Force enable SPVP for Epsilon users who haven't explicitly disabled it
-    if self.hasEpsilonAPI and TRP3FW_Settings.spvpEnabled == false then
-        if not TRP3FW_Settings.spvpExplicitlyDisabled then
-            TRP3FW_Settings.spvpEnabled = true
+    -- 6. SPVP Migration (from InitializeSettings)
+    if self.hasEpsilonAPI and self.Prefs.spvpEnabled == false then
+        if not self.Prefs.spvpExplicitlyDisabled then
+            self.Prefs.spvpEnabled = true
             self:Debug("Migration: Force-enabled SPVP for Epsilon user", "init")
         end
     end
@@ -626,27 +686,22 @@ function TRP3FW:HandleDependencySettings()
         { key = "ghostProfileSwitch", disableValue = false },
     }
 
-    -- Settings requiring TRP3
-    local trp3Settings = {
-        -- Note: ghostMode works for MSP/MRP/XRP without TRP3, only TRP3-specific ghost needs TRP3 hooks
-    }
-
     local function applyDependency(hasDependency, settings, dependencyName)
         for _, entry in ipairs(settings) do
             local key = entry.key
             local disableValue = entry.disableValue
 
             if not hasDependency then
-                if TRP3FW_Settings[key] ~= disableValue then
+                if self.Prefs[key] ~= disableValue then
                     -- Save the user's preference
-                    self.savedSettings[key] = TRP3FW_Settings[key]
+                    self.savedSettings[key] = self.Prefs[key]
                     -- Temporarily disable
-                    TRP3FW_Settings[key] = disableValue
+                    self.Prefs[key] = disableValue
                     self:Debug("Disabled "..key.." ("..dependencyName.." not available, saved: "..tostring(self.savedSettings[key])..")", "init")
                 end
             else
                 if self.savedSettings[key] ~= nil then
-                    TRP3FW_Settings[key] = self.savedSettings[key]
+                    self.Prefs[key] = self.savedSettings[key]
                     self:Debug("Restored "..key.." to "..tostring(self.savedSettings[key]).." ("..dependencyName.." now available)", "init")
                     self.savedSettings[key] = nil
                 end
@@ -655,21 +710,7 @@ function TRP3FW:HandleDependencySettings()
     end
 
     applyDependency(self.hasEpsilonAPI, epsilonSettings, "Epsilon API")
-    applyDependency(self.hasTRP3ExchangeHooks, trp3Settings, "TRP3")
 end
-
--- Call initialization
-TRP3FW:InitializeSettings()
 
 -- Create main frame
 TRP3FW.frame = CreateFrame("Frame", "TRP3FW_MainFrame")
-
--- Ensure settings persist after ADDON_LOADED
-local initFrame = CreateFrame("Frame")
-initFrame:RegisterEvent("ADDON_LOADED")
-initFrame:SetScript("OnEvent", function(self, event, addon)
-    if addon == addonName then
-        TRP3FW:InitializeSettings()
-        self:UnregisterEvent("ADDON_LOADED")
-    end
-end)

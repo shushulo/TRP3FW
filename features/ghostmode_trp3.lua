@@ -35,7 +35,7 @@ end
 -- Helper: detect if a profileID is the TRP3FW blank profile (TRP3FW_BLANK)
 -- Made into a method so it can be accessed from hooks/trp3.lua
 function TRP3FW:IsDefaultBlankProfileID(profileID)
-	local blankName = TRP3FW_Settings.ghostProfileName or "TRP3FW_BLANK"
+	local blankName = TRP3FW.Prefs.ghostProfileName or "TRP3FW_BLANK"
 	if not TRP3_Profiles or not profileID then
 		return false
 	end

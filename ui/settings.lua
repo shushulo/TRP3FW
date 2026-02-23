@@ -143,8 +143,8 @@ local CUSTOM_LOGIC_KEYS = {
 
 -- Function to update UI based on complexity level
 local function UpdateUIComplexity()
-    if not TRP3FW_Settings then return end
-    local currentLevel = TRP3FW_Settings.uiComplexityLevel or 2
+    if not TRP3FW.Prefs then return end
+    local currentLevel = TRP3FW.Prefs.uiComplexityLevel or 2
     local shouldRefresh = false
     
     for _, widget in ipairs(complexityWidgets) do
@@ -178,7 +178,7 @@ end
 
 -- Enforce defaults for settings hidden by the new complexity level
 function TRP3FW:EnforceComplexityDefaults(newLevel)
-    if not TRP3FW_Settings or not TRP3FW.defaultSettings then return end
+    if not TRP3FW.Prefs or not TRP3FW.defaultSettings then return end
     local shouldRefresh = false
     
     for _, widget in ipairs(complexityWidgets) do
@@ -188,11 +188,11 @@ function TRP3FW:EnforceComplexityDefaults(newLevel)
             if widget.settingKey then
                 local key = widget.settingKey
                 local default = TRP3FW.defaultSettings[key]
-                local current = TRP3FW_Settings[key]
+                local current = TRP3FW.Prefs[key]
                 
                 -- Reset non-default values to default
                 if default ~= nil and current ~= default then
-                    TRP3FW_Settings[key] = default
+                    TRP3FW.Prefs[key] = default
                     TRP3FW:Debug("[Complexity] Reset hidden setting '"..key.."' to default", "ui")
                     shouldRefresh = true
                 end
@@ -251,7 +251,7 @@ StaticPopupDialogs["TRP3FW_CHANGE_PROFILE_NAME"] = {
     button1 = "Yes, Change It",
     button2 = "Cancel",
     OnAccept = function(self, data)
-        TRP3FW_Settings.ghostProfileName = data
+        TRP3FW.Prefs.ghostProfileName = data
         TRP3FW:Info("Profile switch set to: " .. data)
         -- Update the dropdown UI
         if uiElements and uiElements.ghostProfileDropdown then
@@ -261,7 +261,7 @@ StaticPopupDialogs["TRP3FW_CHANGE_PROFILE_NAME"] = {
     OnCancel = function(self, data)
         -- Revert the dropdown to current setting
         if uiElements and uiElements.ghostProfileDropdown then
-            local current = TRP3FW_Settings.ghostProfileName or "TRP3FW_BLANK"
+            local current = TRP3FW.Prefs.ghostProfileName or "TRP3FW_BLANK"
             if current == "TRP3FW_BLANK" then
                 UIDropDownMenu_SetText(uiElements.ghostProfileDropdown, "TRP3FW_BLANK |cff00ff00(Recommended)|r")
             else
@@ -281,7 +281,7 @@ StaticPopupDialogs["TRP3FW_RESET_CONFIRM"] = {
     button1 = "Yes, Reset Everything",
     button2 = "Cancel",
     OnAccept = function()
-        TRP3FW_Settings = {}
+        TRP3FW.Prefs = {}
         TRP3FW:InitializeSettings()
         RequestRefreshUI()
         TRP3FW:Info("All settings reset to defaults")
@@ -297,7 +297,7 @@ StaticPopupDialogs["TRP3FW_WHITELIST_CONFIRM"] = {
     button1 = "Allow Bypass",
     button2 = "Cancel",
     OnAccept = function()
-        TRP3FW_Settings.whitelistEnabled = true
+        TRP3FW.Prefs.whitelistEnabled = true
         TRP3FW:RefreshWhitelistCache()
         if uiElements and uiElements.whitelistBypassEnabled then
             uiElements.whitelistBypassEnabled:SetChecked(true)
@@ -311,7 +311,7 @@ StaticPopupDialogs["TRP3FW_WHITELIST_CONFIRM"] = {
         end
     end,
     OnCancel = function()
-        TRP3FW_Settings.whitelistEnabled = false
+        TRP3FW.Prefs.whitelistEnabled = false
         TRP3FW:RefreshWhitelistCache()
         if uiElements and uiElements.whitelistBypassEnabled then
             uiElements.whitelistBypassEnabled:SetChecked(false)
@@ -331,19 +331,124 @@ StaticPopupDialogs["TRP3FW_WHITELIST_CONFIRM"] = {
 }
 
 StaticPopupDialogs["TRP3FW_SPVP_ROTATE_CONFIRM"] = {
-    text = "|cffffcc00Rotate SPVP Security Key?|r\n\nThis phase already has a security key. Rotating it will:\n\n• Generate a new cryptographic salt\n• Invalidate all existing SPVP verifications\n• Require players to re-verify with the new key\n\nOnly rotate if you suspect the current key is compromised or want to refresh security.",
+    text = "Are you sure you want to rotate the SPVP security key for this phase?\n\n|cffff0000This will immediately invalidate all existing verifications for all players in this phase.|r\n\nEveryone will need to re-verify their phase presence.",
     button1 = "Rotate Key",
     button2 = "Cancel",
-    OnAccept = function()
-        TRP3FW:SecureCurrentPhase()
-        if RequestRefreshUI then
-            RequestRefreshUI()
+    OnAccept = function(self, phaseID)
+        if TRP3FW.GenerateSPVPSalt then
+            TRP3FW:GenerateSPVPSalt(phaseID)
+            TRP3FW:Info("SPVP security key rotated for phase: " .. tostring(phaseID))
+            -- Notification will be sent via SPVP event
         end
     end,
     hideOnEscape = 1,
     timeout = 0,
     whileDead = 1,
     showAlert = 1,
+}
+
+-- Profile Management Dialogs
+StaticPopupDialogs["TRP3FW_CONFIRM_PROFILE_SWITCH"] = {
+    text = "Switch to settings profile '%s'?",
+    button1 = "Yes",
+    button2 = "No",
+    OnAccept = function(self, data)
+        TRP3FW:LoadProfile(data)
+        if TRP3FW.RefreshProfilesTab then TRP3FW.RefreshProfilesTab() end
+        RequestRefreshUI()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+StaticPopupDialogs["TRP3FW_CREATE_PROFILE"] = {
+    text = "Enter name for new settings profile:",
+    button1 = "Create",
+    button2 = "Cancel",
+    hasEditBox = true,
+    OnAccept = function(self)
+        local name = self.editBox:GetText()
+        if name and name ~= "" and not TRP3FW.GlobalDB.profiles[name] then
+            -- Copy current settings to new profile
+            TRP3FW.GlobalDB.profiles[name] = CopyTable(TRP3FW.Prefs)
+            TRP3FW:LoadProfile(name)
+            if TRP3FW.RefreshProfilesTab then TRP3FW.RefreshProfilesTab() end
+            RequestRefreshUI()
+
+            -- Warn about inherited ghost settings if an alternate profile is configured
+            local hasOverrides = false
+            if TRP3FW.Prefs.ghostProfileOverrides then
+                for _, entry in pairs(TRP3FW.Prefs.ghostProfileOverrides) do
+                    if entry.profileID then
+                        hasOverrides = true
+                        break
+                    end
+                end
+            end
+
+            if TRP3FW.Prefs.ghostProfileID or hasOverrides then
+                TRP3FW:Warn("New profile '"..name.."' inherited your TRP3 ghost profile ID(s).")
+                TRP3FW:Info("Note: TRP3 profiles are account-wide. Please verify your Ghost settings and Overrides if this character requires a different profile.")
+            end
+        elseif name and name ~= "" then
+            TRP3FW:Error("Profile '" .. name .. "' already exists.")
+        end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+StaticPopupDialogs["TRP3FW_CONFIRM_PROFILE_DELETE"] = {
+    text = "Are you sure you want to delete settings profile '%s'?",
+    button1 = "Delete",
+    button2 = "Cancel",
+    OnAccept = function(self, data)
+        if data ~= "Default" and TRP3FW.GlobalDB.profiles[data] then
+            TRP3FW.GlobalDB.profiles[data] = nil
+            if TRP3FW.RefreshProfilesTab then TRP3FW.RefreshProfilesTab() end
+        end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    showAlert = true,
+}
+
+StaticPopupDialogs["TRP3FW_RENAME_PROFILE"] = {
+    text = "Rename settings profile '%s' to:",
+    button1 = "Rename",
+    button2 = "Cancel",
+    hasEditBox = true,
+    OnAccept = function(self, data)
+        local newName = self.editBox:GetText()
+        if newName and newName ~= "" and not TRP3FW.GlobalDB.profiles[newName] then
+            TRP3FW.GlobalDB.profiles[newName] = TRP3FW.GlobalDB.profiles[data]
+            TRP3FW.GlobalDB.profiles[data] = nil
+            
+            -- Update profileKeys
+            for k, v in pairs(TRP3FW.GlobalDB.profileKeys) do
+                if v == data then
+                    TRP3FW.GlobalDB.profileKeys[k] = newName
+                end
+            end
+            
+            -- If it was active, reload it
+            local charKey = TRP3FW:GetCharacterKey()
+            if TRP3FW.GlobalDB.profileKeys[charKey] == newName then
+                TRP3FW:LoadProfile(newName)
+            end
+            
+            if TRP3FW.RefreshProfilesTab then TRP3FW.RefreshProfilesTab() end
+            RequestRefreshUI()
+        elseif newName and newName ~= "" then
+            TRP3FW:Error("Profile '" .. newName .. "' already exists.")
+        end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
 }
 
 -- Main settings frame
@@ -550,8 +655,8 @@ end
 -- Helper function to create tab buttons
 local function CreateTab(parent, index, text)
     local tab = CreateFrame("Button", nil, parent)
-    tab:SetSize(110, 30)  -- Reduced from 120 to 110
-    tab:SetPoint("TOPLEFT", (index - 1) * 115 + 10, -30)  -- Reduced spacing from 125 to 115
+    tab:SetSize(88, 30)
+    tab:SetPoint("TOPLEFT", (index - 1) * 92 + 10, -30)
 
     -- Background
     tab.bg = tab:CreateTexture(nil, "BACKGROUND")
@@ -854,8 +959,8 @@ local function CreateMinimapButton()
             end
         elseif button == "RightButton" then
             -- Toggle notifications
-            TRP3FW_Settings.notifyEnabled = not TRP3FW_Settings.notifyEnabled
-            TRP3FW:Info("Notifications "..(TRP3FW_Settings.notifyEnabled and "|cff00ff00enabled|r" or "|cffaaaaaadisabled|r"))
+            TRP3FW.Prefs.notifyEnabled = not TRP3FW.Prefs.notifyEnabled
+            TRP3FW:Info("Notifications "..(TRP3FW.Prefs.notifyEnabled and "|cff00ff00enabled|r" or "|cffaaaaaadisabled|r"))
         end
     end)
 
@@ -896,8 +1001,8 @@ end
 -- Background performance tracking
 local backgroundTicker
 local function UpdateBackgroundTracking()
-    local enabled = TRP3FW_Settings and TRP3FW_Settings.performanceHistoryEnabled
-    local rate = TRP3FW_Settings and TRP3FW_Settings.statusRefreshRate or 30
+    local enabled = TRP3FW.Prefs and TRP3FW.Prefs.performanceHistoryEnabled
+    local rate = TRP3FW.Prefs and TRP3FW.Prefs.statusRefreshRate or 30
     
     if backgroundTicker then
         backgroundTicker:Cancel()
@@ -1296,11 +1401,11 @@ local function RefreshUI()
     if TRP3FW and TRP3FW.InitializeSettings then
         TRP3FW:InitializeSettings()
     end
-    TRP3FW_Settings = TRP3FW_Settings or {}
+    TRP3FW.Prefs = TRP3FW.Prefs or {}
     if TRP3FW and TRP3FW.defaultSettings then
         for k, v in pairs(TRP3FW.defaultSettings) do
-            if TRP3FW_Settings[k] == nil then
-                TRP3FW_Settings[k] = v
+            if TRP3FW.Prefs[k] == nil then
+                TRP3FW.Prefs[k] = v
             end
         end
     end
@@ -1326,34 +1431,34 @@ local function RefreshUI()
 
     -- Status tab settings
     if uiElements.statusRefreshRate then
-        uiElements.statusRefreshRate:SetValue(TRP3FW_Settings.statusRefreshRate)
+        uiElements.statusRefreshRate:SetValue(TRP3FW.Prefs.statusRefreshRate)
     end
     if uiElements.performanceHistoryEnabled then
-        uiElements.performanceHistoryEnabled:SetChecked(TRP3FW_Settings.performanceHistoryEnabled)
+        uiElements.performanceHistoryEnabled:SetChecked(TRP3FW.Prefs.performanceHistoryEnabled)
     end
     
     -- Ensure background tracking matches settings
     UpdateBackgroundTracking()
 
     -- Notifications tab
-    uiElements.notifyEnabled:SetChecked(TRP3FW_Settings.notifyEnabled)
-    uiElements.notifyOnAllow:SetChecked(TRP3FW_Settings.notifyOnAllow)
-    uiElements.notifyOnStartPhaseBlock:SetChecked(TRP3FW_Settings.notifyOnStartPhaseBlock)
-    uiElements.notifyBroadcast:SetChecked(TRP3FW_Settings.notifyOnBroadcast)
-    uiElements.notifyWhisper:SetChecked(TRP3FW_Settings.notifyOnWhisper)
-    uiElements.notifyOnScanResponse:SetChecked(TRP3FW_Settings.notifyOnScanResponse)
+    uiElements.notifyEnabled:SetChecked(TRP3FW.Prefs.notifyEnabled)
+    uiElements.notifyOnAllow:SetChecked(TRP3FW.Prefs.notifyOnAllow)
+    uiElements.notifyOnStartPhaseBlock:SetChecked(TRP3FW.Prefs.notifyOnStartPhaseBlock)
+    uiElements.notifyBroadcast:SetChecked(TRP3FW.Prefs.notifyOnBroadcast)
+    uiElements.notifyWhisper:SetChecked(TRP3FW.Prefs.notifyOnWhisper)
+    uiElements.notifyOnScanResponse:SetChecked(TRP3FW.Prefs.notifyOnScanResponse)
     if uiElements.notifyOnScanAllow then
-        uiElements.notifyOnScanAllow:SetChecked(TRP3FW_Settings.notifyOnScanAllow)
+        uiElements.notifyOnScanAllow:SetChecked(TRP3FW.Prefs.notifyOnScanAllow)
     end
     if uiElements.scanResponseRequireNonce then
-        uiElements.scanResponseRequireNonce:SetChecked(TRP3FW_Settings.scanResponseRequireNonce)
+        uiElements.scanResponseRequireNonce:SetChecked(TRP3FW.Prefs.scanResponseRequireNonce)
     end
-    uiElements.scanResponseCacheEnabled:SetChecked(TRP3FW_Settings.scanResponseCacheEnabled)
-    uiElements.scanResponseAllowCacheBypass:SetChecked(TRP3FW_Settings.scanResponseAllowCacheBypass)
-    uiElements.scanResponseAllowGroupBypass:SetChecked(TRP3FW_Settings.scanResponseAllowGroupBypass)
+    uiElements.scanResponseCacheEnabled:SetChecked(TRP3FW.Prefs.scanResponseCacheEnabled)
+    uiElements.scanResponseAllowCacheBypass:SetChecked(TRP3FW.Prefs.scanResponseAllowCacheBypass)
+    uiElements.scanResponseAllowGroupBypass:SetChecked(TRP3FW.Prefs.scanResponseAllowGroupBypass)
     if uiElements.scanResponseWhitelistEnabled then
-        uiElements.scanResponseWhitelistEnabled:SetChecked(TRP3FW_Settings.scanResponseWhitelistEnabled)
-        local enabled = TRP3FW_Settings.scanResponseWhitelistEnabled
+        uiElements.scanResponseWhitelistEnabled:SetChecked(TRP3FW.Prefs.scanResponseWhitelistEnabled)
+        local enabled = TRP3FW.Prefs.scanResponseWhitelistEnabled
         if enabled then
             uiElements.scanResponseWhitelistEdit:Enable()
         else
@@ -1364,9 +1469,9 @@ local function RefreshUI()
             uiElements.scanResponseWhitelistScroll:SetAlpha(enabled and 1 or 0.5)
         end
     end
-    uiElements.scanResponseWhitelistEdit:SetText(TRP3FW_Settings.scanResponseWhitelist or "")
-    local phaseMode = TRP3FW_Settings.scanResponsePhaseMode or "alert"
-    local mapMode = TRP3FW_Settings.scanResponseMapMode or "alert"
+    uiElements.scanResponseWhitelistEdit:SetText(TRP3FW.Prefs.scanResponseWhitelist or "")
+    local phaseMode = TRP3FW.Prefs.scanResponsePhaseMode or "alert"
+    local mapMode = TRP3FW.Prefs.scanResponseMapMode or "alert"
     local function setModeText(dropdown, mode)
         local label = "Alert (send anyway)"
         if mode == "block" then label = "Block (silent)" end
@@ -1462,7 +1567,7 @@ local function RefreshUI()
                 uiElements.scanResponseWhitelistEnabled:Disable()
                 uiElements.scanResponseWhitelistEnabled:SetAlpha(0.5)
             end
-            local enabled = gatingActive and TRP3FW_Settings.scanResponseWhitelistEnabled
+            local enabled = gatingActive and TRP3FW.Prefs.scanResponseWhitelistEnabled
             if enabled then
                 uiElements.scanResponseWhitelistEdit:Enable()
             else
@@ -1477,17 +1582,17 @@ local function RefreshUI()
         setDropdownEnabled(uiElements.scanResponsePhaseModeDropdown, hasEpsilon)
         setDropdownEnabled(uiElements.scanResponseWhoModeDropdown, hasEpsilon)
     end
-    uiElements.showInChat:SetChecked(TRP3FW_Settings.showInChat)
+    uiElements.showInChat:SetChecked(TRP3FW.Prefs.showInChat)
     if uiElements.showGhostNotifications then
-        uiElements.showGhostNotifications:SetChecked(TRP3FW_Settings.showGhostNotifications)
+        uiElements.showGhostNotifications:SetChecked(TRP3FW.Prefs.showGhostNotifications)
     end
-    uiElements.showOnScreen:SetChecked(TRP3FW_Settings.showOnScreen)
-    uiElements.playSound:SetChecked(TRP3FW_Settings.playSound)
-    uiElements.showAddonSource:SetChecked(TRP3FW_Settings.showAddonSource)
-    uiElements.showCacheInfo:SetChecked(TRP3FW_Settings.showCacheInfo)
-    uiElements.showCheckResults:SetChecked(TRP3FW_Settings.showCheckResults)
-    uiElements.suppressionTime:SetText(TRP3FW_Settings.suppressionTime)
-    uiElements.refreshSuppression:SetChecked(TRP3FW_Settings.refreshSuppression ~= false)
+    uiElements.showOnScreen:SetChecked(TRP3FW.Prefs.showOnScreen)
+    uiElements.playSound:SetChecked(TRP3FW.Prefs.playSound)
+    uiElements.showAddonSource:SetChecked(TRP3FW.Prefs.showAddonSource)
+    uiElements.showCacheInfo:SetChecked(TRP3FW.Prefs.showCacheInfo)
+    uiElements.showCheckResults:SetChecked(TRP3FW.Prefs.showCheckResults)
+    uiElements.suppressionTime:SetText(TRP3FW.Prefs.suppressionTime)
+    uiElements.refreshSuppression:SetChecked(TRP3FW.Prefs.refreshSuppression ~= false)
 
     -- Alerts & Blocking tab
     -- Set phase and map check mode dropdowns
@@ -1501,10 +1606,10 @@ local function RefreshUI()
         ["alert_ghost"] = "Alert + Ghost"
     }
 
-    local phaseMode = TRP3FW_Settings.phaseCheckMode or "off"
+    local phaseMode = TRP3FW.Prefs.phaseCheckMode or "off"
     UIDropDownMenu_SetText(uiElements.phaseCheckModeDropdown, modeMap[phaseMode] or "Off")
 
-    local mapMode = TRP3FW_Settings.mapCheckMode or "off"
+    local mapMode = TRP3FW.Prefs.mapCheckMode or "off"
     UIDropDownMenu_SetText(uiElements.mapCheckModeDropdown, modeMap[mapMode] or "Off")
 
     if uiElements.notificationModeSummary then
@@ -1522,8 +1627,8 @@ local function RefreshUI()
         local lines = {}
         table.insert(lines, string.format("Profiles: Phase: %s   Map: %s   %s", modeText(phaseMode), modeText(mapMode), whoText))
 
-        local scanPhaseMode = TRP3FW_Settings.scanResponsePhaseMode or "off"
-        local scanMapMode = TRP3FW_Settings.scanResponseMapMode or "off"
+        local scanPhaseMode = TRP3FW.Prefs.scanResponsePhaseMode or "off"
+        local scanMapMode = TRP3FW.Prefs.scanResponseMapMode or "off"
         if gatingActive then
             table.insert(lines, string.format("Scan reply: Phase: %s   Map: %s", scanModeText(scanPhaseMode), scanModeText(scanMapMode)))
         else
@@ -1534,11 +1639,11 @@ local function RefreshUI()
     end
 
     if uiElements.whitelistBypassEnabled then
-        uiElements.whitelistBypassEnabled:SetChecked(TRP3FW_Settings.whitelistEnabled)
+        uiElements.whitelistBypassEnabled:SetChecked(TRP3FW.Prefs.whitelistEnabled)
     end
 	if uiElements.whitelistEdit then
-		uiElements.whitelistEdit:SetText(TRP3FW_Settings.whitelistEntries or "")
-		local enabled = TRP3FW_Settings.whitelistEnabled
+		uiElements.whitelistEdit:SetText(TRP3FW.Prefs.whitelistEntries or "")
+		local enabled = TRP3FW.Prefs.whitelistEnabled
 		if enabled then
 			uiElements.whitelistEdit:Enable()
 		else
@@ -1550,17 +1655,17 @@ local function RefreshUI()
         end
 	end
 
-	uiElements.suppressAllWhoOutput:SetChecked(TRP3FW_Settings.suppressAllWhoOutput)
-	uiElements.allowGroupPhaseBypass:SetChecked(TRP3FW_Settings.allowGroupPhaseBypass)
-	uiElements.blockStartPhase:SetChecked(TRP3FW_Settings.blockStartPhase)
-    uiElements.ghostOnStartPhase:SetChecked(TRP3FW_Settings.ghostOnStartPhase)
-    uiElements.ghostProfileSwitch:SetChecked(TRP3FW_Settings.ghostProfileSwitch)
+	uiElements.suppressAllWhoOutput:SetChecked(TRP3FW.Prefs.suppressAllWhoOutput)
+	uiElements.allowGroupPhaseBypass:SetChecked(TRP3FW.Prefs.allowGroupPhaseBypass)
+	uiElements.blockStartPhase:SetChecked(TRP3FW.Prefs.blockStartPhase)
+    uiElements.ghostOnStartPhase:SetChecked(TRP3FW.Prefs.ghostOnStartPhase)
+    uiElements.ghostProfileSwitch:SetChecked(TRP3FW.Prefs.ghostProfileSwitch)
     if uiElements.ghostProfileWhitelistEnabled then
-        uiElements.ghostProfileWhitelistEnabled:SetChecked(TRP3FW_Settings.ghostProfileWhitelistEnabled)
+        uiElements.ghostProfileWhitelistEnabled:SetChecked(TRP3FW.Prefs.ghostProfileWhitelistEnabled)
     end
     if uiElements.ghostProfileWhitelistEdit then
-        uiElements.ghostProfileWhitelistEdit:SetText(TRP3FW_Settings.ghostProfileWhitelist or "")
-        local enabled = TRP3FW_Settings.ghostProfileWhitelistEnabled
+        uiElements.ghostProfileWhitelistEdit:SetText(TRP3FW.Prefs.ghostProfileWhitelist or "")
+        local enabled = TRP3FW.Prefs.ghostProfileWhitelistEnabled
         if enabled then
             uiElements.ghostProfileWhitelistEdit:Enable()
         else
@@ -1572,10 +1677,10 @@ local function RefreshUI()
         end
     end
     if uiElements.profileOverrides then
-        TRP3FW_Settings.ghostProfileOverrides = TRP3FW_Settings.ghostProfileOverrides or {}
+        TRP3FW.Prefs.ghostProfileOverrides = TRP3FW.Prefs.ghostProfileOverrides or {}
         for idx, refs in ipairs(uiElements.profileOverrides) do
-            TRP3FW_Settings.ghostProfileOverrides[idx] = TRP3FW_Settings.ghostProfileOverrides[idx] or {}
-            local entry = TRP3FW_Settings.ghostProfileOverrides[idx]
+            TRP3FW.Prefs.ghostProfileOverrides[idx] = TRP3FW.Prefs.ghostProfileOverrides[idx] or {}
+            local entry = TRP3FW.Prefs.ghostProfileOverrides[idx]
             if refs.edit then
                 refs.edit:SetText(entry.match or "")
             end
@@ -1588,7 +1693,7 @@ local function RefreshUI()
 
     -- Update profile switch dropdown
     if uiElements.ghostProfileDropdown then
-        local currentProfile = TRP3FW_Settings.ghostProfileName or "TRP3FW_BLANK"
+        local currentProfile = TRP3FW.Prefs.ghostProfileName or "TRP3FW_BLANK"
         if currentProfile == "TRP3FW_BLANK" then
             UIDropDownMenu_SetText(uiElements.ghostProfileDropdown, "TRP3FW_BLANK |cff00ff00(Recommended)|r")
         else
@@ -1598,7 +1703,7 @@ local function RefreshUI()
 
     -- Update SPVP controls
     if uiElements.spvpModeDropdown then
-        local mode = TRP3FW_Settings.spvpMode or "off"
+        local mode = TRP3FW.Prefs.spvpMode or "off"
         local text = "Off"
         if mode == "optional" then text = "Optional (Post-Check)" end
         if mode == "preferred" then text = "Preferred (Pre-Check)" end
@@ -1606,27 +1711,27 @@ local function RefreshUI()
         UIDropDownMenu_SetText(uiElements.spvpModeDropdown, text)
     end
     if uiElements.spvpAutoInitialize then
-        uiElements.spvpAutoInitialize:SetChecked(TRP3FW_Settings.spvpAutoInitialize)
+        uiElements.spvpAutoInitialize:SetChecked(TRP3FW.Prefs.spvpAutoInitialize)
     end
     if uiElements.spvpBlockDurationSlider then
-        local duration = TRP3FW_Settings.spvpBlockDuration or 60
+        local duration = TRP3FW.Prefs.spvpBlockDuration or 60
         uiElements.spvpBlockDurationSlider:SetValue(duration)
     end
     if uiElements.spvpSaltCacheDurationSlider then
-        local duration = TRP3FW_Settings.spvpSaltCacheDuration or 10800
+        local duration = TRP3FW.Prefs.spvpSaltCacheDuration or 10800
         uiElements.spvpSaltCacheDurationSlider:SetValue(duration)
     end
 
     -- SPVP Cache Refresh Settings
     if uiElements.spvpVerifiedCacheDuration then
-        local durationSec = TRP3FW_Settings.spvpVerifiedCacheDuration or 300
+        local durationSec = TRP3FW.Prefs.spvpVerifiedCacheDuration or 300
         uiElements.spvpVerifiedCacheDuration:SetText(durationSec)
     end
     if uiElements.spvpVerifiedRefreshRate then
-        uiElements.spvpVerifiedRefreshRate:SetText(TRP3FW_Settings.spvpVerifiedRefreshRate or 50)
+        uiElements.spvpVerifiedRefreshRate:SetText(TRP3FW.Prefs.spvpVerifiedRefreshRate or 50)
     end
     if uiElements.spvpPhaseSaltRefreshRate then
-        uiElements.spvpPhaseSaltRefreshRate:SetText(TRP3FW_Settings.spvpPhaseSaltRefreshRate or 50)
+        uiElements.spvpPhaseSaltRefreshRate:SetText(TRP3FW.Prefs.spvpPhaseSaltRefreshRate or 50)
     end
 
     if uiElements.spvpSaltStatus then
@@ -1727,12 +1832,12 @@ local function RefreshUI()
     end
 
     -- Filters & Addons tab
-    uiElements.filterGradients:SetChecked(TRP3FW_Settings.filterGradients)
-    uiElements.filterIcons:SetChecked(TRP3FW_Settings.filterIcons)
-    uiElements.filterMinimumFontSize:SetChecked(TRP3FW_Settings.filterMinimumFontSize)
+    uiElements.filterGradients:SetChecked(TRP3FW.Prefs.filterGradients)
+    uiElements.filterIcons:SetChecked(TRP3FW.Prefs.filterIcons)
+    uiElements.filterMinimumFontSize:SetChecked(TRP3FW.Prefs.filterMinimumFontSize)
 
     -- Set dropdown text based on current setting
-    local fontSizeLevel = TRP3FW_Settings.minimumFontSizeLevel or "h3"
+    local fontSizeLevel = TRP3FW.Prefs.minimumFontSizeLevel or "h3"
     if fontSizeLevel == "h1" then
         UIDropDownMenu_SetText(uiElements.minimumFontSizeDropdown, "H1 (Largest)")
     elseif fontSizeLevel == "h2" then
@@ -1744,7 +1849,7 @@ local function RefreshUI()
     end
 
     -- Enable/disable dropdown based on checkbox state
-    if TRP3FW_Settings.filterMinimumFontSize then
+    if TRP3FW.Prefs.filterMinimumFontSize then
         UIDropDownMenu_EnableDropDown(uiElements.minimumFontSizeDropdown)
         uiElements.minimumFontSizeDropdown:SetAlpha(1.0)
     else
@@ -1752,71 +1857,71 @@ local function RefreshUI()
         uiElements.minimumFontSizeDropdown:SetAlpha(0.5)
     end
 
-    uiElements.monitorTRP3:SetChecked(TRP3FW_Settings.monitorTRP3)
-    uiElements.monitorMRP:SetChecked(TRP3FW_Settings.monitorMRP)
-    uiElements.monitorXRP:SetChecked(TRP3FW_Settings.monitorXRP)
-    uiElements.monitorMSP:SetChecked(TRP3FW_Settings.monitorMSP)
+    uiElements.monitorTRP3:SetChecked(TRP3FW.Prefs.monitorTRP3)
+    uiElements.monitorMRP:SetChecked(TRP3FW.Prefs.monitorMRP)
+    uiElements.monitorXRP:SetChecked(TRP3FW.Prefs.monitorXRP)
+    uiElements.monitorMSP:SetChecked(TRP3FW.Prefs.monitorMSP)
 
     if uiElements.strictHookMode then
-        uiElements.strictHookMode:SetChecked(TRP3FW_Settings.strictHookMode)
+        uiElements.strictHookMode:SetChecked(TRP3FW.Prefs.strictHookMode)
     end
     if uiElements.logHookConflicts then
-        uiElements.logHookConflicts:SetChecked(TRP3FW_Settings.logHookConflicts)
+        uiElements.logHookConflicts:SetChecked(TRP3FW.Prefs.logHookConflicts)
     end
     if uiElements.abortOnMultipleRPAddons then
-        uiElements.abortOnMultipleRPAddons:SetChecked(TRP3FW_Settings.abortOnMultipleRPAddons)
+        uiElements.abortOnMultipleRPAddons:SetChecked(TRP3FW.Prefs.abortOnMultipleRPAddons)
     end
     if uiElements.disableMapScanOnTRP3 then
-        uiElements.disableMapScanOnTRP3:SetChecked(TRP3FW_Settings.disableMapScanOnTRP3)
+        uiElements.disableMapScanOnTRP3:SetChecked(TRP3FW.Prefs.disableMapScanOnTRP3)
     end
 
     -- Cache & Debug tab
     if uiElements.phaseCheckBatchMode then
-        uiElements.phaseCheckBatchMode:SetChecked(TRP3FW_Settings.phaseCheckBatchMode)
+        uiElements.phaseCheckBatchMode:SetChecked(TRP3FW.Prefs.phaseCheckBatchMode)
     end
     if uiElements.phaseCheckRefundOnNoChange then
-        uiElements.phaseCheckRefundOnNoChange:SetChecked(TRP3FW_Settings.phaseCheckRefundOnNoChange)
+        uiElements.phaseCheckRefundOnNoChange:SetChecked(TRP3FW.Prefs.phaseCheckRefundOnNoChange)
     end
     if uiElements.privilegedReservedTokens then
-        uiElements.privilegedReservedTokens:SetText(TRP3FW_Settings.privilegedReservedTokens or 2)
+        uiElements.privilegedReservedTokens:SetText(TRP3FW.Prefs.privilegedReservedTokens or 2)
     end
     if uiElements.privilegedLowPriorityThreshold then
-        uiElements.privilegedLowPriorityThreshold:SetText(TRP3FW_Settings.privilegedLowPriorityThreshold or 4)
+        uiElements.privilegedLowPriorityThreshold:SetText(TRP3FW.Prefs.privilegedLowPriorityThreshold or 4)
     end
-    uiElements.phaseCacheDuration:SetText(TRP3FW_Settings.phaseCacheDuration)
+    uiElements.phaseCacheDuration:SetText(TRP3FW.Prefs.phaseCacheDuration)
     if uiElements.phaseCacheRefreshThreshold then
-        local val = (TRP3FW_Settings.phaseCacheRefreshThreshold or 0.2) * 100
+        local val = (TRP3FW.Prefs.phaseCacheRefreshThreshold or 0.2) * 100
         uiElements.phaseCacheRefreshThreshold:SetText(val)
     end
-    uiElements.phaseCacheFailureDuration:SetText(TRP3FW_Settings.phaseCacheFailureDuration or 10)
-    uiElements.scanCacheDuration:SetText(TRP3FW_Settings.scanCacheDuration)
+    uiElements.phaseCacheFailureDuration:SetText(TRP3FW.Prefs.phaseCacheFailureDuration or 10)
+    uiElements.scanCacheDuration:SetText(TRP3FW.Prefs.scanCacheDuration)
     if uiElements.scanCacheFailureDuration then
-        uiElements.scanCacheFailureDuration:SetText(TRP3FW_Settings.scanCacheFailureDuration or 10)
+        uiElements.scanCacheFailureDuration:SetText(TRP3FW.Prefs.scanCacheFailureDuration or 10)
     end
     if uiElements.mapScanMinInterval then
-        uiElements.mapScanMinInterval:SetText(TRP3FW_Settings.mapScanMinInterval or 60)
+        uiElements.mapScanMinInterval:SetText(TRP3FW.Prefs.mapScanMinInterval or 60)
     end
-    uiElements.cacheSizeLimit:SetText(TRP3FW_Settings.cacheSizeLimit or 1000)
-    uiElements.maxHistorySize:SetText(TRP3FW_Settings.maxHistorySize or 100)
-    uiElements.whoZoneCacheDuration:SetText(TRP3FW_Settings.whoZoneCacheDuration or 45)
-    uiElements.whoNameCacheDuration:SetText(TRP3FW_Settings.whoNameCacheDuration or 180)
-    uiElements.whoZoneQueryCooldown:SetText(TRP3FW_Settings.whoZoneQueryCooldown or 20)
-    uiElements.whoCacheRefreshThreshold:SetText(TRP3FW_Settings.whoCacheRefreshThreshold or 50)
-    uiElements.sendCacheDuration:SetText(TRP3FW_Settings.sendCacheDuration)
-    uiElements.interactionCacheDuration:SetText(TRP3FW_Settings.interactionCacheDuration or 600)
-    uiElements.interactionRefreshRate:SetText(TRP3FW_Settings.interactionRefreshRate or 60)
-    uiElements.sendCacheRefreshRate:SetText(TRP3FW_Settings.sendCacheRefreshRate or 60)
-    uiElements.phaseInDelay:SetText(TRP3FW_Settings.phaseInDelay or 4)
-    uiElements.transitionGracePeriod:SetText(TRP3FW_Settings.transitionGracePeriod or 10)
+    uiElements.cacheSizeLimit:SetText(TRP3FW.Prefs.cacheSizeLimit or 1000)
+    uiElements.maxHistorySize:SetText(TRP3FW.Prefs.maxHistorySize or 100)
+    uiElements.whoZoneCacheDuration:SetText(TRP3FW.Prefs.whoZoneCacheDuration or 45)
+    uiElements.whoNameCacheDuration:SetText(TRP3FW.Prefs.whoNameCacheDuration or 180)
+    uiElements.whoZoneQueryCooldown:SetText(TRP3FW.Prefs.whoZoneQueryCooldown or 20)
+    uiElements.whoCacheRefreshThreshold:SetText(TRP3FW.Prefs.whoCacheRefreshThreshold or 50)
+    uiElements.sendCacheDuration:SetText(TRP3FW.Prefs.sendCacheDuration)
+    uiElements.interactionCacheDuration:SetText(TRP3FW.Prefs.interactionCacheDuration or 600)
+    uiElements.interactionRefreshRate:SetText(TRP3FW.Prefs.interactionRefreshRate or 60)
+    uiElements.sendCacheRefreshRate:SetText(TRP3FW.Prefs.sendCacheRefreshRate or 60)
+    uiElements.phaseInDelay:SetText(TRP3FW.Prefs.phaseInDelay or 4)
+    uiElements.transitionGracePeriod:SetText(TRP3FW.Prefs.transitionGracePeriod or 10)
     -- Convert seconds to days for display
-    local validatedNamesCacheSeconds = TRP3FW_Settings.validatedNamesCacheDuration or 604800
+    local validatedNamesCacheSeconds = TRP3FW.Prefs.validatedNamesCacheDuration or 604800
     local validatedNamesCacheDays = math.floor(validatedNamesCacheSeconds / 86400)
     uiElements.validatedNamesCacheDuration:SetText(validatedNamesCacheDays)
-    uiElements.validatedNamesCacheLimit:SetText(TRP3FW_Settings.validatedNamesCacheLimit or 5000)
+    uiElements.validatedNamesCacheLimit:SetText(TRP3FW.Prefs.validatedNamesCacheLimit or 5000)
 
     -- Cache clearing master toggles
-    uiElements.clearCacheOnPhaseChange:SetChecked(TRP3FW_Settings.clearCacheOnPhaseChange)
-    uiElements.clearCacheOnZoneChange:SetChecked(TRP3FW_Settings.clearCacheOnZoneChange)
+    uiElements.clearCacheOnPhaseChange:SetChecked(TRP3FW.Prefs.clearCacheOnPhaseChange)
+    uiElements.clearCacheOnZoneChange:SetChecked(TRP3FW.Prefs.clearCacheOnZoneChange)
 
     -- Disable clearCacheOnPhaseChange if Epsilon API not available
     if not TRP3FW.hasEpsilonAPI then
@@ -1825,33 +1930,33 @@ local function RefreshUI()
     end
 
     -- Phase change granular settings
-    uiElements.clearPhaseCheckOnPhaseChange:SetChecked(TRP3FW_Settings.clearPhaseCheckOnPhaseChange)
-    uiElements.clearAllowedSendersOnPhaseChange:SetChecked(TRP3FW_Settings.clearAllowedSendersOnPhaseChange)
-    uiElements.clearInteractionOnPhaseChange:SetChecked(TRP3FW_Settings.clearInteractionOnPhaseChange)
-    uiElements.clearSuppressionOnPhaseChange:SetChecked(TRP3FW_Settings.clearSuppressionOnPhaseChange)
-    uiElements.clearRecentBroadcastsOnPhaseChange:SetChecked(TRP3FW_Settings.clearRecentBroadcastsOnPhaseChange)
-    uiElements.clearRecentScansOnPhaseChange:SetChecked(TRP3FW_Settings.clearRecentScansOnPhaseChange)
-    uiElements.clearWhoZoneOnPhaseChange:SetChecked(TRP3FW_Settings.clearWhoZoneOnPhaseChange)
-    uiElements.clearWhoNameOnPhaseChange:SetChecked(TRP3FW_Settings.clearWhoNameOnPhaseChange)
+    uiElements.clearPhaseCheckOnPhaseChange:SetChecked(TRP3FW.Prefs.clearPhaseCheckOnPhaseChange)
+    uiElements.clearAllowedSendersOnPhaseChange:SetChecked(TRP3FW.Prefs.clearAllowedSendersOnPhaseChange)
+    uiElements.clearInteractionOnPhaseChange:SetChecked(TRP3FW.Prefs.clearInteractionOnPhaseChange)
+    uiElements.clearSuppressionOnPhaseChange:SetChecked(TRP3FW.Prefs.clearSuppressionOnPhaseChange)
+    uiElements.clearRecentBroadcastsOnPhaseChange:SetChecked(TRP3FW.Prefs.clearRecentBroadcastsOnPhaseChange)
+    uiElements.clearRecentScansOnPhaseChange:SetChecked(TRP3FW.Prefs.clearRecentScansOnPhaseChange)
+    uiElements.clearWhoZoneOnPhaseChange:SetChecked(TRP3FW.Prefs.clearWhoZoneOnPhaseChange)
+    uiElements.clearWhoNameOnPhaseChange:SetChecked(TRP3FW.Prefs.clearWhoNameOnPhaseChange)
     if uiElements.clearSpvpOnPhaseChange then
-        uiElements.clearSpvpOnPhaseChange:SetChecked(TRP3FW_Settings.clearSpvpOnPhaseChange)
+        uiElements.clearSpvpOnPhaseChange:SetChecked(TRP3FW.Prefs.clearSpvpOnPhaseChange)
     end
 
     -- Zone change granular settings
-    uiElements.clearPhaseCheckOnZoneChange:SetChecked(TRP3FW_Settings.clearPhaseCheckOnZoneChange)
-    uiElements.clearAllowedSendersOnZoneChange:SetChecked(TRP3FW_Settings.clearAllowedSendersOnZoneChange)
-    uiElements.clearInteractionOnZoneChange:SetChecked(TRP3FW_Settings.clearInteractionOnZoneChange)
-    uiElements.clearSuppressionOnZoneChange:SetChecked(TRP3FW_Settings.clearSuppressionOnZoneChange)
-    uiElements.clearRecentBroadcastsOnZoneChange:SetChecked(TRP3FW_Settings.clearRecentBroadcastsOnZoneChange)
-    uiElements.clearRecentScansOnZoneChange:SetChecked(TRP3FW_Settings.clearRecentScansOnZoneChange)
-    uiElements.clearWhoZoneOnZoneChange:SetChecked(TRP3FW_Settings.clearWhoZoneOnZoneChange)
-    uiElements.clearWhoNameOnZoneChange:SetChecked(TRP3FW_Settings.clearWhoNameOnZoneChange)
+    uiElements.clearPhaseCheckOnZoneChange:SetChecked(TRP3FW.Prefs.clearPhaseCheckOnZoneChange)
+    uiElements.clearAllowedSendersOnZoneChange:SetChecked(TRP3FW.Prefs.clearAllowedSendersOnZoneChange)
+    uiElements.clearInteractionOnZoneChange:SetChecked(TRP3FW.Prefs.clearInteractionOnZoneChange)
+    uiElements.clearSuppressionOnZoneChange:SetChecked(TRP3FW.Prefs.clearSuppressionOnZoneChange)
+    uiElements.clearRecentBroadcastsOnZoneChange:SetChecked(TRP3FW.Prefs.clearRecentBroadcastsOnZoneChange)
+    uiElements.clearRecentScansOnZoneChange:SetChecked(TRP3FW.Prefs.clearRecentScansOnZoneChange)
+    uiElements.clearWhoZoneOnZoneChange:SetChecked(TRP3FW.Prefs.clearWhoZoneOnZoneChange)
+    uiElements.clearWhoNameOnZoneChange:SetChecked(TRP3FW.Prefs.clearWhoNameOnZoneChange)
     if uiElements.clearSpvpOnZoneChange then
-        uiElements.clearSpvpOnZoneChange:SetChecked(TRP3FW_Settings.clearSpvpOnZoneChange)
+        uiElements.clearSpvpOnZoneChange:SetChecked(TRP3FW.Prefs.clearSpvpOnZoneChange)
     end
 
     -- Enable/disable granular options based on master toggles AND Epsilon API availability
-    if TRP3FW_Settings.clearCacheOnPhaseChange and TRP3FW.hasEpsilonAPI then
+    if TRP3FW.Prefs.clearCacheOnPhaseChange and TRP3FW.hasEpsilonAPI then
         uiElements.clearPhaseCheckOnPhaseChange:Enable()
         uiElements.clearAllowedSendersOnPhaseChange:Enable()
         uiElements.clearInteractionOnPhaseChange:Enable()
@@ -1886,7 +1991,7 @@ local function RefreshUI()
         if uiElements.clearSpvpOnPhaseChange then uiElements.clearSpvpOnPhaseChange:SetAlpha(0.5) end
     end
 
-    if TRP3FW_Settings.clearCacheOnZoneChange then
+    if TRP3FW.Prefs.clearCacheOnZoneChange then
         uiElements.clearPhaseCheckOnZoneChange:Enable()
         uiElements.clearAllowedSendersOnZoneChange:Enable()
         uiElements.clearInteractionOnZoneChange:Enable()
@@ -1909,22 +2014,22 @@ local function RefreshUI()
     end
 
     -- History Settings
-    uiElements.trackHistory:SetChecked(TRP3FW_Settings.trackHistory)
+    uiElements.trackHistory:SetChecked(TRP3FW.Prefs.trackHistory)
 
     -- Debug Settings
-    uiElements.debug:SetChecked(TRP3FW_Settings.debug)
-    uiElements.debugTimestamp:SetChecked(TRP3FW_Settings.debugTimestamp)
+    uiElements.debug:SetChecked(TRP3FW.Prefs.debug)
+    uiElements.debugTimestamp:SetChecked(TRP3FW.Prefs.debugTimestamp)
 
     -- Redaction Settings
-    uiElements.redactEnabled:SetChecked(TRP3FW_Settings.redactEnabled)
-    uiElements.redactNames:SetChecked(TRP3FW_Settings.redactNames)
-    uiElements.redactLocations:SetChecked(TRP3FW_Settings.redactLocations)
-    uiElements.redactNetwork:SetChecked(TRP3FW_Settings.redactNetwork)
+    uiElements.redactEnabled:SetChecked(TRP3FW.Prefs.redactEnabled)
+    uiElements.redactNames:SetChecked(TRP3FW.Prefs.redactNames)
+    uiElements.redactLocations:SetChecked(TRP3FW.Prefs.redactLocations)
+    uiElements.redactNetwork:SetChecked(TRP3FW.Prefs.redactNetwork)
     if uiElements.redactSPVP then
-        uiElements.redactSPVP:SetChecked(TRP3FW_Settings.redactSPVP)
+        uiElements.redactSPVP:SetChecked(TRP3FW.Prefs.redactSPVP)
     end
 
-    local redactOn = TRP3FW_Settings.redactEnabled ~= false
+    local redactOn = TRP3FW.Prefs.redactEnabled ~= false
     local function setRedactEnabled(enabled)
         local alpha = enabled and 1 or 0.5
         if enabled then
@@ -1946,31 +2051,31 @@ local function RefreshUI()
     setRedactEnabled(redactOn)
 
     -- Set debug output dropdown
-    if TRP3FW_Settings.debugOutputBoth then
+    if TRP3FW.Prefs.debugOutputBoth then
         UIDropDownMenu_SetText(uiElements.debugOutputDropdown, "Both")
-    elseif TRP3FW_Settings.debugOutputWindow then
+    elseif TRP3FW.Prefs.debugOutputWindow then
         UIDropDownMenu_SetText(uiElements.debugOutputDropdown, "Window")
     else
         UIDropDownMenu_SetText(uiElements.debugOutputDropdown, "Chat")
     end
-    uiElements.debugChannel:SetChecked(TRP3FW_Settings.debugChannel)
-    uiElements.debugWhisper:SetChecked(TRP3FW_Settings.debugWhisper)
-    uiElements.debugWho:SetChecked(TRP3FW_Settings.debugWho)
-    uiElements.debugPhase:SetChecked(TRP3FW_Settings.debugPhase)
-    uiElements.debugCleanName:SetChecked(TRP3FW_Settings.debugCleanName)
-    uiElements.debugLocation:SetChecked(TRP3FW_Settings.debugLocation)
-    uiElements.debugDecision:SetChecked(TRP3FW_Settings.debugDecision)
-    uiElements.debugHooks:SetChecked(TRP3FW_Settings.debugHooks)
-    uiElements.debugCache:SetChecked(TRP3FW_Settings.debugCache)
-    uiElements.debugSend:SetChecked(TRP3FW_Settings.debugSend)
-    uiElements.debugUI:SetChecked(TRP3FW_Settings.debugUI)
-    uiElements.debugUtils:SetChecked(TRP3FW_Settings.debugUtils)
-    uiElements.debugSecurity:SetChecked(TRP3FW_Settings.debugSecurity)
-    uiElements.debugGhost:SetChecked(TRP3FW_Settings.debugGhost)
-    if uiElements.debugSPVP then uiElements.debugSPVP:SetChecked(TRP3FW_Settings.debugSPVP) end
+    uiElements.debugChannel:SetChecked(TRP3FW.Prefs.debugChannel)
+    uiElements.debugWhisper:SetChecked(TRP3FW.Prefs.debugWhisper)
+    uiElements.debugWho:SetChecked(TRP3FW.Prefs.debugWho)
+    uiElements.debugPhase:SetChecked(TRP3FW.Prefs.debugPhase)
+    uiElements.debugCleanName:SetChecked(TRP3FW.Prefs.debugCleanName)
+    uiElements.debugLocation:SetChecked(TRP3FW.Prefs.debugLocation)
+    uiElements.debugDecision:SetChecked(TRP3FW.Prefs.debugDecision)
+    uiElements.debugHooks:SetChecked(TRP3FW.Prefs.debugHooks)
+    uiElements.debugCache:SetChecked(TRP3FW.Prefs.debugCache)
+    uiElements.debugSend:SetChecked(TRP3FW.Prefs.debugSend)
+    uiElements.debugUI:SetChecked(TRP3FW.Prefs.debugUI)
+    uiElements.debugUtils:SetChecked(TRP3FW.Prefs.debugUtils)
+    uiElements.debugSecurity:SetChecked(TRP3FW.Prefs.debugSecurity)
+    uiElements.debugGhost:SetChecked(TRP3FW.Prefs.debugGhost)
+    if uiElements.debugSPVP then uiElements.debugSPVP:SetChecked(TRP3FW.Prefs.debugSPVP) end
 
     -- Enable/disable debug options based on debug mode
-    if TRP3FW_Settings.debug then
+    if TRP3FW.Prefs.debug then
         uiElements.debugChannel:Enable()
         uiElements.debugWhisper:Enable()
         uiElements.debugWho:Enable()
@@ -2030,51 +2135,51 @@ local function CreateAlertsTab(tab3)
     -- Quick presets
     local function ApplyPreset(preset)
         if preset == "relaxed" then
-            TRP3FW_Settings.phaseCheckMode = "off"
-            TRP3FW_Settings.mapCheckMode = "alert"
-            TRP3FW_Settings.useWhoQuery = false
-            TRP3FW_Settings.blockStartPhase = false
-            TRP3FW_Settings.ghostOnStartPhase = false
-            TRP3FW_Settings.phaseCheckBatchMode = true
-            TRP3FW_Settings.phaseCheckRefundOnNoChange = false
+            TRP3FW.Prefs.phaseCheckMode = "off"
+            TRP3FW.Prefs.mapCheckMode = "alert"
+            TRP3FW.Prefs.useWhoQuery = false
+            TRP3FW.Prefs.blockStartPhase = false
+            TRP3FW.Prefs.ghostOnStartPhase = false
+            TRP3FW.Prefs.phaseCheckBatchMode = true
+            TRP3FW.Prefs.phaseCheckRefundOnNoChange = false
 
         elseif preset == "balanced" then
-            TRP3FW_Settings.phaseCheckMode = "alert"
-            TRP3FW_Settings.mapCheckMode = "alert"
-            TRP3FW_Settings.useWhoQuery = true
-            TRP3FW_Settings.blockStartPhase = false
-            TRP3FW_Settings.ghostOnStartPhase = false
+            TRP3FW.Prefs.phaseCheckMode = "alert"
+            TRP3FW.Prefs.mapCheckMode = "alert"
+            TRP3FW.Prefs.useWhoQuery = true
+            TRP3FW.Prefs.blockStartPhase = false
+            TRP3FW.Prefs.ghostOnStartPhase = false
 
         elseif preset == "recommended" then
-            TRP3FW_Settings.phaseCheckMode = "alert_block"
-            TRP3FW_Settings.mapCheckMode = "alert_block"
-            TRP3FW_Settings.useWhoQuery = true
-            TRP3FW_Settings.blockStartPhase = true
-            TRP3FW_Settings.ghostOnStartPhase = false
-            TRP3FW_Settings.spvpEnabled = true
+            TRP3FW.Prefs.phaseCheckMode = "alert_block"
+            TRP3FW.Prefs.mapCheckMode = "alert_block"
+            TRP3FW.Prefs.useWhoQuery = true
+            TRP3FW.Prefs.blockStartPhase = true
+            TRP3FW.Prefs.ghostOnStartPhase = false
+            TRP3FW.Prefs.spvpEnabled = true
 
         elseif preset == "strict" then
-            TRP3FW_Settings.phaseCheckMode = "alert_block"
-            TRP3FW_Settings.mapCheckMode = "alert_block"
-            TRP3FW_Settings.useWhoQuery = true
-            TRP3FW_Settings.blockStartPhase = true
-            TRP3FW_Settings.ghostOnStartPhase = false
-            TRP3FW_Settings.spvpEnabled = true
-            TRP3FW_Settings.scanResponsePhaseMode = "block"
-            TRP3FW_Settings.scanResponseMapMode = "block"
-            TRP3FW_Settings.scanResponseRequireNonce = false  -- stay off by request
+            TRP3FW.Prefs.phaseCheckMode = "alert_block"
+            TRP3FW.Prefs.mapCheckMode = "alert_block"
+            TRP3FW.Prefs.useWhoQuery = true
+            TRP3FW.Prefs.blockStartPhase = true
+            TRP3FW.Prefs.ghostOnStartPhase = false
+            TRP3FW.Prefs.spvpEnabled = true
+            TRP3FW.Prefs.scanResponsePhaseMode = "block"
+            TRP3FW.Prefs.scanResponseMapMode = "block"
+            TRP3FW.Prefs.scanResponseRequireNonce = false  -- stay off by request
 
         elseif preset == "ghost" then
-            TRP3FW_Settings.phaseCheckMode = "alert_ghost"
-            TRP3FW_Settings.mapCheckMode = "alert_ghost"
-            TRP3FW_Settings.useWhoQuery = true
-            TRP3FW_Settings.blockStartPhase = false
-            TRP3FW_Settings.ghostOnStartPhase = true
-            TRP3FW_Settings.ghostProfileSwitch = true
-            TRP3FW_Settings.spvpEnabled = true
-            TRP3FW_Settings.scanResponsePhaseMode = "block"
-            TRP3FW_Settings.scanResponseMapMode = "block"
-            TRP3FW_Settings.scanResponseRequireNonce = false  -- stay off by request
+            TRP3FW.Prefs.phaseCheckMode = "alert_ghost"
+            TRP3FW.Prefs.mapCheckMode = "alert_ghost"
+            TRP3FW.Prefs.useWhoQuery = true
+            TRP3FW.Prefs.blockStartPhase = false
+            TRP3FW.Prefs.ghostOnStartPhase = true
+            TRP3FW.Prefs.ghostProfileSwitch = true
+            TRP3FW.Prefs.spvpEnabled = true
+            TRP3FW.Prefs.scanResponsePhaseMode = "block"
+            TRP3FW.Prefs.scanResponseMapMode = "block"
+            TRP3FW.Prefs.scanResponseRequireNonce = false  -- stay off by request
             EnsureBlankProfilesExist()
         end
 
@@ -2083,24 +2188,24 @@ local function CreateAlertsTab(tab3)
         end
 
         if preset == "strict" or preset == "recommended" or preset == "ghost" or preset == "balanced" or preset == "relaxed" then
-            TRP3FW_Settings.phaseCheckBatchMode = true
+            TRP3FW.Prefs.phaseCheckBatchMode = true
         end
 
         if preset == "strict" or preset == "recommended" or preset == "relaxed" then
-            TRP3FW_Settings.phaseCheckRefundOnNoChange = false
+            TRP3FW.Prefs.phaseCheckRefundOnNoChange = false
         end
 
         -- Clear allowed senders cache only if the new mode is more restrictive than the previous one
-        local prevPhaseMode = TRP3FW_Settings.phaseCheckMode
-        local prevMapMode = TRP3FW_Settings.mapCheckMode
+        local prevPhaseMode = TRP3FW.Prefs.phaseCheckMode
+        local prevMapMode = TRP3FW.Prefs.mapCheckMode
         
         -- Update the settings with the preset values
-        TRP3FW_Settings.phaseCheckMode = newPhaseMode
-        TRP3FW_Settings.mapCheckMode = newMapMode
+        TRP3FW.Prefs.phaseCheckMode = newPhaseMode
+        TRP3FW.Prefs.mapCheckMode = newMapMode
 
         -- Check if either phase or map mode became more restrictive
-        if ShouldClearAllowedSenders(TRP3FW_Settings.phaseCheckMode, prevPhaseMode) or 
-           ShouldClearAllowedSenders(TRP3FW_Settings.mapCheckMode, prevMapMode) then
+        if ShouldClearAllowedSenders(TRP3FW.Prefs.phaseCheckMode, prevPhaseMode) or 
+           ShouldClearAllowedSenders(TRP3FW.Prefs.mapCheckMode, prevMapMode) then
             local CI = TRP3FW.CacheInterface
             if CI then CI:Clear("allowedSenders") else TRP3FW.allowedSendersCache = {} end
             TRP3FW:Debug("Flushed allowedSendersCache after preset changed to a more restrictive mode", "cache")
@@ -2159,7 +2264,7 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Off"
         info.tooltipText = "No phase checking (all profile requests allowed)"
         info.func = function()
-            TRP3FW_Settings.phaseCheckMode = "off"
+            TRP3FW.Prefs.phaseCheckMode = "off"
             UIDropDownMenu_SetText(uiElements.phaseCheckModeDropdown, "Off")
             RequestRefreshUI()
         end
@@ -2171,7 +2276,7 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Statistics Only"
         info.tooltipText = "Check phase but don't alert or block (for statistics tracking only)"
         info.func = function()
-            TRP3FW_Settings.phaseCheckMode = "statistics"
+            TRP3FW.Prefs.phaseCheckMode = "statistics"
             UIDropDownMenu_SetText(uiElements.phaseCheckModeDropdown, "Statistics Only")
             RequestRefreshUI()
         end
@@ -2183,7 +2288,7 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Alert"
         info.tooltipText = "Show alert when phase check fails, but still send profile"
         info.func = function()
-            TRP3FW_Settings.phaseCheckMode = "alert"
+            TRP3FW.Prefs.phaseCheckMode = "alert"
             UIDropDownMenu_SetText(uiElements.phaseCheckModeDropdown, "Alert")
             RequestRefreshUI()
         end
@@ -2195,8 +2300,8 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Block"
         info.tooltipText = "Block profile send (no profile sent at all)"
         info.func = function()
-            local previous = TRP3FW_Settings.phaseCheckMode
-            TRP3FW_Settings.phaseCheckMode = "block"
+            local previous = TRP3FW.Prefs.phaseCheckMode
+            TRP3FW.Prefs.phaseCheckMode = "block"
             UIDropDownMenu_SetText(uiElements.phaseCheckModeDropdown, "Block")
             if previous ~= "block" then
                 TRP3FW.allowedSendersCache = {}
@@ -2212,8 +2317,8 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Ghost (Blank Profile)"
         info.tooltipText = "Send blank/empty profile instead of blocking"
         info.func = function()
-            local previous = TRP3FW_Settings.phaseCheckMode
-            TRP3FW_Settings.phaseCheckMode = "ghost"
+            local previous = TRP3FW.Prefs.phaseCheckMode
+            TRP3FW.Prefs.phaseCheckMode = "ghost"
             UIDropDownMenu_SetText(uiElements.phaseCheckModeDropdown, "Ghost (Blank Profile)")
             if previous ~= "ghost" then
                 TRP3FW.allowedSendersCache = {}
@@ -2230,8 +2335,8 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Alert + Block"
         info.tooltipText = "Show alert AND block profile send"
         info.func = function()
-            local previous = TRP3FW_Settings.phaseCheckMode
-            TRP3FW_Settings.phaseCheckMode = "alert_block"
+            local previous = TRP3FW.Prefs.phaseCheckMode
+            TRP3FW.Prefs.phaseCheckMode = "alert_block"
             UIDropDownMenu_SetText(uiElements.phaseCheckModeDropdown, "Alert + Block")
             if previous ~= "alert_block" then
                 TRP3FW.allowedSendersCache = {}
@@ -2247,8 +2352,8 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Alert + Ghost"
         info.tooltipText = "Show alert AND send blank profile"
         info.func = function()
-            local previous = TRP3FW_Settings.phaseCheckMode
-            TRP3FW_Settings.phaseCheckMode = "alert_ghost"
+            local previous = TRP3FW.Prefs.phaseCheckMode
+            TRP3FW.Prefs.phaseCheckMode = "alert_ghost"
             UIDropDownMenu_SetText(uiElements.phaseCheckModeDropdown, "Alert + Ghost")
             if previous ~= "alert_ghost" then
                 TRP3FW.allowedSendersCache = {}
@@ -2272,7 +2377,7 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Off"
         info.tooltipText = "No map checking (all profile requests allowed)"
         info.func = function()
-            TRP3FW_Settings.mapCheckMode = "off"
+            TRP3FW.Prefs.mapCheckMode = "off"
             UIDropDownMenu_SetText(uiElements.mapCheckModeDropdown, "Off")
             RequestRefreshUI()
         end
@@ -2284,7 +2389,7 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Statistics Only"
         info.tooltipText = "Check map but don't alert or block (for statistics tracking only)"
         info.func = function()
-            TRP3FW_Settings.mapCheckMode = "statistics"
+            TRP3FW.Prefs.mapCheckMode = "statistics"
             UIDropDownMenu_SetText(uiElements.mapCheckModeDropdown, "Statistics Only")
             RequestRefreshUI()
         end
@@ -2296,7 +2401,7 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Alert"
         info.tooltipText = "Show alert when map check fails, but still send profile"
         info.func = function()
-            TRP3FW_Settings.mapCheckMode = "alert"
+            TRP3FW.Prefs.mapCheckMode = "alert"
             UIDropDownMenu_SetText(uiElements.mapCheckModeDropdown, "Alert")
             RequestRefreshUI()
         end
@@ -2308,10 +2413,10 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Block"
         info.tooltipText = "Block profile send (no profile sent at all)"
         info.func = function()
-            local previousMode = TRP3FW_Settings.mapCheckMode
-            TRP3FW_Settings.mapCheckMode = "block"
+            local previousMode = TRP3FW.Prefs.mapCheckMode
+            TRP3FW.Prefs.mapCheckMode = "block"
             UIDropDownMenu_SetText(uiElements.mapCheckModeDropdown, "Block")
-            if ShouldClearAllowedSenders(TRP3FW_Settings.mapCheckMode, previousMode) then
+            if ShouldClearAllowedSenders(TRP3FW.Prefs.mapCheckMode, previousMode) then
                 local CI = TRP3FW.CacheInterface
                 if CI then CI:Clear("allowedSenders") else TRP3FW.allowedSendersCache = {} end
                 TRP3FW:Debug("Flushed allowedSendersCache after map mode changed to block", "cache")
@@ -2326,8 +2431,8 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Ghost (Blank Profile)"
         info.tooltipText = "Send blank/empty profile instead of blocking"
         info.func = function()
-            local previous = TRP3FW_Settings.mapCheckMode
-            TRP3FW_Settings.mapCheckMode = "ghost"
+            local previous = TRP3FW.Prefs.mapCheckMode
+            TRP3FW.Prefs.mapCheckMode = "ghost"
             UIDropDownMenu_SetText(uiElements.mapCheckModeDropdown, "Ghost (Blank Profile)")
             if previous ~= "ghost" then
                 TRP3FW.allowedSendersCache = {}
@@ -2344,10 +2449,10 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Alert + Block"
         info.tooltipText = "Show alert AND block profile send"
         info.func = function()
-            local previousMode = TRP3FW_Settings.mapCheckMode
-            TRP3FW_Settings.mapCheckMode = "alert_block"
+            local previousMode = TRP3FW.Prefs.mapCheckMode
+            TRP3FW.Prefs.mapCheckMode = "alert_block"
             UIDropDownMenu_SetText(uiElements.mapCheckModeDropdown, "Alert + Block")
-            if ShouldClearAllowedSenders(TRP3FW_Settings.mapCheckMode, previousMode) then
+            if ShouldClearAllowedSenders(TRP3FW.Prefs.mapCheckMode, previousMode) then
                 local CI = TRP3FW.CacheInterface
                 if CI then CI:Clear("allowedSenders") else TRP3FW.allowedSendersCache = {} end
                 TRP3FW:Debug("Flushed allowedSendersCache after map mode changed to alert+block", "cache")
@@ -2362,10 +2467,10 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Alert + Ghost"
         info.tooltipText = "Show alert AND send blank profile"
         info.func = function()
-            local previousMode = TRP3FW_Settings.mapCheckMode
-            TRP3FW_Settings.mapCheckMode = "alert_ghost"
+            local previousMode = TRP3FW.Prefs.mapCheckMode
+            TRP3FW.Prefs.mapCheckMode = "alert_ghost"
             UIDropDownMenu_SetText(uiElements.mapCheckModeDropdown, "Alert + Ghost")
-            if ShouldClearAllowedSenders(TRP3FW_Settings.mapCheckMode, previousMode) then
+            if ShouldClearAllowedSenders(TRP3FW.Prefs.mapCheckMode, previousMode) then
                 local CI = TRP3FW.CacheInterface
                 if CI then CI:Clear("allowedSenders") else TRP3FW.allowedSendersCache = {} end
                 TRP3FW:Debug("Flushed allowedSendersCache after map mode changed to alert+ghost", "cache")
@@ -2380,7 +2485,7 @@ local function CreateAlertsTab(tab3)
     uiElements.allowGroupPhaseBypass = CreateCheckbox(tab3, "Allow Party/Raid Auto-Allow", "When enabled, party/raid members automatically count as in-phase and skip normal phase/map checks (legacy behavior). Disable to require full checks and alerts for group members.", "allowGroupPhaseBypass")
     uiElements.allowGroupPhaseBypass:SetPoint("TOPLEFT", 20, y3)
     uiElements.allowGroupPhaseBypass:SetScript("OnClick", function(self)
-        TRP3FW_Settings.allowGroupPhaseBypass = self:GetChecked()
+        TRP3FW.Prefs.allowGroupPhaseBypass = self:GetChecked()
     end)
     y3 = y3 - 35
 
@@ -2397,7 +2502,7 @@ local function CreateAlertsTab(tab3)
         info.text = "Off"
         info.tooltipText = "Do not phase-check scan requesters"
         info.func = function()
-            TRP3FW_Settings.scanResponsePhaseMode = "off"
+            TRP3FW.Prefs.scanResponsePhaseMode = "off"
             UIDropDownMenu_SetText(uiElements.scanResponsePhaseModeDropdown, "Off")
             RequestRefreshUI()
         end
@@ -2406,7 +2511,7 @@ local function CreateAlertsTab(tab3)
         info.text = "Statistics Only"
         info.tooltipText = "Check phase for statistics, but always allow (no alert)"
         info.func = function()
-            TRP3FW_Settings.scanResponsePhaseMode = "statistics"
+            TRP3FW.Prefs.scanResponsePhaseMode = "statistics"
             UIDropDownMenu_SetText(uiElements.scanResponsePhaseModeDropdown, "Statistics Only")
             RequestRefreshUI()
         end
@@ -2415,7 +2520,7 @@ local function CreateAlertsTab(tab3)
         info.text = "Alert (send anyway)"
         info.tooltipText = "Send the scan reply but warn in chat when the scanner is in another phase"
         info.func = function()
-            TRP3FW_Settings.scanResponsePhaseMode = "alert"
+            TRP3FW.Prefs.scanResponsePhaseMode = "alert"
             UIDropDownMenu_SetText(uiElements.scanResponsePhaseModeDropdown, "Alert (send anyway)")
             RequestRefreshUI()
         end
@@ -2424,10 +2529,10 @@ local function CreateAlertsTab(tab3)
         info.text = "Block (silent)"
         info.tooltipText = "Block the scan reply silently (no notification)"
         info.func = function()
-            local previousMode = TRP3FW_Settings.scanResponsePhaseMode
-            TRP3FW_Settings.scanResponsePhaseMode = "block"
+            local previousMode = TRP3FW.Prefs.scanResponsePhaseMode
+            TRP3FW.Prefs.scanResponsePhaseMode = "block"
             UIDropDownMenu_SetText(uiElements.scanResponsePhaseModeDropdown, "Block (silent)")
-            if ShouldClearAllowedSenders(TRP3FW_Settings.scanResponsePhaseMode, previousMode) then
+            if ShouldClearAllowedSenders(TRP3FW.Prefs.scanResponsePhaseMode, previousMode) then
                 local CI = TRP3FW.CacheInterface
                 if CI then CI:Clear("allowedSenders") else TRP3FW.allowedSendersCache = {} end
                 TRP3FW:Debug("[Scan Reply] Flushed allowedSendersCache after scan phase mode changed to block", "cache")
@@ -2439,10 +2544,10 @@ local function CreateAlertsTab(tab3)
         info.text = "Alert + Block"
         info.tooltipText = "Block the scan reply and show an alert"
         info.func = function()
-            local previousMode = TRP3FW_Settings.scanResponsePhaseMode
-            TRP3FW_Settings.scanResponsePhaseMode = "alert_block"
+            local previousMode = TRP3FW.Prefs.scanResponsePhaseMode
+            TRP3FW.Prefs.scanResponsePhaseMode = "alert_block"
             UIDropDownMenu_SetText(uiElements.scanResponsePhaseModeDropdown, "Alert + Block")
-            if ShouldClearAllowedSenders(TRP3FW_Settings.scanResponsePhaseMode, previousMode) then
+            if ShouldClearAllowedSenders(TRP3FW.Prefs.scanResponsePhaseMode, previousMode) then
                 local CI = TRP3FW.CacheInterface
                 if CI then CI:Clear("allowedSenders") else TRP3FW.allowedSendersCache = {} end
                 TRP3FW:Debug("[Scan Reply] Flushed allowedSendersCache after scan phase mode changed to alert_block", "cache")
@@ -2463,7 +2568,7 @@ local function CreateAlertsTab(tab3)
         info.text = "Off"
         info.tooltipText = "Do not WHO-check scan requesters"
         info.func = function()
-            TRP3FW_Settings.scanResponseMapMode = "off"
+            TRP3FW.Prefs.scanResponseMapMode = "off"
             UIDropDownMenu_SetText(uiElements.scanResponseWhoModeDropdown, "Off")
             RequestRefreshUI()
         end
@@ -2472,7 +2577,7 @@ local function CreateAlertsTab(tab3)
         info.text = "Statistics Only"
         info.tooltipText = "Check map for statistics, but always allow (no alert)"
         info.func = function()
-            TRP3FW_Settings.scanResponseMapMode = "statistics"
+            TRP3FW.Prefs.scanResponseMapMode = "statistics"
             UIDropDownMenu_SetText(uiElements.scanResponseWhoModeDropdown, "Statistics Only")
             RequestRefreshUI()
         end
@@ -2481,7 +2586,7 @@ local function CreateAlertsTab(tab3)
         info.text = "Alert (send anyway)"
         info.tooltipText = "Send the scan reply but warn in chat when the scanner is in another zone/map"
         info.func = function()
-            TRP3FW_Settings.scanResponseMapMode = "alert"
+            TRP3FW.Prefs.scanResponseMapMode = "alert"
             UIDropDownMenu_SetText(uiElements.scanResponseWhoModeDropdown, "Alert (send anyway)")
             RequestRefreshUI()
         end
@@ -2490,10 +2595,10 @@ local function CreateAlertsTab(tab3)
         info.text = "Block (silent)"
         info.tooltipText = "Block the scan reply silently (no notification)"
         info.func = function()
-            local previousMode = TRP3FW_Settings.scanResponseMapMode
-            TRP3FW_Settings.scanResponseMapMode = "block"
+            local previousMode = TRP3FW.Prefs.scanResponseMapMode
+            TRP3FW.Prefs.scanResponseMapMode = "block"
             UIDropDownMenu_SetText(uiElements.scanResponseWhoModeDropdown, "Block (silent)")
-            if ShouldClearAllowedSenders(TRP3FW_Settings.scanResponseMapMode, previousMode) then
+            if ShouldClearAllowedSenders(TRP3FW.Prefs.scanResponseMapMode, previousMode) then
                 local CI = TRP3FW.CacheInterface
                 if CI then CI:Clear("allowedSenders") else TRP3FW.allowedSendersCache = {} end
                 TRP3FW:Debug("[Scan Reply] Flushed allowedSendersCache after scan map mode changed to block", "cache")
@@ -2505,10 +2610,10 @@ local function CreateAlertsTab(tab3)
         info.text = "Alert + Block"
         info.tooltipText = "Block the scan reply and show an alert"
         info.func = function()
-            local previousMode = TRP3FW_Settings.scanResponseMapMode
-            TRP3FW_Settings.scanResponseMapMode = "alert_block"
+            local previousMode = TRP3FW.Prefs.scanResponseMapMode
+            TRP3FW.Prefs.scanResponseMapMode = "alert_block"
             UIDropDownMenu_SetText(uiElements.scanResponseWhoModeDropdown, "Alert + Block")
-            if ShouldClearAllowedSenders(TRP3FW_Settings.scanResponseMapMode, previousMode) then
+            if ShouldClearAllowedSenders(TRP3FW.Prefs.scanResponseMapMode, previousMode) then
                 local CI = TRP3FW.CacheInterface
                 if CI then CI:Clear("allowedSenders") else TRP3FW.allowedSendersCache = {} end
                 TRP3FW:Debug("[Scan Reply] Flushed allowedSendersCache after scan map mode changed to alert_block", "cache")
@@ -2523,35 +2628,35 @@ local function CreateAlertsTab(tab3)
     uiElements.scanResponseRequireNonce = CreateCheckbox(tab3, "Require Nonce on Scan Replies", "When enabled, ignore map scan replies that do not include the issued nonce token (older scanners may be ignored).", "scanResponseRequireNonce")
     uiElements.scanResponseRequireNonce:SetPoint("TOPLEFT", 20, y3)
     uiElements.scanResponseRequireNonce:SetScript("OnClick", function(self)
-        TRP3FW_Settings.scanResponseRequireNonce = self:GetChecked()
+        TRP3FW.Prefs.scanResponseRequireNonce = self:GetChecked()
     end)
     y3 = y3 - 30
 
     uiElements.scanResponseCacheEnabled = CreateCheckbox(tab3, "Cache Scan Requesters", "When replying to map scans, cache WHO results (if a WHO query ran). Does not add to interaction/send caches.", "scanResponseCacheEnabled")
     uiElements.scanResponseCacheEnabled:SetPoint("TOPLEFT", 20, y3)
     uiElements.scanResponseCacheEnabled:SetScript("OnClick", function(self)
-        TRP3FW_Settings.scanResponseCacheEnabled = self:GetChecked()
+        TRP3FW.Prefs.scanResponseCacheEnabled = self:GetChecked()
     end)
     y3 = y3 - 30
 
     uiElements.scanResponseAllowCacheBypass = CreateCheckbox(tab3, "Bypass with Existing Caches", "If scan requester is already in allowed or interaction cache (unrefreshed), skip the WHO gate and reply immediately.", "scanResponseAllowCacheBypass")
     uiElements.scanResponseAllowCacheBypass:SetPoint("TOPLEFT", 20, y3)
     uiElements.scanResponseAllowCacheBypass:SetScript("OnClick", function(self)
-        TRP3FW_Settings.scanResponseAllowCacheBypass = self:GetChecked()
+        TRP3FW.Prefs.scanResponseAllowCacheBypass = self:GetChecked()
     end)
     y3 = y3 - 30
 
     uiElements.scanResponseAllowGroupBypass = CreateCheckbox(tab3, "Always Allow Party/Raid", "If the scan requester is in your party or raid, always reply (skips phase/map/WHO gates).", "scanResponseAllowGroupBypass")
     uiElements.scanResponseAllowGroupBypass:SetPoint("TOPLEFT", 20, y3)
     uiElements.scanResponseAllowGroupBypass:SetScript("OnClick", function(self)
-        TRP3FW_Settings.scanResponseAllowGroupBypass = self:GetChecked()
+        TRP3FW.Prefs.scanResponseAllowGroupBypass = self:GetChecked()
     end)
     y3 = y3 - 30
 
     uiElements.scanResponseWhitelistEnabled = CreateCheckbox(tab3, "Enable Scan Reply Whitelist", "If disabled, names in the whitelist are ignored (no bypass).", "scanResponseWhitelistEnabled")
     uiElements.scanResponseWhitelistEnabled:SetPoint("TOPLEFT", 20, y3)
     uiElements.scanResponseWhitelistEnabled:SetScript("OnClick", function(self)
-        TRP3FW_Settings.scanResponseWhitelistEnabled = self:GetChecked()
+        TRP3FW.Prefs.scanResponseWhitelistEnabled = self:GetChecked()
         RequestRefreshUI()
     end)
     y3 = y3 - 30
@@ -2589,16 +2694,16 @@ local function CreateAlertsTab(tab3)
         return table.concat(out, "\n")
     end
 
-    scanWhitelistEdit:SetText(TRP3FW_Settings.scanResponseWhitelist or "")
+    scanWhitelistEdit:SetText(TRP3FW.Prefs.scanResponseWhitelist or "")
     scanWhitelistEdit:SetScript("OnTextChanged", function(self)
-        TRP3FW_Settings.scanResponseWhitelist = self:GetText()
+        TRP3FW.Prefs.scanResponseWhitelist = self:GetText()
     end)
     scanWhitelistEdit:SetScript("OnEditFocusLost", function(self)
         local cleaned = sanitizeScanWhitelist(self:GetText())
         if cleaned ~= self:GetText() then
             self:SetText(cleaned)
         end
-        TRP3FW_Settings.scanResponseWhitelist = cleaned
+        TRP3FW.Prefs.scanResponseWhitelist = cleaned
     end)
     scanWhitelistScroll:SetScrollChild(scanWhitelistEdit)
 
@@ -2638,7 +2743,7 @@ local function CreateAlertsTab(tab3)
             self:SetChecked(false)
             StaticPopup_Show("TRP3FW_WHITELIST_CONFIRM")
         else
-            TRP3FW_Settings.whitelistEnabled = false
+            TRP3FW.Prefs.whitelistEnabled = false
             TRP3FW:RefreshWhitelistCache()
             if uiElements.whitelistEdit then
                 uiElements.whitelistEdit:Disable()
@@ -2668,7 +2773,7 @@ local function CreateAlertsTab(tab3)
     whitelistEdit:SetHeight(90)
     whitelistEdit:SetAutoFocus(false)
     whitelistEdit:SetMaxLetters(3000)
-    whitelistEdit:SetText(TRP3FW_Settings.whitelistEntries or "")
+    whitelistEdit:SetText(TRP3FW.Prefs.whitelistEntries or "")
     local function sanitizeWhitelist(text)
         local seen = {}
         local out = {}
@@ -2686,14 +2791,14 @@ local function CreateAlertsTab(tab3)
     end
 
     whitelistEdit:SetScript("OnTextChanged", function(self)
-        TRP3FW_Settings.whitelistEntries = self:GetText()
+        TRP3FW.Prefs.whitelistEntries = self:GetText()
     end)
     whitelistEdit:SetScript("OnEditFocusLost", function(self)
         local cleaned = sanitizeWhitelist(self:GetText())
         if cleaned ~= self:GetText() then
             self:SetText(cleaned)
         end
-        TRP3FW_Settings.whitelistEntries = cleaned
+        TRP3FW.Prefs.whitelistEntries = cleaned
     end)
     whitelistScroll:SetScrollChild(whitelistEdit)
 
@@ -2713,7 +2818,7 @@ local function CreateAlertsTab(tab3)
 
     -- Apply enabled state based on current setting
     do
-        local enabled = TRP3FW_Settings.whitelistEnabled
+        local enabled = TRP3FW.Prefs.whitelistEnabled
         if enabled then
             whitelistEdit:Enable()
         else
@@ -2779,7 +2884,7 @@ local function CreateAlertsTab(tab3)
                     end
                     info.value = profile.id
                     info.func = function()
-                        TRP3FW_Settings.ghostProfileID = profile.id
+                        TRP3FW.Prefs.ghostProfileID = profile.id
                         UIDropDownMenu_SetText(uiElements.ghostProfileDropdown, profile.name)
                         TRP3FW:Debug("Ghost profile set to: "..profile.name.." (ID: "..tostring(profile.id)..")", "ui")
 
@@ -2788,7 +2893,7 @@ local function CreateAlertsTab(tab3)
                             EnsureBlankProfilesExist()
                         end
                     end
-                    info.checked = (TRP3FW_Settings.ghostProfileID == profile.id)
+                    info.checked = (TRP3FW.Prefs.ghostProfileID == profile.id)
                     UIDropDownMenu_AddButton(info)
                 end
             else
@@ -2808,8 +2913,8 @@ local function CreateAlertsTab(tab3)
     end)
 
     -- Set initial display text
-    if TRP3FW_Settings.ghostProfileID then
-        local profile = TRP3FW:GetProfileByID(TRP3FW_Settings.ghostProfileID)
+    if TRP3FW.Prefs.ghostProfileID then
+        local profile = TRP3FW:GetProfileByID(TRP3FW.Prefs.ghostProfileID)
         if profile then
             UIDropDownMenu_SetText(uiElements.ghostProfileDropdown, profile.name)
         else
@@ -2836,7 +2941,7 @@ local function CreateAlertsTab(tab3)
 	uiElements.suppressAllWhoOutput = CreateCheckbox(tab3, "Suppress WHO Output", "Hide all WHO results in chat (prevents spam from manual /who or TRP3 scans).", "suppressAllWhoOutput")
 	uiElements.suppressAllWhoOutput:SetPoint("TOPLEFT", 20, y3)
 	uiElements.suppressAllWhoOutput:SetScript("OnClick", function(self)
-		TRP3FW_Settings.suppressAllWhoOutput = self:GetChecked()
+		TRP3FW.Prefs.suppressAllWhoOutput = self:GetChecked()
 	end)
     table.insert(epsilonControls, uiElements.suppressAllWhoOutput)
     y3 = y3 - 30
@@ -2844,9 +2949,9 @@ local function CreateAlertsTab(tab3)
     uiElements.blockStartPhase = CreateCheckbox(tab3, "Block in Start Phase", "Block all transmissions in start phase (169).", "blockStartPhase")
     uiElements.blockStartPhase:SetPoint("TOPLEFT", 20, y3)
     uiElements.blockStartPhase:SetScript("OnClick", function(self)
-        TRP3FW_Settings.blockStartPhase = self:GetChecked()
+        TRP3FW.Prefs.blockStartPhase = self:GetChecked()
         -- If ghost mode in start phase is also enabled, ensure blank profiles exist
-        if TRP3FW_Settings.ghostOnStartPhase then
+        if TRP3FW.Prefs.ghostOnStartPhase then
             EnsureBlankProfilesExist()
         end
     end)
@@ -2856,7 +2961,7 @@ local function CreateAlertsTab(tab3)
     uiElements.ghostOnStartPhase = CreateCheckbox(tab3, "Ghost Mode in Start Phase", "Send blank profile instead of blocking in start phase (169).", "ghostOnStartPhase")
     uiElements.ghostOnStartPhase:SetPoint("TOPLEFT", 40, y3)  -- Indent to show it's a sub-option
     uiElements.ghostOnStartPhase:SetScript("OnClick", function(self)
-        TRP3FW_Settings.ghostOnStartPhase = self:GetChecked()
+        TRP3FW.Prefs.ghostOnStartPhase = self:GetChecked()
         EnsureBlankProfilesExist()
     end)
     table.insert(epsilonControls, uiElements.ghostOnStartPhase)
@@ -2865,7 +2970,7 @@ local function CreateAlertsTab(tab3)
     uiElements.ghostProfileSwitch = CreateCheckbox(tab3, "Auto-Switch to Blank Profile", "Automatically switch to blank profile in start phase (169) and map 1605.", "ghostProfileSwitch")
     uiElements.ghostProfileSwitch:SetPoint("TOPLEFT", 20, y3)
     uiElements.ghostProfileSwitch:SetScript("OnClick", function(self)
-        TRP3FW_Settings.ghostProfileSwitch = self:GetChecked()
+        TRP3FW.Prefs.ghostProfileSwitch = self:GetChecked()
         EnsureBlankProfilesExist()
     end)
     table.insert(epsilonControls, uiElements.ghostProfileSwitch)
@@ -2883,7 +2988,7 @@ local function CreateAlertsTab(tab3)
     uiElements.ghostProfileWhitelistEnabled = CreateCheckbox(tab3, "Exclude Phases/Maps (Keep Real Profile)", "When enabled, TRP3FW will auto-switch to the blank profile everywhere on Epsilon except the phases/maps listed below (those keep your real profile). One entry per line: '169' (phase only) or '169,1605' (phase+map). Map is optional; if omitted, any map in that phase is excluded from auto-switching.", "ghostProfileWhitelistEnabled")
     uiElements.ghostProfileWhitelistEnabled:SetPoint("TOPLEFT", 20, y3)
     uiElements.ghostProfileWhitelistEnabled:SetScript("OnClick", function(self)
-        TRP3FW_Settings.ghostProfileWhitelistEnabled = self:GetChecked()
+        TRP3FW.Prefs.ghostProfileWhitelistEnabled = self:GetChecked()
         if uiElements.ghostProfileWhitelistEdit then
             local enabled = self:GetChecked()
             if enabled then
@@ -2917,9 +3022,9 @@ local function CreateAlertsTab(tab3)
     whitelistEdit:SetHeight(100)
     whitelistEdit:SetAutoFocus(false)
     whitelistEdit:SetMaxLetters(3000)
-    whitelistEdit:SetText(TRP3FW_Settings.ghostProfileWhitelist or "")
+    whitelistEdit:SetText(TRP3FW.Prefs.ghostProfileWhitelist or "")
     whitelistEdit:SetScript("OnTextChanged", function(self)
-        TRP3FW_Settings.ghostProfileWhitelist = self:GetText()
+        TRP3FW.Prefs.ghostProfileWhitelist = self:GetText()
     end)
     whitelistEdit:SetScript("OnEditFocusLost", function(self)
         local seen = {}
@@ -2949,7 +3054,7 @@ local function CreateAlertsTab(tab3)
         if cleaned ~= self:GetText() then
             self:SetText(cleaned)
         end
-        TRP3FW_Settings.ghostProfileWhitelist = cleaned
+        TRP3FW.Prefs.ghostProfileWhitelist = cleaned
     end)
     whitelistScroll:SetScrollChild(whitelistEdit)
 
@@ -2971,7 +3076,7 @@ local function CreateAlertsTab(tab3)
 
     -- Apply enabled state based on current setting
     do
-        local enabled = TRP3FW_Settings.ghostProfileWhitelistEnabled
+        local enabled = TRP3FW.Prefs.ghostProfileWhitelistEnabled
         if enabled then
             whitelistEdit:Enable()
         else
@@ -3006,8 +3111,8 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Off"
         info.tooltipText = "Disable Secure Phase Verification Protocol. Only standard location checks (targeting, WHO queries, map scans) will be used."
         info.func = function()
-            TRP3FW_Settings.spvpMode = "off"
-            TRP3FW_Settings.spvpEnabled = false
+            TRP3FW.Prefs.spvpMode = "off"
+            TRP3FW.Prefs.spvpEnabled = false
             UIDropDownMenu_SetText(uiElements.spvpModeDropdown, "Off")
             RequestRefreshUI()
         end
@@ -3018,8 +3123,8 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Optional"
         info.tooltipText = "Run standard location checks first. If the request is allowed, an SPVP handshake is performed in the background to 'upgrade' the trust level for future requests. Best for non-intrusive auditing without risk of protocol delays."
         info.func = function()
-            TRP3FW_Settings.spvpMode = "optional"
-            TRP3FW_Settings.spvpEnabled = true
+            TRP3FW.Prefs.spvpMode = "optional"
+            TRP3FW.Prefs.spvpEnabled = true
             UIDropDownMenu_SetText(uiElements.spvpModeDropdown, "Optional (Post-Check)")
             RequestRefreshUI()
         end
@@ -3030,8 +3135,8 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Preferred"
         info.tooltipText = "Perform an SPVP handshake before standard checks. If cryptographically verified, standard phase checks are skipped, significantly improving performance. Falls back to standard checks if SPVP fails or times out (Recommended)."
         info.func = function()
-            TRP3FW_Settings.spvpMode = "preferred"
-            TRP3FW_Settings.spvpEnabled = true
+            TRP3FW.Prefs.spvpMode = "preferred"
+            TRP3FW.Prefs.spvpEnabled = true
             UIDropDownMenu_SetText(uiElements.spvpModeDropdown, "Preferred (Pre-Check)")
             RequestRefreshUI()
         end
@@ -3042,8 +3147,8 @@ local function CreateAlertsTab(tab3)
         info.tooltipTitle = "Required"
         info.tooltipText = "Strictly require cryptographic proof of phase presence. If SPVP fails or times out, the request is blocked immediately. Offers the highest security against remote spoofing but requires the peer to also have TRP3FW."
         info.func = function()
-            TRP3FW_Settings.spvpMode = "required"
-            TRP3FW_Settings.spvpEnabled = true
+            TRP3FW.Prefs.spvpMode = "required"
+            TRP3FW.Prefs.spvpEnabled = true
             UIDropDownMenu_SetText(uiElements.spvpModeDropdown, "Required (Strict)")
             RequestRefreshUI()
         end
@@ -3055,7 +3160,7 @@ local function CreateAlertsTab(tab3)
     uiElements.spvpAutoInitialize = CreateCheckbox(tab3, "Auto-Initialize Salts", "Automatically generate security keys when you enter phases you own (phase owners/officers only).", "spvpAutoInitialize")
     uiElements.spvpAutoInitialize:SetPoint("TOPLEFT", 40, y3)  -- Indent
     uiElements.spvpAutoInitialize:SetScript("OnClick", function(self)
-        TRP3FW_Settings.spvpAutoInitialize = self:GetChecked()
+        TRP3FW.Prefs.spvpAutoInitialize = self:GetChecked()
     end)
     table.insert(epsilonControls, uiElements.spvpAutoInitialize)
     y3 = y3 - 35
@@ -3076,7 +3181,7 @@ local function CreateAlertsTab(tab3)
     uiElements.spvpBlockDurationSlider.High:SetText("10m")
     uiElements.spvpBlockDurationSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value / 10) * 10  -- Round to nearest 10
-        TRP3FW_Settings.spvpBlockDuration = value
+        TRP3FW.Prefs.spvpBlockDuration = value
         local text
         if value >= 60 then
             text = string.format("%dm", math.floor(value / 60))
@@ -3088,7 +3193,7 @@ local function CreateAlertsTab(tab3)
 
     -- Ensure thumb is visible at load
     C_Timer.After(0, function()
-        uiElements.spvpBlockDurationSlider:SetValue(TRP3FW_Settings.spvpBlockDuration or 60)
+        uiElements.spvpBlockDurationSlider:SetValue(TRP3FW.Prefs.spvpBlockDuration or 60)
     end)
 
     table.insert(epsilonControls, uiElements.spvpBlockDurationSlider)
@@ -3110,7 +3215,7 @@ local function CreateAlertsTab(tab3)
     uiElements.spvpSaltCacheDurationSlider.High:SetText("12h")
     uiElements.spvpSaltCacheDurationSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value / 300) * 300  -- Round to nearest 5 min
-        TRP3FW_Settings.spvpSaltCacheDuration = value
+        TRP3FW.Prefs.spvpSaltCacheDuration = value
 
         -- Update cache TTL
         local CI = TRP3FW.CacheInterface
@@ -3129,7 +3234,7 @@ local function CreateAlertsTab(tab3)
 
     -- Ensure thumb is visible at load
     C_Timer.After(0, function()
-        uiElements.spvpSaltCacheDurationSlider:SetValue(TRP3FW_Settings.spvpSaltCacheDuration or 3600)
+        uiElements.spvpSaltCacheDurationSlider:SetValue(TRP3FW.Prefs.spvpSaltCacheDuration or 3600)
     end)
 
     table.insert(epsilonControls, uiElements.spvpSaltCacheDurationSlider)
@@ -3182,7 +3287,7 @@ local function CreateAlertsTab(tab3)
     y3 = y3 - 35
 
     uiElements.profileOverrides = {}
-    TRP3FW_Settings.ghostProfileOverrides = TRP3FW_Settings.ghostProfileOverrides or {}
+    TRP3FW.Prefs.ghostProfileOverrides = TRP3FW.Prefs.ghostProfileOverrides or {}
 
     local overridesStartY = y3
     local rowHeight = 34
@@ -3190,8 +3295,8 @@ local function CreateAlertsTab(tab3)
     local conditionX = 80
     local dropdownX = conditionX + 140 + 12  -- keep consistent horizontal spacing
     for i = 1, 20 do
-        TRP3FW_Settings.ghostProfileOverrides[i] = TRP3FW_Settings.ghostProfileOverrides[i] or {}
-        local entry = TRP3FW_Settings.ghostProfileOverrides[i]
+        TRP3FW.Prefs.ghostProfileOverrides[i] = TRP3FW.Prefs.ghostProfileOverrides[i] or {}
+        local entry = TRP3FW.Prefs.ghostProfileOverrides[i]
 
         local column = 1
         local row = (i - 1)
@@ -3275,6 +3380,115 @@ local function CreateAlertsTab(tab3)
 
 end
 
+local function CreateProfilesTab(tab6)
+    local y6 = -10
+    CreateSectionHeader(tab6, "Profile Management", y6)
+    y6 = y6 - 40
+    
+    -- Active profile info
+    local activeLabel = tab6:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    activeLabel:SetPoint("TOPLEFT", 20, y6)
+    activeLabel:SetText("Active Profile:")
+    
+    local activeValue = tab6:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    activeValue:SetPoint("LEFT", activeLabel, "RIGHT", 10, 0)
+    
+    local function UpdateProfileUI()
+        local charKey = TRP3FW:GetCharacterKey()
+        local activeProfile = TRP3FW.GlobalDB.profileKeys[charKey] or "Default"
+        activeValue:SetText("|cff00ff00" .. activeProfile .. "|r")
+    end
+    
+    UpdateProfileUI()
+    y6 = y6 - 40
+    
+    -- List of profiles
+    local listHeader = tab6:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    listHeader:SetPoint("TOPLEFT", 20, y6)
+    listHeader:SetText("Available Profiles:")
+    y6 = y6 - 25
+    
+    -- Simple profile list
+    local profileButtons = {}
+    
+    local function RefreshProfileList()
+        -- Clear old buttons
+        for _, btn in ipairs(profileButtons) do btn:Hide() end
+        profileButtons = {}
+        
+        local currentY = y6
+        local charKey = TRP3FW:GetCharacterKey()
+        local activeProfile = TRP3FW.GlobalDB.profileKeys[charKey] or "Default"
+        
+        -- Get sorted profile names
+        local names = {}
+        for name in pairs(TRP3FW.GlobalDB.profiles) do
+            table.insert(names, name)
+        end
+        table.sort(names)
+        
+        for i, name in ipairs(names) do
+            local row = CreateFrame("Button", nil, tab6, "UIPanelButtonTemplate")
+            row:SetSize(200, 25)
+            row:SetPoint("TOPLEFT", 30, currentY)
+            row:SetText(name)
+            
+            if name == activeProfile then
+                row:Disable()
+                row:SetText(name .. " (Active)")
+            end
+            
+            row:SetScript("OnClick", function()
+                StaticPopup_Show("TRP3FW_CONFIRM_PROFILE_SWITCH", name, nil, name)
+            end)
+            
+            -- Delete button
+            local del = CreateFrame("Button", nil, tab6, "UIPanelButtonTemplate")
+            del:SetSize(60, 25)
+            del:SetPoint("LEFT", row, "RIGHT", 5, 0)
+            del:SetText("Delete")
+            if name == "Default" or name == activeProfile then
+                del:Disable()
+            end
+            del:SetScript("OnClick", function()
+                StaticPopup_Show("TRP3FW_CONFIRM_PROFILE_DELETE", name, nil, name)
+            end)
+
+            -- Rename button
+            local ren = CreateFrame("Button", nil, tab6, "UIPanelButtonTemplate")
+            ren:SetSize(70, 25)
+            ren:SetPoint("LEFT", del, "RIGHT", 5, 0)
+            ren:SetText("Rename")
+            if name == "Default" then ren:Disable() end
+            ren:SetScript("OnClick", function()
+                StaticPopup_Show("TRP3FW_RENAME_PROFILE", name, nil, name)
+            end)
+            
+            table.insert(profileButtons, row)
+            table.insert(profileButtons, del)
+            table.insert(profileButtons, ren)
+            currentY = currentY - 30
+        end
+        
+        -- New Profile button
+        local newBtn = CreateFrame("Button", nil, tab6, "UIPanelButtonTemplate")
+        newBtn:SetSize(150, 30)
+        newBtn:SetPoint("TOPLEFT", 20, currentY - 20)
+        newBtn:SetText("Create New Profile")
+        newBtn:SetScript("OnClick", function()
+            StaticPopup_Show("TRP3FW_CREATE_PROFILE")
+        end)
+        table.insert(profileButtons, newBtn)
+        
+        UpdateProfileUI()
+    end
+    
+    RefreshProfileList()
+    
+    -- Expose refresh
+    TRP3FW.RefreshProfilesTab = RefreshProfileList
+end
+
 function TRP3FW:InitializeUI()
     if settingsFrame then
         TRP3FW:Debug("UI already initialized", "ui")
@@ -3300,7 +3514,7 @@ function TRP3FW:InitializeUI()
 
     -- Main frame
     success, err = pcall(function()
-        settingsFrame = CreateFrame("Frame", "TRP3FW_SettingsFrame", UIParent, "BasicFrameTemplateWithInset")
+        settingsFrame = CreateFrame("Frame", "TRP3FW.PrefsFrame", UIParent, "BasicFrameTemplateWithInset")
     end)
 
     if not success then
@@ -3332,12 +3546,13 @@ function TRP3FW:InitializeUI()
     local tabs = {}
     local tabContents = {}
 
-    -- Create 5 tabs
+    -- Create 6 tabs
     tabs[1] = CreateTab(settingsFrame, 1, "Status")
     tabs[2] = CreateTab(settingsFrame, 2, "Notifications")
-    tabs[3] = CreateTab(settingsFrame, 3, "Alerts & Blocking")
-    tabs[4] = CreateTab(settingsFrame, 4, "Filters & Addons")
-    tabs[5] = CreateTab(settingsFrame, 5, "Cache & Debug")
+    tabs[3] = CreateTab(settingsFrame, 3, "Alerts")
+    tabs[4] = CreateTab(settingsFrame, 4, "Filters")
+    tabs[5] = CreateTab(settingsFrame, 5, "Debug")
+    tabs[6] = CreateTab(settingsFrame, 6, "Profiles")
 
     -- Create content frames for each tab with appropriate heights
     -- Heights calculated based on content (absolute value of final y-offset + padding for slider/elements)
@@ -3346,10 +3561,11 @@ function TRP3FW:InitializeUI()
         470,   -- Tab 2 (Notifications)
         1500,  -- Tab 3 (Alerts & Blocking) - expanded Safety/overrides
         280,   -- Tab 4 (Filters & Addons)
-        950    -- Tab 5 (Cache & Debug)
+        950,   -- Tab 5 (Cache & Debug)
+        500    -- Tab 6 (Profiles)
     }
 
-    for i = 1, 5 do
+    for i = 1, 6 do
         local scrollFrame, scrollChild = CreateScrollFrame(settingsFrame, tabHeights[i])
         tabContents[i] = { scrollFrame = scrollFrame, scrollChild = scrollChild }
         scrollFrame:Hide()
@@ -3362,7 +3578,7 @@ function TRP3FW:InitializeUI()
     local statusUpdateTimer = nil
     local function StartStatusUpdates()
         if statusUpdateTimer then return end -- Already running
-        local refreshRate = TRP3FW_Settings.statusRefreshRate or 30
+        local refreshRate = TRP3FW.Prefs.statusRefreshRate or 30
         statusUpdateTimer = C_Timer.NewTicker(refreshRate, function()
             if settingsFrame:IsVisible() and currentTab == 1 then
                 UpdateStatusTab()
@@ -3379,7 +3595,7 @@ function TRP3FW:InitializeUI()
     local function SelectTab(tabIndex)
         currentTab = tabIndex
 
-        for i = 1, 5 do
+        for i = 1, 6 do
             if i == tabIndex then
                 tabs[i].bg:SetColorTexture(0.3, 0.3, 0.3, 1)
                 tabs[i].text:SetTextColor(1, 1, 1)
@@ -3398,7 +3614,7 @@ function TRP3FW:InitializeUI()
         end
     end
 
-    for i = 1, 5 do
+    for i = 1, 6 do
         tabs[i]:SetScript("OnClick", function() SelectTab(i) end)
     end
 
@@ -3506,7 +3722,7 @@ function TRP3FW:InitializeUI()
     histCheck:SetPoint("TOPLEFT", col2X, perfLabelY - 25)
     uiElements.performanceHistoryEnabled = histCheck
     histCheck:SetScript("OnClick", function(self)
-        TRP3FW_Settings.performanceHistoryEnabled = self:GetChecked()
+        TRP3FW.Prefs.performanceHistoryEnabled = self:GetChecked()
         UpdateBackgroundTracking()
     end)
 
@@ -4016,17 +4232,17 @@ function TRP3FW:InitializeUI()
     refreshRateSlider:SetMinMaxValues(2, 120)
     refreshRateSlider:SetValueStep(1)
     refreshRateSlider:SetObeyStepOnDrag(true)
-    refreshRateSlider:SetValue(TRP3FW_Settings.statusRefreshRate or 30)
+    refreshRateSlider:SetValue(TRP3FW.Prefs.statusRefreshRate or 30)
 
     -- Slider labels
-    local refreshDefault = TRP3FW_Settings.statusRefreshRate or 30
+    local refreshDefault = TRP3FW.Prefs.statusRefreshRate or 30
     getglobal(refreshRateSlider:GetName().."Low"):SetText("2s")
     getglobal(refreshRateSlider:GetName().."High"):SetText("120s")
     getglobal(refreshRateSlider:GetName().."Text"):SetText("Refresh every " .. refreshDefault .. " seconds")
 
     refreshRateSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value)
-        TRP3FW_Settings.statusRefreshRate = value
+        TRP3FW.Prefs.statusRefreshRate = value
         getglobal(self:GetName().."Text"):SetText("Refresh every " .. value .. " seconds")
     end)
 
@@ -4042,7 +4258,7 @@ function TRP3FW:InitializeUI()
 
     -- Ensure thumb is visible at load
     C_Timer.After(0, function()
-        refreshRateSlider:SetValue(TRP3FW_Settings.statusRefreshRate or 30)
+        refreshRateSlider:SetValue(TRP3FW.Prefs.statusRefreshRate or 30)
     end)
 
     -- Only restart timer when slider is released (not during drag)
@@ -4083,7 +4299,7 @@ function TRP3FW:InitializeUI()
     uiElements.notifyEnabled = CreateCheckbox(tab2, "Enable Notifications", "Master toggle for all notifications", "notifyEnabled")
     uiElements.notifyEnabled:SetPoint("TOPLEFT", 20, y2)
     uiElements.notifyEnabled:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyEnabled = self:GetChecked()
+        TRP3FW.Prefs.notifyEnabled = self:GetChecked()
     end)
     y2 = y2 - 40
 
@@ -4091,14 +4307,14 @@ function TRP3FW:InitializeUI()
     uiElements.notifyOnAllow = CreateCheckbox(tab2, "Notify on Allow", "Show notifications when profiles are sent normally (allowed)", "notifyOnAllow")
     uiElements.notifyOnAllow:SetPoint("TOPLEFT", 20, y2)
     uiElements.notifyOnAllow:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnAllow = self:GetChecked()
+        TRP3FW.Prefs.notifyOnAllow = self:GetChecked()
     end)
     y2 = y2 - 30
 
     uiElements.notifyOnStartPhaseBlock = CreateCheckbox(tab2, "Notify on Start Phase Block", "Show notifications when blocking in start phase (169)", "notifyOnStartPhaseBlock")
     uiElements.notifyOnStartPhaseBlock:SetPoint("TOPLEFT", 20, y2)
     uiElements.notifyOnStartPhaseBlock:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnStartPhaseBlock = self:GetChecked()
+        TRP3FW.Prefs.notifyOnStartPhaseBlock = self:GetChecked()
     end)
     y2 = y2 - 30
 
@@ -4111,14 +4327,14 @@ function TRP3FW:InitializeUI()
     uiElements.notifyBroadcast = CreateCheckbox(tab2, "Notify on Broadcast", "Show notifications for map scan broadcasts (only affects Allow notifications)", "notifyOnBroadcast")
     uiElements.notifyBroadcast:SetPoint("TOPLEFT", 20, y2)
     uiElements.notifyBroadcast:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnBroadcast = self:GetChecked()
+        TRP3FW.Prefs.notifyOnBroadcast = self:GetChecked()
     end)
     y2 = y2 - 30
 
     uiElements.notifyWhisper = CreateCheckbox(tab2, "Notify on Whisper", "Show notifications for direct profile requests (only affects Allow notifications)", "notifyOnWhisper")
     uiElements.notifyWhisper:SetPoint("TOPLEFT", 20, y2)
     uiElements.notifyWhisper:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnWhisper = self:GetChecked()
+        TRP3FW.Prefs.notifyOnWhisper = self:GetChecked()
     end)
     y2 = y2 - 30
 
@@ -4147,13 +4363,13 @@ function TRP3FW:InitializeUI()
     uiElements.notifyOnScanResponse = CreateCheckbox(tab2, "Show Scan Reply Notifications", "Controls chat/on-screen notifications for scan replies (TRP3 or RPMapScan). Protections are configured separately.", "notifyOnScanResponse")
     uiElements.notifyOnScanResponse:SetPoint("TOPLEFT", 30, groupY)
     uiElements.notifyOnScanResponse:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnScanResponse = self:GetChecked()
+        TRP3FW.Prefs.notifyOnScanResponse = self:GetChecked()
         local enabled = self:GetChecked()
         
         if enabled then
             uiElements.notifyOnScanAllow:Enable()
             uiElements.notifyOnScanAllow:SetAlpha(1.0)
-            uiElements.notifyOnScanAllow:SetChecked(TRP3FW_Settings.notifyOnScanAllow)
+            uiElements.notifyOnScanAllow:SetChecked(TRP3FW.Prefs.notifyOnScanAllow)
         else
             uiElements.notifyOnScanAllow:Disable()
             uiElements.notifyOnScanAllow:SetAlpha(0.5)
@@ -4167,7 +4383,7 @@ function TRP3FW:InitializeUI()
     uiElements.notifyOnScanAllow = CreateCheckbox(tab2, "Notify on Scan Allow", "Show notifications when scan replies are allowed/sent (alerts/blocks still follow their modes).", "notifyOnScanAllow")
     uiElements.notifyOnScanAllow:SetPoint("TOPLEFT", 50, groupY)
     uiElements.notifyOnScanAllow:SetScript("OnClick", function(self)
-        TRP3FW_Settings.notifyOnScanAllow = self:GetChecked()
+        TRP3FW.Prefs.notifyOnScanAllow = self:GetChecked()
     end)
     
     y2 = y2 - scanGroupHeight - 10
@@ -4190,49 +4406,49 @@ function TRP3FW:InitializeUI()
     uiElements.showInChat = CreateCheckbox(tab2, "Show in Chat", "Display notifications in chat window", "showInChat")
     uiElements.showInChat:SetPoint("TOPLEFT", 20, y2)
     uiElements.showInChat:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showInChat = self:GetChecked()
+        TRP3FW.Prefs.showInChat = self:GetChecked()
     end)
     y2 = y2 - 30
 
     uiElements.showGhostNotifications = CreateCheckbox(tab2, "Show Ghost Notifications", "Display chat/on-screen messages when ghost profiles are sent", "showGhostNotifications")
     uiElements.showGhostNotifications:SetPoint("TOPLEFT", 40, y2)
     uiElements.showGhostNotifications:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showGhostNotifications = self:GetChecked()
+        TRP3FW.Prefs.showGhostNotifications = self:GetChecked()
     end)
     y2 = y2 - 30
 
     uiElements.showOnScreen = CreateCheckbox(tab2, "Show On-Screen", "Display on-screen alert frames", "showOnScreen")
     uiElements.showOnScreen:SetPoint("TOPLEFT", 20, y2)
     uiElements.showOnScreen:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showOnScreen = self:GetChecked()
+        TRP3FW.Prefs.showOnScreen = self:GetChecked()
     end)
     y2 = y2 - 30
 
     uiElements.playSound = CreateCheckbox(tab2, "Play Sound", "Play notification sound", "playSound")
     uiElements.playSound:SetPoint("TOPLEFT", 20, y2)
     uiElements.playSound:SetScript("OnClick", function(self)
-        TRP3FW_Settings.playSound = self:GetChecked()
+        TRP3FW.Prefs.playSound = self:GetChecked()
     end)
     y2 = y2 - 30
 
     uiElements.showAddonSource = CreateCheckbox(tab2, "Show Addon Source", "Display which addon sent the request (TRP3, MRP, XRP)", "showAddonSource")
     uiElements.showAddonSource:SetPoint("TOPLEFT", 20, y2)
     uiElements.showAddonSource:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showAddonSource = self:GetChecked()
+        TRP3FW.Prefs.showAddonSource = self:GetChecked()
     end)
     y2 = y2 - 30
 
     uiElements.showCacheInfo = CreateCheckbox(tab2, "Show Cache Info", "Append cache hit/miss info to allow notifications", "showCacheInfo")
     uiElements.showCacheInfo:SetPoint("TOPLEFT", 20, y2)
     uiElements.showCacheInfo:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showCacheInfo = self:GetChecked()
+        TRP3FW.Prefs.showCacheInfo = self:GetChecked()
     end)
     y2 = y2 - 30
 
     uiElements.showCheckResults = CreateCheckbox(tab2, "Show Check Results", "Append phase/map pass/fail and method (WHO, map scan, cache, skipped) to allow notifications", "showCheckResults")
     uiElements.showCheckResults:SetPoint("TOPLEFT", 20, y2)
     uiElements.showCheckResults:SetScript("OnClick", function(self)
-        TRP3FW_Settings.showCheckResults = self:GetChecked()
+        TRP3FW.Prefs.showCheckResults = self:GetChecked()
     end)
     y2 = y2 - 50
 
@@ -4246,11 +4462,11 @@ function TRP3FW:InitializeUI()
     local function saveSuppressionTime(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
-            TRP3FW_Settings.suppressionTime = value
+            TRP3FW.Prefs.suppressionTime = value
             TRP3FW:Info("Profile suppression time set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value - must be a positive number")
-            self:SetText(TRP3FW_Settings.suppressionTime)
+            self:SetText(TRP3FW.Prefs.suppressionTime)
         end
     end
 
@@ -4270,7 +4486,7 @@ function TRP3FW:InitializeUI()
     uiElements.refreshSuppression = CreateCheckbox(tab2, "Refresh Suppression", "Extend suppression duration when new notifications are received (Sliding Window).\n\n|cff00ff00Checked:|r Spam keeps suppression active indefinitely.\n|cffff0000Unchecked:|r Suppression expires after fixed time from first notification.", "refreshSuppression")
     uiElements.refreshSuppression:SetPoint("LEFT", uiElements.suppressionTime, "RIGHT", 120, 0)
     uiElements.refreshSuppression:SetScript("OnClick", function(self)
-        TRP3FW_Settings.refreshSuppression = self:GetChecked()
+        TRP3FW.Prefs.refreshSuppression = self:GetChecked()
     end)
 
     -- ========== TAB 3: ALERTS & BLOCKING ==========
@@ -4296,17 +4512,17 @@ function TRP3FW:InitializeUI()
             info.text = COMPLEXITY_NAMES[i]
             info.value = i
             info.func = function()
-                TRP3FW_Settings.uiComplexityLevel = i
+                TRP3FW.Prefs.uiComplexityLevel = i
                 UIDropDownMenu_SetText(complexityDropdown, COMPLEXITY_NAMES[i])
                 TRP3FW:EnforceComplexityDefaults(i)
                 RequestRefreshUI()
             end
-            info.checked = (TRP3FW_Settings.uiComplexityLevel == i)
+            info.checked = (TRP3FW.Prefs.uiComplexityLevel == i)
             UIDropDownMenu_AddButton(info, level)
         end
     end)
     
-    local currentLevel = TRP3FW_Settings.uiComplexityLevel or 2
+    local currentLevel = TRP3FW.Prefs.uiComplexityLevel or 2
     UIDropDownMenu_SetText(complexityDropdown, COMPLEXITY_NAMES[currentLevel] or "Intermediate")
     
     y4 = y4 - 70
@@ -4317,7 +4533,7 @@ function TRP3FW:InitializeUI()
     uiElements.filterGradients = CreateCheckbox(tab4, "Strip Color Gradients", "Remove color gradients from incoming profiles (requires /reload)", "filterGradients")
     uiElements.filterGradients:SetPoint("TOPLEFT", 20, y4)
     uiElements.filterGradients:SetScript("OnClick", function(self)
-        TRP3FW_Settings.filterGradients = self:GetChecked()
+        TRP3FW.Prefs.filterGradients = self:GetChecked()
         if self:GetChecked() then
             TRP3FW:Info("Gradient filter enabled - please /reload for changes to take effect")
         else
@@ -4329,7 +4545,7 @@ function TRP3FW:InitializeUI()
     uiElements.filterIcons = CreateCheckbox(tab4, "Strip Icons from Profiles", "Remove embedded icons from player names, titles, class, currently, OOC, nicknames, and house fields (requires /reload)", "filterIcons")
     uiElements.filterIcons:SetPoint("TOPLEFT", 20, y4)
     uiElements.filterIcons:SetScript("OnClick", function(self)
-        TRP3FW_Settings.filterIcons = self:GetChecked()
+        TRP3FW.Prefs.filterIcons = self:GetChecked()
         if self:GetChecked() then
             TRP3FW:Info("Icon filter enabled - please /reload for changes to take effect")
         else
@@ -4341,7 +4557,7 @@ function TRP3FW:InitializeUI()
     uiElements.filterMinimumFontSize = CreateCheckbox(tab4, "Minimum Font Size", "Inject minimum font size into incoming profiles for better readability", "filterMinimumFontSize")
     uiElements.filterMinimumFontSize:SetPoint("TOPLEFT", 20, y4)
     uiElements.filterMinimumFontSize:SetScript("OnClick", function(self)
-        TRP3FW_Settings.filterMinimumFontSize = self:GetChecked()
+        TRP3FW.Prefs.filterMinimumFontSize = self:GetChecked()
         -- Enable/disable the dropdown based on checkbox state
         if uiElements.minimumFontSizeDropdown then
             if self:GetChecked() then
@@ -4372,7 +4588,7 @@ function TRP3FW:InitializeUI()
         info.tooltipTitle = "H1 (Largest)"
         info.tooltipText = "Inject {h1} tags - Largest heading size"
         info.func = function()
-            TRP3FW_Settings.minimumFontSizeLevel = "h1"
+            TRP3FW.Prefs.minimumFontSizeLevel = "h1"
             UIDropDownMenu_SetText(uiElements.minimumFontSizeDropdown, "H1 (Largest)")
         end
         UIDropDownMenu_AddButton(info)
@@ -4383,7 +4599,7 @@ function TRP3FW:InitializeUI()
         info.tooltipTitle = "H2 (Large)"
         info.tooltipText = "Inject {h2} tags - Large heading size"
         info.func = function()
-            TRP3FW_Settings.minimumFontSizeLevel = "h2"
+            TRP3FW.Prefs.minimumFontSizeLevel = "h2"
             UIDropDownMenu_SetText(uiElements.minimumFontSizeDropdown, "H2 (Large)")
         end
         UIDropDownMenu_AddButton(info)
@@ -4394,7 +4610,7 @@ function TRP3FW:InitializeUI()
         info.tooltipTitle = "H3 (Medium)"
         info.tooltipText = "Inject {h3} tags - Medium heading size (default)"
         info.func = function()
-            TRP3FW_Settings.minimumFontSizeLevel = "h3"
+            TRP3FW.Prefs.minimumFontSizeLevel = "h3"
             UIDropDownMenu_SetText(uiElements.minimumFontSizeDropdown, "H3 (Medium)")
         end
         UIDropDownMenu_AddButton(info)
@@ -4405,7 +4621,7 @@ function TRP3FW:InitializeUI()
         info.tooltipTitle = "P (Normal)"
         info.tooltipText = "Inject {p} tags - Normal paragraph size"
         info.func = function()
-            TRP3FW_Settings.minimumFontSizeLevel = "p"
+            TRP3FW.Prefs.minimumFontSizeLevel = "p"
             UIDropDownMenu_SetText(uiElements.minimumFontSizeDropdown, "P (Normal)")
         end
         UIDropDownMenu_AddButton(info)
@@ -4420,28 +4636,28 @@ function TRP3FW:InitializeUI()
     uiElements.monitorTRP3 = CreateCheckbox(tab4, "Monitor TotalRP3", "Monitor TRP3 profile requests", "monitorTRP3")
     uiElements.monitorTRP3:SetPoint("TOPLEFT", 20, y4)
     uiElements.monitorTRP3:SetScript("OnClick", function(self)
-        TRP3FW_Settings.monitorTRP3 = self:GetChecked()
+        TRP3FW.Prefs.monitorTRP3 = self:GetChecked()
     end)
     y4 = y4 - 30
 
     uiElements.monitorMRP = CreateCheckbox(tab4, "Monitor MyRolePlay", "Monitor MRP profile requests", "monitorMRP")
     uiElements.monitorMRP:SetPoint("TOPLEFT", 20, y4)
     uiElements.monitorMRP:SetScript("OnClick", function(self)
-        TRP3FW_Settings.monitorMRP = self:GetChecked()
+        TRP3FW.Prefs.monitorMRP = self:GetChecked()
     end)
     y4 = y4 - 30
 
     uiElements.monitorXRP = CreateCheckbox(tab4, "Monitor XRP", "Monitor XRP profile requests", "monitorXRP")
     uiElements.monitorXRP:SetPoint("TOPLEFT", 20, y4)
     uiElements.monitorXRP:SetScript("OnClick", function(self)
-        TRP3FW_Settings.monitorXRP = self:GetChecked()
+        TRP3FW.Prefs.monitorXRP = self:GetChecked()
     end)
     y4 = y4 - 30
 
     uiElements.monitorMSP = CreateCheckbox(tab4, "Monitor MSP/Other", "Monitor other MSP-compatible addons", "monitorMSP")
     uiElements.monitorMSP:SetPoint("TOPLEFT", 20, y4)
     uiElements.monitorMSP:SetScript("OnClick", function(self)
-        TRP3FW_Settings.monitorMSP = self:GetChecked()
+        TRP3FW.Prefs.monitorMSP = self:GetChecked()
     end)
 
     y4 = y4 - 40
@@ -4451,7 +4667,7 @@ function TRP3FW:InitializeUI()
     uiElements.strictHookMode = CreateCheckbox(tab4, "Strict hook mode", "Refuse to install when another addon already hooks core functions (Chomp/TRP3/MSP). May leave TRP3FW partially inactive instead of chaining.", "strictHookMode")
     uiElements.strictHookMode:SetPoint("TOPLEFT", 20, y4)
     uiElements.strictHookMode:SetScript("OnClick", function(self)
-        TRP3FW_Settings.strictHookMode = self:GetChecked()
+        TRP3FW.Prefs.strictHookMode = self:GetChecked()
         TRP3FW:Info("Strict hook mode "..(self:GetChecked() and "enabled" or "disabled"))
     end)
     y4 = y4 - 30
@@ -4459,21 +4675,21 @@ function TRP3FW:InitializeUI()
     uiElements.logHookConflicts = CreateCheckbox(tab4, "Log hook conflicts", "Warn when hooks are already wrapped by other addons (keeps logs even if chaining)", "logHookConflicts")
     uiElements.logHookConflicts:SetPoint("TOPLEFT", 20, y4)
     uiElements.logHookConflicts:SetScript("OnClick", function(self)
-        TRP3FW_Settings.logHookConflicts = self:GetChecked()
+        TRP3FW.Prefs.logHookConflicts = self:GetChecked()
     end)
     y4 = y4 - 30
 
     uiElements.abortOnMultipleRPAddons = CreateCheckbox(tab4, "Abort on multiple RP addons", "Disable TRP3FW when more than one of TRP3/MRP/XRP is detected (incompatible stack)", "abortOnMultipleRPAddons")
     uiElements.abortOnMultipleRPAddons:SetPoint("TOPLEFT", 20, y4)
     uiElements.abortOnMultipleRPAddons:SetScript("OnClick", function(self)
-        TRP3FW_Settings.abortOnMultipleRPAddons = self:GetChecked()
+        TRP3FW.Prefs.abortOnMultipleRPAddons = self:GetChecked()
     end)
     y4 = y4 - 30
 
     uiElements.disableMapScanOnTRP3 = CreateCheckbox(tab4, "Disable map scan when TRP3 + RPMapScan", "RPMapScan only supports MRP/XRP. When TRP3 is present with RPMapScan, skip map-scan hooks.", "disableMapScanOnTRP3")
     uiElements.disableMapScanOnTRP3:SetPoint("TOPLEFT", 20, y4)
     uiElements.disableMapScanOnTRP3:SetScript("OnClick", function(self)
-        TRP3FW_Settings.disableMapScanOnTRP3 = self:GetChecked()
+        TRP3FW.Prefs.disableMapScanOnTRP3 = self:GetChecked()
     end)
 
     -- ========== TAB 5: CACHE & DEBUG ==========
@@ -4495,11 +4711,11 @@ function TRP3FW:InitializeUI()
     local function saveSendCacheDuration(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
-            TRP3FW_Settings.sendCacheDuration = value
+            TRP3FW.Prefs.sendCacheDuration = value
             TRP3FW:Info("Send cache duration set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value")
-            self:SetText(TRP3FW_Settings.sendCacheDuration)
+            self:SetText(TRP3FW.Prefs.sendCacheDuration)
         end
     end
 
@@ -4524,11 +4740,11 @@ function TRP3FW:InitializeUI()
     local function saveSendCacheRefreshRate(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 and value <= 100 then
-            TRP3FW_Settings.sendCacheRefreshRate = value
+            TRP3FW.Prefs.sendCacheRefreshRate = value
             TRP3FW:Info("Send cache refresh threshold set to "..value.."%")
         else
             TRP3FW:Warn("Invalid value (must be 0-100)")
-            self:SetText(TRP3FW_Settings.sendCacheRefreshRate or 10)
+            self:SetText(TRP3FW.Prefs.sendCacheRefreshRate or 10)
         end
     end
 
@@ -4558,11 +4774,11 @@ function TRP3FW:InitializeUI()
     local function saveInteractionCacheDuration(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
-            TRP3FW_Settings.interactionCacheDuration = value
+            TRP3FW.Prefs.interactionCacheDuration = value
             TRP3FW:Info("Interaction cache duration set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value")
-            self:SetText(TRP3FW_Settings.interactionCacheDuration)
+            self:SetText(TRP3FW.Prefs.interactionCacheDuration)
         end
     end
 
@@ -4587,12 +4803,12 @@ function TRP3FW:InitializeUI()
     local function saveInteractionRefreshRate(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 and value <= 100 then
-            TRP3FW_Settings.interactionRefreshRate = value
+            TRP3FW.Prefs.interactionRefreshRate = value
             TRP3FW:Info("Interaction refresh threshold set to "..value.."%")
             TRP3FW:Warn("This will take effect after /reload")
         else
             TRP3FW:Warn("Invalid value (must be 0-100)")
-            self:SetText(TRP3FW_Settings.interactionRefreshRate or 10)
+            self:SetText(TRP3FW.Prefs.interactionRefreshRate or 10)
         end
     end
 
@@ -4622,11 +4838,11 @@ function TRP3FW:InitializeUI()
     local function saveWhoZoneCacheDuration(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
-            TRP3FW_Settings.whoZoneCacheDuration = value
+            TRP3FW.Prefs.whoZoneCacheDuration = value
             TRP3FW:Info("WHO zone cache duration set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value")
-            self:SetText(TRP3FW_Settings.whoZoneCacheDuration)
+            self:SetText(TRP3FW.Prefs.whoZoneCacheDuration)
         end
     end
 
@@ -4651,11 +4867,11 @@ function TRP3FW:InitializeUI()
     local function saveWhoNameCacheDuration(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
-            TRP3FW_Settings.whoNameCacheDuration = value
+            TRP3FW.Prefs.whoNameCacheDuration = value
             TRP3FW:Info("WHO name cache duration set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value")
-            self:SetText(TRP3FW_Settings.whoNameCacheDuration)
+            self:SetText(TRP3FW.Prefs.whoNameCacheDuration)
         end
     end
 
@@ -4680,11 +4896,11 @@ function TRP3FW:InitializeUI()
     local function saveWhoZoneQueryCooldown(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 and value <= 120 then
-            TRP3FW_Settings.whoZoneQueryCooldown = value
+            TRP3FW.Prefs.whoZoneQueryCooldown = value
             TRP3FW:Info("WHO zone query cooldown set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value (must be 0-120)")
-            self:SetText(TRP3FW_Settings.whoZoneQueryCooldown)
+            self:SetText(TRP3FW.Prefs.whoZoneQueryCooldown)
         end
     end
 
@@ -4708,11 +4924,11 @@ function TRP3FW:InitializeUI()
     local function saveWhoCacheRefreshThreshold(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 and value <= 100 then
-            TRP3FW_Settings.whoCacheRefreshThreshold = value
+            TRP3FW.Prefs.whoCacheRefreshThreshold = value
             TRP3FW:Info("WHO cache refresh threshold set to "..value.."%")
         else
             TRP3FW:Warn("Invalid value (must be 0-100)")
-            self:SetText(TRP3FW_Settings.whoCacheRefreshThreshold or 50)
+            self:SetText(TRP3FW.Prefs.whoCacheRefreshThreshold or 50)
         end
     end
 
@@ -4745,26 +4961,26 @@ function TRP3FW:InitializeUI()
     uiElements.prepopulateWhoCache:SetPoint("TOPLEFT", 20, y5)
     uiElements.prepopulateWhoCache:SetScript("OnClick", function(self)
         local checked = self:GetChecked()
-        TRP3FW_Settings.prepopulateWhoCache = checked
+        TRP3FW.Prefs.prepopulateWhoCache = checked
         setPrepopulateWhoChildrenEnabled(checked)
     end)
-    uiElements.prepopulateWhoCache:SetChecked(TRP3FW_Settings.prepopulateWhoCache ~= false)
+    uiElements.prepopulateWhoCache:SetChecked(TRP3FW.Prefs.prepopulateWhoCache ~= false)
     y5 = y5 - 25
 
     uiElements.prepopulateWhoOnPhase = CreateCheckbox(tab5, "  On Phase Change", "Run WHO cache pre-population after phase changes (SCENARIO_UPDATE event).", "prepopulateWhoOnPhase")
     uiElements.prepopulateWhoOnPhase:SetPoint("TOPLEFT", 40, y5)
     uiElements.prepopulateWhoOnPhase:SetScript("OnClick", function(self)
-        TRP3FW_Settings.prepopulateWhoOnPhase = self:GetChecked()
+        TRP3FW.Prefs.prepopulateWhoOnPhase = self:GetChecked()
     end)
-    uiElements.prepopulateWhoOnPhase:SetChecked(TRP3FW_Settings.prepopulateWhoOnPhase ~= false)
+    uiElements.prepopulateWhoOnPhase:SetChecked(TRP3FW.Prefs.prepopulateWhoOnPhase ~= false)
     y5 = y5 - 20
 
     uiElements.prepopulateWhoOnZone = CreateCheckbox(tab5, "  On Zone Change", "Run WHO cache pre-population after zone changes (ZONE_CHANGED_NEW_AREA event).", "prepopulateWhoOnZone")
     uiElements.prepopulateWhoOnZone:SetPoint("TOPLEFT", 40, y5)
     uiElements.prepopulateWhoOnZone:SetScript("OnClick", function(self)
-        TRP3FW_Settings.prepopulateWhoOnZone = self:GetChecked()
+        TRP3FW.Prefs.prepopulateWhoOnZone = self:GetChecked()
     end)
-    uiElements.prepopulateWhoOnZone:SetChecked(TRP3FW_Settings.prepopulateWhoOnZone ~= false)
+    uiElements.prepopulateWhoOnZone:SetChecked(TRP3FW.Prefs.prepopulateWhoOnZone ~= false)
     setPrepopulateWhoChildrenEnabled(uiElements.prepopulateWhoCache:GetChecked())
     y5 = y5 - 25
 
@@ -4782,11 +4998,11 @@ function TRP3FW:InitializeUI()
     local function savePhaseCacheDuration(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
-            TRP3FW_Settings.phaseCacheDuration = value
+            TRP3FW.Prefs.phaseCacheDuration = value
             TRP3FW:Info("Phase cache duration set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value")
-            self:SetText(TRP3FW_Settings.phaseCacheDuration)
+            self:SetText(TRP3FW.Prefs.phaseCacheDuration)
         end
     end
 
@@ -4811,11 +5027,11 @@ function TRP3FW:InitializeUI()
     local function savePhaseCacheFailureDuration(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
-            TRP3FW_Settings.phaseCacheFailureDuration = value
+            TRP3FW.Prefs.phaseCacheFailureDuration = value
             TRP3FW:Info("Phase cache failure duration set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value")
-            self:SetText(TRP3FW_Settings.phaseCacheFailureDuration or 10)
+            self:SetText(TRP3FW.Prefs.phaseCacheFailureDuration or 10)
         end
     end
 
@@ -4840,11 +5056,11 @@ function TRP3FW:InitializeUI()
     local function saveScanCacheDuration(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
-            TRP3FW_Settings.scanCacheDuration = value
+            TRP3FW.Prefs.scanCacheDuration = value
             TRP3FW:Info("Scan cache duration set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value")
-            self:SetText(TRP3FW_Settings.scanCacheDuration)
+            self:SetText(TRP3FW.Prefs.scanCacheDuration)
         end
     end
 
@@ -4869,11 +5085,11 @@ function TRP3FW:InitializeUI()
     local function saveScanCacheFailureDuration(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
-            TRP3FW_Settings.scanCacheFailureDuration = value
+            TRP3FW.Prefs.scanCacheFailureDuration = value
             TRP3FW:Info("Scan failure cache duration set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value")
-            self:SetText(TRP3FW_Settings.scanCacheFailureDuration or 10)
+            self:SetText(TRP3FW.Prefs.scanCacheFailureDuration or 10)
         end
     end
 
@@ -4898,11 +5114,11 @@ function TRP3FW:InitializeUI()
     local function saveMapScanMinInterval(self)
         local value = tonumber(self:GetText())
         if value and value >= 10 and value <= 600 then
-            TRP3FW_Settings.mapScanMinInterval = value
+            TRP3FW.Prefs.mapScanMinInterval = value
             TRP3FW:Info("Map scan minimum interval set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value (must be 10-600)")
-            self:SetText(TRP3FW_Settings.mapScanMinInterval or 60)
+            self:SetText(TRP3FW.Prefs.mapScanMinInterval or 60)
         end
     end
 
@@ -4927,11 +5143,11 @@ function TRP3FW:InitializeUI()
     local function savePhaseCacheRefreshThreshold(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 and value <= 100 then
-            TRP3FW_Settings.phaseCacheRefreshThreshold = value / 100
+            TRP3FW.Prefs.phaseCacheRefreshThreshold = value / 100
             TRP3FW:Info("Phase cache refresh threshold set to "..value.."%")
         else
             TRP3FW:Warn("Invalid value (must be 0-100)")
-            self:SetText((TRP3FW_Settings.phaseCacheRefreshThreshold or 0.2) * 100)
+            self:SetText((TRP3FW.Prefs.phaseCacheRefreshThreshold or 0.2) * 100)
         end
     end
 
@@ -4963,7 +5179,7 @@ function TRP3FW:InitializeUI()
     local function saveSpvpVerifiedCacheDuration(self)
         local value = tonumber(self:GetText())
         if value and value >= 10 and value <= 3600 then
-            TRP3FW_Settings.spvpVerifiedCacheDuration = value
+            TRP3FW.Prefs.spvpVerifiedCacheDuration = value
             TRP3FW:Info("SPVP verification duration set to "..value.." seconds")
             -- Update cache if registered
             local CI = TRP3FW.CacheInterface
@@ -4972,7 +5188,7 @@ function TRP3FW:InitializeUI()
             end
         else
             TRP3FW:Warn("Invalid value (must be 10-3600 seconds)")
-            local currentSeconds = TRP3FW_Settings.spvpVerifiedCacheDuration or 300
+            local currentSeconds = TRP3FW.Prefs.spvpVerifiedCacheDuration or 300
             self:SetText(currentSeconds)
         end
     end
@@ -4999,11 +5215,11 @@ function TRP3FW:InitializeUI()
     local function saveSpvpVerifiedRefreshRate(self)
         local value = tonumber(self:GetText())
         if value and value >= 10 and value <= 90 then
-            TRP3FW_Settings.spvpVerifiedRefreshRate = value
+            TRP3FW.Prefs.spvpVerifiedRefreshRate = value
             TRP3FW:Info("SPVP verification refresh threshold set to "..value.."%")
         else
             TRP3FW:Warn("Invalid value (must be 10-90%)")
-            self:SetText(TRP3FW_Settings.spvpVerifiedRefreshRate or 50)
+            self:SetText(TRP3FW.Prefs.spvpVerifiedRefreshRate or 50)
         end
     end
 
@@ -5029,11 +5245,11 @@ function TRP3FW:InitializeUI()
     local function saveSpvpSaltRefreshRate(self)
         local value = tonumber(self:GetText())
         if value and value >= 10 and value <= 90 then
-            TRP3FW_Settings.spvpPhaseSaltRefreshRate = value
+            TRP3FW.Prefs.spvpPhaseSaltRefreshRate = value
             TRP3FW:Info("Phase salt refresh threshold set to "..value.."%")
         else
             TRP3FW:Warn("Invalid value (must be 10-90%)")
-            self:SetText(TRP3FW_Settings.spvpPhaseSaltRefreshRate or 50)
+            self:SetText(TRP3FW.Prefs.spvpPhaseSaltRefreshRate or 50)
         end
     end
 
@@ -5064,11 +5280,11 @@ function TRP3FW:InitializeUI()
     local function saveCacheSizeLimit(self)
         local value = tonumber(self:GetText())
         if value and value >= 100 and value <= 10000 then
-            TRP3FW_Settings.cacheSizeLimit = value
+            TRP3FW.Prefs.cacheSizeLimit = value
             TRP3FW:Info("Cache size limit set to "..value.." entries")
         else
             TRP3FW:Warn("Invalid value (must be 100-10000)")
-            self:SetText(TRP3FW_Settings.cacheSizeLimit or 1000)
+            self:SetText(TRP3FW.Prefs.cacheSizeLimit or 1000)
         end
     end
 
@@ -5098,12 +5314,12 @@ function TRP3FW:InitializeUI()
                 TRP3FW:Warn("Phase-in delay values below 3 seconds are treated as 0 (no delay).")
                 value = 0
             end
-            TRP3FW_Settings.phaseInDelay = value
+            TRP3FW.Prefs.phaseInDelay = value
             self:SetText(value)
             TRP3FW:Info("Phase-in delay set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value (must be 0-10)")
-            self:SetText(TRP3FW_Settings.phaseInDelay or 4)
+            self:SetText(TRP3FW.Prefs.phaseInDelay or 4)
         end
     end
 
@@ -5128,11 +5344,11 @@ function TRP3FW:InitializeUI()
     local function saveTransitionGracePeriod(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 and value <= 30 then
-            TRP3FW_Settings.transitionGracePeriod = value
+            TRP3FW.Prefs.transitionGracePeriod = value
             TRP3FW:Info("Transition grace period set to "..value.." seconds")
         else
             TRP3FW:Warn("Invalid value (must be 0-30)")
-            self:SetText(TRP3FW_Settings.transitionGracePeriod or 10)
+            self:SetText(TRP3FW.Prefs.transitionGracePeriod or 10)
         end
     end
 
@@ -5158,11 +5374,11 @@ function TRP3FW:InitializeUI()
         local days = tonumber(self:GetText())
         if days and days >= 1 and days <= 30 then
             local seconds = days * 86400
-            TRP3FW_Settings.validatedNamesCacheDuration = seconds
+            TRP3FW.Prefs.validatedNamesCacheDuration = seconds
             TRP3FW:Info("Validated names cache duration set to "..days.." days ("..seconds.." seconds)")
         else
             TRP3FW:Warn("Invalid value (must be 1-30 days)")
-            local currentSeconds = TRP3FW_Settings.validatedNamesCacheDuration or 604800
+            local currentSeconds = TRP3FW.Prefs.validatedNamesCacheDuration or 604800
             local currentDays = math.floor(currentSeconds / 86400)
             self:SetText(currentDays)
         end
@@ -5190,11 +5406,11 @@ function TRP3FW:InitializeUI()
     local function saveValidatedNamesCacheLimit(self)
         local limit = tonumber(self:GetText())
         if limit and limit >= 500 and limit <= 10000 then
-            TRP3FW_Settings.validatedNamesCacheLimit = limit
+            TRP3FW.Prefs.validatedNamesCacheLimit = limit
             TRP3FW:Info("Validated names cache size limit set to "..limit.." entries")
         else
             TRP3FW:Warn("Invalid value (must be 500-10000)")
-            self:SetText(TRP3FW_Settings.validatedNamesCacheLimit or 5000)
+            self:SetText(TRP3FW.Prefs.validatedNamesCacheLimit or 5000)
         end
     end
 
@@ -5222,7 +5438,7 @@ function TRP3FW:InitializeUI()
     uiElements.clearCacheOnPhaseChange = CreateCheckbox(tab5, "Clear Cache on Phase Change", "Master toggle - clear selected caches when changing phases (SCENARIO_UPDATE event)", "clearCacheOnPhaseChange")
     uiElements.clearCacheOnPhaseChange:SetPoint("TOPLEFT", 20, y5)
     uiElements.clearCacheOnPhaseChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearCacheOnPhaseChange = self:GetChecked()
+        TRP3FW.Prefs.clearCacheOnPhaseChange = self:GetChecked()
         local enabled = self:GetChecked()
         -- Enable/disable granular options
         if enabled then
@@ -5251,63 +5467,63 @@ function TRP3FW:InitializeUI()
     uiElements.clearPhaseCheckOnPhaseChange = CreateCheckbox(tab5, "  Phase Check Cache", "Clear phase check cache on phase change. Recommended if phase cache pre-population is enabled; otherwise previously cached entries may allow sends for players no longer nearby.", "clearPhaseCheckOnPhaseChange")
     uiElements.clearPhaseCheckOnPhaseChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearPhaseCheckOnPhaseChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearPhaseCheckOnPhaseChange = self:GetChecked()
+        TRP3FW.Prefs.clearPhaseCheckOnPhaseChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearAllowedSendersOnPhaseChange = CreateCheckbox(tab5, "  Allowed Senders Cache", "Clear allowed senders cache on phase change", "clearAllowedSendersOnPhaseChange")
     uiElements.clearAllowedSendersOnPhaseChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearAllowedSendersOnPhaseChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearAllowedSendersOnPhaseChange = self:GetChecked()
+        TRP3FW.Prefs.clearAllowedSendersOnPhaseChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearInteractionOnPhaseChange = CreateCheckbox(tab5, "  Interaction Cache", "Clear interaction cache on phase change", "clearInteractionOnPhaseChange")
     uiElements.clearInteractionOnPhaseChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearInteractionOnPhaseChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearInteractionOnPhaseChange = self:GetChecked()
+        TRP3FW.Prefs.clearInteractionOnPhaseChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearSuppressionOnPhaseChange = CreateCheckbox(tab5, "  Suppression Timers", "Clear notification suppression timers on phase change (resets per-player notification cooldowns)", "clearSuppressionOnPhaseChange")
     uiElements.clearSuppressionOnPhaseChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearSuppressionOnPhaseChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearSuppressionOnPhaseChange = self:GetChecked()
+        TRP3FW.Prefs.clearSuppressionOnPhaseChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearRecentBroadcastsOnPhaseChange = CreateCheckbox(tab5, "  Recent Broadcasts Cache", "Clear recent broadcasts cache on phase change", "clearRecentBroadcastsOnPhaseChange")
     uiElements.clearRecentBroadcastsOnPhaseChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearRecentBroadcastsOnPhaseChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearRecentBroadcastsOnPhaseChange = self:GetChecked()
+        TRP3FW.Prefs.clearRecentBroadcastsOnPhaseChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearRecentScansOnPhaseChange = CreateCheckbox(tab5, "  Recent Scans Cache", "Clear recent scans cache on phase change", "clearRecentScansOnPhaseChange")
     uiElements.clearRecentScansOnPhaseChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearRecentScansOnPhaseChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearRecentScansOnPhaseChange = self:GetChecked()
+        TRP3FW.Prefs.clearRecentScansOnPhaseChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearWhoZoneOnPhaseChange = CreateCheckbox(tab5, "  WHO Zone Cache", "Clear WHO zone cache on phase change", "clearWhoZoneOnPhaseChange")
     uiElements.clearWhoZoneOnPhaseChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearWhoZoneOnPhaseChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearWhoZoneOnPhaseChange = self:GetChecked()
+        TRP3FW.Prefs.clearWhoZoneOnPhaseChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearWhoNameOnPhaseChange = CreateCheckbox(tab5, "  WHO Name Cache", "Clear WHO name cache on phase change", "clearWhoNameOnPhaseChange")
     uiElements.clearWhoNameOnPhaseChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearWhoNameOnPhaseChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearWhoNameOnPhaseChange = self:GetChecked()
+        TRP3FW.Prefs.clearWhoNameOnPhaseChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearSpvpOnPhaseChange = CreateCheckbox(tab5, "  SPVP Verification Cache", "Clear SPVP verification cache on phase change (Required for security)", "clearSpvpOnPhaseChange")
     uiElements.clearSpvpOnPhaseChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearSpvpOnPhaseChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearSpvpOnPhaseChange = self:GetChecked()
+        TRP3FW.Prefs.clearSpvpOnPhaseChange = self:GetChecked()
     end)
     y5 = y5 - 35
 
@@ -5315,7 +5531,7 @@ function TRP3FW:InitializeUI()
     uiElements.clearCacheOnZoneChange = CreateCheckbox(tab5, "Clear Cache on Zone Change", "Master toggle - clear selected caches when changing zones (ZONE_CHANGED_NEW_AREA event)", "clearCacheOnZoneChange")
     uiElements.clearCacheOnZoneChange:SetPoint("TOPLEFT", 20, y5)
     uiElements.clearCacheOnZoneChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearCacheOnZoneChange = self:GetChecked()
+        TRP3FW.Prefs.clearCacheOnZoneChange = self:GetChecked()
         local enabled = self:GetChecked()
         -- Enable/disable granular options
         if enabled then
@@ -5346,63 +5562,63 @@ function TRP3FW:InitializeUI()
     uiElements.clearPhaseCheckOnZoneChange = CreateCheckbox(tab5, "  Phase Check Cache", "Clear phase check cache on zone change. Recommended if phase cache pre-population is enabled; otherwise cached entries from the previous zone may allow sends for players no longer nearby.", "clearPhaseCheckOnZoneChange")
     uiElements.clearPhaseCheckOnZoneChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearPhaseCheckOnZoneChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearPhaseCheckOnZoneChange = self:GetChecked()
+        TRP3FW.Prefs.clearPhaseCheckOnZoneChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearAllowedSendersOnZoneChange = CreateCheckbox(tab5, "  Allowed Senders Cache", "Clear allowed senders cache on zone change", "clearAllowedSendersOnZoneChange")
     uiElements.clearAllowedSendersOnZoneChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearAllowedSendersOnZoneChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearAllowedSendersOnZoneChange = self:GetChecked()
+        TRP3FW.Prefs.clearAllowedSendersOnZoneChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearInteractionOnZoneChange = CreateCheckbox(tab5, "  Interaction Cache", "Clear interaction cache on zone change", "clearInteractionOnZoneChange")
     uiElements.clearInteractionOnZoneChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearInteractionOnZoneChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearInteractionOnZoneChange = self:GetChecked()
+        TRP3FW.Prefs.clearInteractionOnZoneChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearSuppressionOnZoneChange = CreateCheckbox(tab5, "  Suppression Timers", "Clear notification suppression timers on zone change (resets per-player notification cooldowns)", "clearSuppressionOnZoneChange")
     uiElements.clearSuppressionOnZoneChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearSuppressionOnZoneChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearSuppressionOnZoneChange = self:GetChecked()
+        TRP3FW.Prefs.clearSuppressionOnZoneChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearRecentBroadcastsOnZoneChange = CreateCheckbox(tab5, "  Recent Broadcasts Cache", "Clear recent broadcasts cache on zone change", "clearRecentBroadcastsOnZoneChange")
     uiElements.clearRecentBroadcastsOnZoneChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearRecentBroadcastsOnZoneChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearRecentBroadcastsOnZoneChange = self:GetChecked()
+        TRP3FW.Prefs.clearRecentBroadcastsOnZoneChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearRecentScansOnZoneChange = CreateCheckbox(tab5, "  Recent Scans Cache", "Clear recent scans cache on zone change", "clearRecentScansOnZoneChange")
     uiElements.clearRecentScansOnZoneChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearRecentScansOnZoneChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearRecentScansOnZoneChange = self:GetChecked()
+        TRP3FW.Prefs.clearRecentScansOnZoneChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearWhoZoneOnZoneChange = CreateCheckbox(tab5, "  WHO Zone Cache", "Clear WHO zone cache on zone change", "clearWhoZoneOnZoneChange")
     uiElements.clearWhoZoneOnZoneChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearWhoZoneOnZoneChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearWhoZoneOnZoneChange = self:GetChecked()
+        TRP3FW.Prefs.clearWhoZoneOnZoneChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearWhoNameOnZoneChange = CreateCheckbox(tab5, "  WHO Name Cache", "Clear WHO name cache on zone change", "clearWhoNameOnZoneChange")
     uiElements.clearWhoNameOnZoneChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearWhoNameOnZoneChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearWhoNameOnZoneChange = self:GetChecked()
+        TRP3FW.Prefs.clearWhoNameOnZoneChange = self:GetChecked()
     end)
     y5 = y5 - 25
 
     uiElements.clearSpvpOnZoneChange = CreateCheckbox(tab5, "  SPVP Verification Cache", "Clear SPVP verification cache on zone change", "clearSpvpOnZoneChange")
     uiElements.clearSpvpOnZoneChange:SetPoint("TOPLEFT", 40, y5)
     uiElements.clearSpvpOnZoneChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.clearSpvpOnZoneChange = self:GetChecked()
+        TRP3FW.Prefs.clearSpvpOnZoneChange = self:GetChecked()
     end)
     y5 = y5 - 30
 
@@ -5412,7 +5628,7 @@ function TRP3FW:InitializeUI()
     uiElements.trackHistory = CreateCheckbox(tab5, "Track History", "Enable tracking of session history (alerts, blocks, etc.)", "trackHistory")
     uiElements.trackHistory:SetPoint("TOPLEFT", 20, y5)
     uiElements.trackHistory:SetScript("OnClick", function(self)
-        TRP3FW_Settings.trackHistory = self:GetChecked()
+        TRP3FW.Prefs.trackHistory = self:GetChecked()
     end)
     y5 = y5 - 45
 
@@ -5422,10 +5638,10 @@ function TRP3FW:InitializeUI()
     local function saveMapScanMinInterval(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 then
-            TRP3FW_Settings.mapScanMinInterval = value
+            TRP3FW.Prefs.mapScanMinInterval = value
             TRP3FW:Info("Map Scan Minimum Interval set to: " .. value .. " seconds")
         else
-            self:SetText(tostring(TRP3FW_Settings.mapScanMinInterval or 60)) -- Revert to current setting
+            self:SetText(tostring(TRP3FW.Prefs.mapScanMinInterval or 60)) -- Revert to current setting
             TRP3FW:Warn("Invalid value for Map Scan Minimum Interval. Please enter a positive number.")
         end
         mapScanMinIntervalEnterPressed = false
@@ -5443,11 +5659,11 @@ function TRP3FW:InitializeUI()
     local function saveMaxHistorySize(self)
         local value = tonumber(self:GetText())
         if value and value >= 10 and value <= 1000 then
-            TRP3FW_Settings.maxHistorySize = value
+            TRP3FW.Prefs.maxHistorySize = value
             TRP3FW:Info("History size limit set to "..value.." entries")
         else
             TRP3FW:Warn("Invalid value (must be 10-1000)")
-            self:SetText(TRP3FW_Settings.maxHistorySize or 100)
+            self:SetText(TRP3FW.Prefs.maxHistorySize or 100)
         end
     end
 
@@ -5472,7 +5688,7 @@ function TRP3FW:InitializeUI()
     uiElements.phaseCheckBatchMode = CreateCheckbox(tab5, "Batch Phase Checks", "Process multiple phase checks in a single batch to save tokens (40% reduction)", "phaseCheckBatchMode")
     uiElements.phaseCheckBatchMode:SetPoint("TOPLEFT", 20, y5)
     uiElements.phaseCheckBatchMode:SetScript("OnClick", function(self)
-        TRP3FW_Settings.phaseCheckBatchMode = self:GetChecked()
+        TRP3FW.Prefs.phaseCheckBatchMode = self:GetChecked()
     end)
     y5 = y5 - 40
 
@@ -5483,7 +5699,7 @@ function TRP3FW:InitializeUI()
     batchSizeSlider:SetMinMaxValues(2, 10)
     batchSizeSlider:SetValueStep(1)
     batchSizeSlider:SetObeyStepOnDrag(true)
-    batchSizeSlider:SetValue(TRP3FW_Settings.phaseCheckBatchSize or 5)
+    batchSizeSlider:SetValue(TRP3FW.Prefs.phaseCheckBatchSize or 5)
     batchSizeSlider.settingKey = "phaseCheckBatchSize"
     batchSizeSlider.complexityLevel = 3
     table.insert(complexityWidgets, batchSizeSlider)
@@ -5491,9 +5707,9 @@ function TRP3FW:InitializeUI()
     
     getglobal(batchSizeSlider:GetName() .. 'Low'):SetText('2')
     getglobal(batchSizeSlider:GetName() .. 'High'):SetText('10')
-    getglobal(batchSizeSlider:GetName() .. 'Text'):SetText('Batch Size: ' .. (TRP3FW_Settings.phaseCheckBatchSize or 5))
+    getglobal(batchSizeSlider:GetName() .. 'Text'):SetText('Batch Size: ' .. (TRP3FW.Prefs.phaseCheckBatchSize or 5))
     batchSizeSlider:SetScript("OnValueChanged", function(self, value)
-        TRP3FW_Settings.phaseCheckBatchSize = math.floor(value)
+        TRP3FW.Prefs.phaseCheckBatchSize = math.floor(value)
         getglobal(self:GetName() .. 'Text'):SetText('Batch Size: ' .. math.floor(value))
     end)
     batchSizeSlider:SetScript("OnEnter", function(self)
@@ -5514,7 +5730,7 @@ function TRP3FW:InitializeUI()
     batchDelaySlider:SetMinMaxValues(0.1, 2.0)
     batchDelaySlider:SetValueStep(0.1)
     batchDelaySlider:SetObeyStepOnDrag(true)
-    batchDelaySlider:SetValue(TRP3FW_Settings.phaseCheckBatchDelay or 1.0)
+    batchDelaySlider:SetValue(TRP3FW.Prefs.phaseCheckBatchDelay or 1.0)
     batchDelaySlider.settingKey = "phaseCheckBatchDelay" -- ADDED
     batchDelaySlider.complexityLevel = 3 -- ADDED
     table.insert(complexityWidgets, batchDelaySlider) -- ADDED
@@ -5522,10 +5738,10 @@ function TRP3FW:InitializeUI()
     
     getglobal(batchDelaySlider:GetName() .. 'Low'):SetText('0.1s')
     getglobal(batchDelaySlider:GetName() .. 'High'):SetText('2.0s')
-    getglobal(batchDelaySlider:GetName() .. 'Text'):SetText(string.format('Batch Delay: %.1fs', TRP3FW_Settings.phaseCheckBatchDelay or 1.0))
+    getglobal(batchDelaySlider:GetName() .. 'Text'):SetText(string.format('Batch Delay: %.1fs', TRP3FW.Prefs.phaseCheckBatchDelay or 1.0))
     batchDelaySlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value * 10 + 0.5) / 10
-        TRP3FW_Settings.phaseCheckBatchDelay = value
+        TRP3FW.Prefs.phaseCheckBatchDelay = value
         getglobal(self:GetName() .. 'Text'):SetText(string.format('Batch Delay: %.1fs', value))
     end)
     batchDelaySlider:SetScript("OnEnter", function(self)
@@ -5547,7 +5763,7 @@ function TRP3FW:InitializeUI()
     minBatchSlider:SetMinMaxValues(2, 10)
     minBatchSlider:SetValueStep(1)
     minBatchSlider:SetObeyStepOnDrag(true)
-    minBatchSlider:SetValue(TRP3FW_Settings.phaseCheckBatchMinSize or 3)
+    minBatchSlider:SetValue(TRP3FW.Prefs.phaseCheckBatchMinSize or 3)
     minBatchSlider.settingKey = "phaseCheckBatchMinSize" -- ADDED
     minBatchSlider.complexityLevel = 3 -- ADDED
     table.insert(complexityWidgets, minBatchSlider) -- ADDED
@@ -5555,9 +5771,9 @@ function TRP3FW:InitializeUI()
     
     getglobal(minBatchSlider:GetName() .. 'Low'):SetText('2')
     getglobal(minBatchSlider:GetName() .. 'High'):SetText('10')
-    getglobal(minBatchSlider:GetName() .. 'Text'):SetText('Min Batch Size: ' .. (TRP3FW_Settings.phaseCheckBatchMinSize or 3))
+    getglobal(minBatchSlider:GetName() .. 'Text'):SetText('Min Batch Size: ' .. (TRP3FW.Prefs.phaseCheckBatchMinSize or 3))
     minBatchSlider:SetScript("OnValueChanged", function(self, value)
-        TRP3FW_Settings.phaseCheckBatchMinSize = math.floor(value)
+        TRP3FW.Prefs.phaseCheckBatchMinSize = math.floor(value)
         getglobal(self:GetName() .. 'Text'):SetText('Min Batch Size: ' .. math.floor(value))
     end)
     minBatchSlider:SetScript("OnEnter", function(self)
@@ -5578,7 +5794,7 @@ function TRP3FW:InitializeUI()
     interDelaySlider:SetMinMaxValues(0.01, 0.2) -- Lower limit changed to 0.01 (10ms)
     interDelaySlider:SetValueStep(0.01)
     interDelaySlider:SetObeyStepOnDrag(true)
-    local currentInter = TRP3FW_Settings.phaseCheckInterTargetDelay or 0.1
+    local currentInter = TRP3FW.Prefs.phaseCheckInterTargetDelay or 0.1
     interDelaySlider:SetValue(currentInter)
     interDelaySlider.settingKey = "phaseCheckInterTargetDelay" -- ADDED
     interDelaySlider.complexityLevel = 3 -- ADDED
@@ -5590,7 +5806,7 @@ function TRP3FW:InitializeUI()
     getglobal(interDelaySlider:GetName() .. 'Text'):SetText(string.format('Target Delay: %dms', currentInter * 1000))
     interDelaySlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value * 100 + 0.5) / 100
-        TRP3FW_Settings.phaseCheckInterTargetDelay = value
+        TRP3FW.Prefs.phaseCheckInterTargetDelay = value
         getglobal(self:GetName() .. 'Text'):SetText(string.format('Target Delay: %dms', value * 1000))
     end)
     interDelaySlider:SetScript("OnEnter", function(self)
@@ -5618,7 +5834,7 @@ function TRP3FW:InitializeUI()
     reservedSlider:SetMinMaxValues(0, 5)
     reservedSlider:SetValueStep(1)
     reservedSlider:SetObeyStepOnDrag(true)
-    reservedSlider:SetValue(TRP3FW_Settings.privilegedReservedTokens or 2)
+    reservedSlider:SetValue(TRP3FW.Prefs.privilegedReservedTokens or 2)
     reservedSlider.settingKey = "privilegedReservedTokens" -- ADDED
     reservedSlider.complexityLevel = 4 -- ADDED
     table.insert(complexityWidgets, reservedSlider) -- ADDED
@@ -5626,9 +5842,9 @@ function TRP3FW:InitializeUI()
     
     getglobal(reservedSlider:GetName() .. 'Low'):SetText('0')
     getglobal(reservedSlider:GetName() .. 'High'):SetText('5')
-    getglobal(reservedSlider:GetName() .. 'Text'):SetText('Reserved Tokens: ' .. (TRP3FW_Settings.privilegedReservedTokens or 2))
+    getglobal(reservedSlider:GetName() .. 'Text'):SetText('Reserved Tokens: ' .. (TRP3FW.Prefs.privilegedReservedTokens or 2))
     reservedSlider:SetScript("OnValueChanged", function(self, value)
-        TRP3FW_Settings.privilegedReservedTokens = math.floor(value)
+        TRP3FW.Prefs.privilegedReservedTokens = math.floor(value)
         getglobal(self:GetName() .. 'Text'):SetText('Reserved Tokens: ' .. math.floor(value))
         if TRP3FW.UpdateValidatedPrioritySettings then TRP3FW:UpdateValidatedPrioritySettings() end
     end)
@@ -5650,7 +5866,7 @@ function TRP3FW:InitializeUI()
     lowThresholdSlider:SetMinMaxValues(2, 8)
     lowThresholdSlider:SetValueStep(1)
     lowThresholdSlider:SetObeyStepOnDrag(true)
-    lowThresholdSlider:SetValue(TRP3FW_Settings.privilegedLowPriorityThreshold or 4)
+    lowThresholdSlider:SetValue(TRP3FW.Prefs.privilegedLowPriorityThreshold or 4)
     lowThresholdSlider.settingKey = "privilegedLowPriorityThreshold" -- ADDED
     lowThresholdSlider.complexityLevel = 4 -- ADDED
     table.insert(complexityWidgets, lowThresholdSlider) -- ADDED
@@ -5658,9 +5874,9 @@ function TRP3FW:InitializeUI()
     
     getglobal(lowThresholdSlider:GetName() .. 'Low'):SetText('2')
     getglobal(lowThresholdSlider:GetName() .. 'High'):SetText('8')
-    getglobal(lowThresholdSlider:GetName() .. 'Text'):SetText('Low Prio Threshold: ' .. (TRP3FW_Settings.privilegedLowPriorityThreshold or 4))
+    getglobal(lowThresholdSlider:GetName() .. 'Text'):SetText('Low Prio Threshold: ' .. (TRP3FW.Prefs.privilegedLowPriorityThreshold or 4))
     lowThresholdSlider:SetScript("OnValueChanged", function(self, value)
-        TRP3FW_Settings.privilegedLowPriorityThreshold = math.floor(value)
+        TRP3FW.Prefs.privilegedLowPriorityThreshold = math.floor(value)
         getglobal(self:GetName() .. 'Text'):SetText('Low Prio Threshold: ' .. math.floor(value))
         if TRP3FW.UpdateValidatedPrioritySettings then TRP3FW:UpdateValidatedPrioritySettings() end
     end)
@@ -5680,7 +5896,7 @@ function TRP3FW:InitializeUI()
     uiElements.phaseCheckRefundOnNoChange = CreateCheckbox(tab5, "Refund Tokens on Failed Check", "Refund 1 token if phase check target doesn't exist. |cffff0000SECURITY WARNING: Doubles potential abuse rate.|r", "phaseCheckRefundOnNoChange")
     uiElements.phaseCheckRefundOnNoChange:SetPoint("TOPLEFT", 20, y5)
     uiElements.phaseCheckRefundOnNoChange:SetScript("OnClick", function(self)
-        TRP3FW_Settings.phaseCheckRefundOnNoChange = self:GetChecked()
+        TRP3FW.Prefs.phaseCheckRefundOnNoChange = self:GetChecked()
     end)
     y5 = y5 - 40
 
@@ -5691,7 +5907,7 @@ function TRP3FW:InitializeUI()
     uiElements.redactEnabled = CreateCheckbox(tab5, "Enable Redaction", "Redact sensitive data (names, locations, network info) in notifications and debug output", "redactEnabled")
     uiElements.redactEnabled:SetPoint("TOPLEFT", 20, y5)
     uiElements.redactEnabled:SetScript("OnClick", function(self)
-        TRP3FW_Settings.redactEnabled = self:GetChecked()
+        TRP3FW.Prefs.redactEnabled = self:GetChecked()
         local enabled = self:GetChecked()
         uiElements.redactNames:SetEnabled(enabled)
         uiElements.redactLocations:SetEnabled(enabled)
@@ -5708,28 +5924,28 @@ function TRP3FW:InitializeUI()
     uiElements.redactNames = CreateCheckbox(tab5, "Redact Names/IDs", "Mask character identifiers (Player-XXXX-YYYY, merged realms)", "redactNames")
     uiElements.redactNames:SetPoint("TOPLEFT", 40, y5)
     uiElements.redactNames:SetScript("OnClick", function(self)
-        TRP3FW_Settings.redactNames = self:GetChecked()
+        TRP3FW.Prefs.redactNames = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.redactLocations = CreateCheckbox(tab5, "Redact Locations", "Mask zone/map/phase values in output", "redactLocations")
     uiElements.redactLocations:SetPoint("TOPLEFT", 40, y5)
     uiElements.redactLocations:SetScript("OnClick", function(self)
-        TRP3FW_Settings.redactLocations = self:GetChecked()
+        TRP3FW.Prefs.redactLocations = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.redactNetwork = CreateCheckbox(tab5, "Redact Network Info", "Mask IPs, emails, URLs", "redactNetwork")
     uiElements.redactNetwork:SetPoint("TOPLEFT", 40, y5)
     uiElements.redactNetwork:SetScript("OnClick", function(self)
-        TRP3FW_Settings.redactNetwork = self:GetChecked()
+        TRP3FW.Prefs.redactNetwork = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.redactSPVP = CreateCheckbox(tab5, "Redact SPVP Salt & Keys", "Mask SPVP phase salts and cryptographic keys in debug logs", "redactSPVP")
     uiElements.redactSPVP:SetPoint("TOPLEFT", 40, y5)
     uiElements.redactSPVP:SetScript("OnClick", function(self)
-        TRP3FW_Settings.redactSPVP = self:GetChecked()
+        TRP3FW.Prefs.redactSPVP = self:GetChecked()
     end)
     y5 = y5 - 40
 
@@ -5739,7 +5955,7 @@ function TRP3FW:InitializeUI()
     uiElements.debug = CreateCheckbox(tab5, "Enable Debug Mode", "Show debug messages", "debug")
     uiElements.debug:SetPoint("TOPLEFT", 20, y5)
     uiElements.debug:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debug = self:GetChecked()
+        TRP3FW.Prefs.debug = self:GetChecked()
         -- Enable/disable all debug options
         local enabled = self:GetChecked()
         if enabled then
@@ -5783,7 +5999,7 @@ function TRP3FW:InitializeUI()
     uiElements.debugTimestamp = CreateCheckbox(tab5, "Show Timestamps", "Show timestamps in debug messages", "debugTimestamp")
     uiElements.debugTimestamp:SetPoint("TOPLEFT", 40, y5)
     uiElements.debugTimestamp:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugTimestamp = self:GetChecked()
+        TRP3FW.Prefs.debugTimestamp = self:GetChecked()
     end)
     y5 = y5 - 30
 
@@ -5803,9 +6019,9 @@ function TRP3FW:InitializeUI()
         info.tooltipTitle = "Chat"
         info.tooltipText = "Show debug messages in chat window only"
         info.func = function()
-            TRP3FW_Settings.debugOutputChat = true
-            TRP3FW_Settings.debugOutputWindow = false
-            TRP3FW_Settings.debugOutputBoth = false
+            TRP3FW.Prefs.debugOutputChat = true
+            TRP3FW.Prefs.debugOutputWindow = false
+            TRP3FW.Prefs.debugOutputBoth = false
             UIDropDownMenu_SetText(uiElements.debugOutputDropdown, "Chat")
         end
         UIDropDownMenu_AddButton(info)
@@ -5816,9 +6032,9 @@ function TRP3FW:InitializeUI()
         info.tooltipTitle = "Window"
         info.tooltipText = "Show debug messages in dedicated window only"
         info.func = function()
-            TRP3FW_Settings.debugOutputChat = false
-            TRP3FW_Settings.debugOutputWindow = true
-            TRP3FW_Settings.debugOutputBoth = false
+            TRP3FW.Prefs.debugOutputChat = false
+            TRP3FW.Prefs.debugOutputWindow = true
+            TRP3FW.Prefs.debugOutputBoth = false
             UIDropDownMenu_SetText(uiElements.debugOutputDropdown, "Window")
             -- Auto-show window
             if TRP3FW.ShowDebugWindow then
@@ -5833,9 +6049,9 @@ function TRP3FW:InitializeUI()
         info.tooltipTitle = "Both"
         info.tooltipText = "Show debug messages in both chat and window"
         info.func = function()
-            TRP3FW_Settings.debugOutputChat = false
-            TRP3FW_Settings.debugOutputWindow = false
-            TRP3FW_Settings.debugOutputBoth = true
+            TRP3FW.Prefs.debugOutputChat = false
+            TRP3FW.Prefs.debugOutputWindow = false
+            TRP3FW.Prefs.debugOutputBoth = true
             UIDropDownMenu_SetText(uiElements.debugOutputDropdown, "Both")
             -- Auto-show window
             if TRP3FW.ShowDebugWindow then
@@ -5867,104 +6083,104 @@ function TRP3FW:InitializeUI()
     uiElements.debugChannel = CreateCheckbox(tab5, "Channel Messages", "Show channel debug messages", "debugChannel")
     uiElements.debugChannel:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugChannel:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugChannel = self:GetChecked()
+        TRP3FW.Prefs.debugChannel = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugWhisper = CreateCheckbox(tab5, "Whisper Messages", "Show whisper debug messages", "debugWhisper")
     uiElements.debugWhisper:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugWhisper:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugWhisper = self:GetChecked()
+        TRP3FW.Prefs.debugWhisper = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugWho = CreateCheckbox(tab5, "WHO Query Messages", "Show WHO query debug messages", "debugWho")
     uiElements.debugWho:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugWho:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugWho = self:GetChecked()
+        TRP3FW.Prefs.debugWho = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugPhase = CreateCheckbox(tab5, "Phase Check Messages", "Show phase check debug messages", "debugPhase")
     uiElements.debugPhase:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugPhase:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugPhase = self:GetChecked()
+        TRP3FW.Prefs.debugPhase = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugCleanName = CreateCheckbox(tab5, "CleanPlayerName Messages", "Show CleanPlayerName debug messages", "debugCleanName")
     uiElements.debugCleanName:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugCleanName:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugCleanName = self:GetChecked()
+        TRP3FW.Prefs.debugCleanName = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugLocation = CreateCheckbox(tab5, "Location Check Messages", "Show location checking debug messages", "debugLocation")
     uiElements.debugLocation:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugLocation:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugLocation = self:GetChecked()
+        TRP3FW.Prefs.debugLocation = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugDecision = CreateCheckbox(tab5, "Decision Logic Messages", "Show allow/block decision debug messages", "debugDecision")
     uiElements.debugDecision:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugDecision:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugDecision = self:GetChecked()
+        TRP3FW.Prefs.debugDecision = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugHooks = CreateCheckbox(tab5, "Hook Messages", "Show addon hook debug messages", "debugHooks")
     uiElements.debugHooks:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugHooks:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugHooks = self:GetChecked()
+        TRP3FW.Prefs.debugHooks = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugCache = CreateCheckbox(tab5, "Cache Messages", "Show cache management debug messages", "debugCache")
     uiElements.debugCache:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugCache:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugCache = self:GetChecked()
+        TRP3FW.Prefs.debugCache = self:GetChecked()
     end)
     y5 = y5 - 30
     uiElements.debugSend = CreateCheckbox(tab5, "Send Cache Messages", "Show send cache debug messages", "debugSend")
     uiElements.debugSend:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugSend:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugSend = self:GetChecked()
+        TRP3FW.Prefs.debugSend = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugUI = CreateCheckbox(tab5, "UI Messages", "Show UI debug messages", "debugUI")
     uiElements.debugUI:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugUI:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugUI = self:GetChecked()
+        TRP3FW.Prefs.debugUI = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugUtils = CreateCheckbox(tab5, "Utility Messages", "Show utility function debug messages", "debugUtils")
     uiElements.debugUtils:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugUtils:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugUtils = self:GetChecked()
+        TRP3FW.Prefs.debugUtils = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugSecurity = CreateCheckbox(tab5, "Security Messages", "Show security enforcement debug messages (sanitization, cache limits, spoofing detection)", "debugSecurity")
     uiElements.debugSecurity:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugSecurity:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugSecurity = self:GetChecked()
+        TRP3FW.Prefs.debugSecurity = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugGhost = CreateCheckbox(tab5, "Ghost Mode Messages", "Show ghost mode execution flow and exchange hook calls", "debugGhost")
     uiElements.debugGhost:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugGhost:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugGhost = self:GetChecked()
+        TRP3FW.Prefs.debugGhost = self:GetChecked()
     end)
     y5 = y5 - 30
 
     uiElements.debugSPVP = CreateCheckbox(tab5, "SPVP Messages", "Show Secure Phase Verification Protocol debug messages", "debugSPVP")
     uiElements.debugSPVP:SetPoint("TOPLEFT", 40, y5)  -- Indent to show it's a sub-option
     uiElements.debugSPVP:SetScript("OnClick", function(self)
-        TRP3FW_Settings.debugSPVP = self:GetChecked()
+        TRP3FW.Prefs.debugSPVP = self:GetChecked()
     end)
 
     -- Add bottom buttons
@@ -5983,6 +6199,9 @@ function TRP3FW:InitializeUI()
     resetButton:SetScript("OnClick", function()
         StaticPopup_Show("TRP3FW_RESET_CONFIRM")
     end)
+
+    -- ========== TAB 6: PROFILES ==========
+    CreateProfilesTab(tabContents[6].scrollChild)
 
     -- Show frame when opened
     settingsFrame:SetScript("OnShow", function()
@@ -6041,7 +6260,7 @@ local welcomeFrame
 
 function TRP3FW:ShowWelcomeWizard()
     -- Only show if not configured yet
-    if TRP3FW_Settings.complexitySetupDone then return end
+    if TRP3FW.Prefs.complexitySetupDone then return end
     
     if welcomeFrame then 
         welcomeFrame:Show()
@@ -6073,8 +6292,8 @@ function TRP3FW:ShowWelcomeWizard()
     recText:SetText("|cff00ff00Recommended for most people: Intermediate|r")
 
     local function SelectLevel(level)
-        TRP3FW_Settings.uiComplexityLevel = level
-        TRP3FW_Settings.complexitySetupDone = true
+        TRP3FW.Prefs.uiComplexityLevel = level
+        TRP3FW.Prefs.complexitySetupDone = true
         RequestRefreshUI()
         
         -- Update the dropdown if settings window is open

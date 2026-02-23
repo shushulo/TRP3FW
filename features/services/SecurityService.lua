@@ -65,7 +65,7 @@ end
 function SecurityService:RedactSensitiveData(text)
     if not text or type(text) ~= "string" then return text end
 
-    local settings = TRP3FW_Settings
+    local settings = TRP3FW.Prefs
     if settings and settings.redactEnabled == false then
         return text
     end
@@ -99,7 +99,7 @@ function SecurityService:CleanPlayerName(name)
     if TRP3FW_ValidatedNames and TRP3FW_ValidatedNames[name] then
         local entry = TRP3FW_ValidatedNames[name]
         local timestamp = type(entry) == "table" and entry.timestamp or 0
-        local ttl = TRP3FW_Settings.validatedNamesCacheDuration or 604800 -- Default: 7 days
+        local ttl = TRP3FW.Prefs.validatedNamesCacheDuration or 604800 -- Default: 7 days
         local age = time() - timestamp
 
         -- Only use cache if entry is still valid

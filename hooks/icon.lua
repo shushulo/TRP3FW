@@ -5,7 +5,7 @@ local addonName, TRP3FW = ...
 
 -- Install icon filtering hooks
 function TRP3FW:InstallIconHooks()
-    if not TRP3FW_Settings.filterIcons then
+    if not TRP3FW.Prefs.filterIcons then
         return
     end
 

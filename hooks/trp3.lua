@@ -474,9 +474,9 @@ function TRP3FW:InstallSendObjectHook()
         end
 
         local cleanTarget = targetArg and TRP3FW:CleanPlayerName(targetArg) or "unknown"
-        TRP3FW:Debug("[sendObject Hook] ENTRY - prefix: "..tostring(prefix)..", target: "..cleanTarget..", monitorTRP3: "..tostring(TRP3FW_Settings.monitorTRP3)..", ghostOnStartPhase: "..tostring(TRP3FW_Settings.ghostOnStartPhase)..", ghostNextSend: "..tostring(TRP3FW.ghostNextSend ~= nil), "ghost")
+        TRP3FW:Debug("[sendObject Hook] ENTRY - prefix: "..tostring(prefix)..", target: "..cleanTarget..", monitorTRP3: "..tostring(TRP3FW.Prefs.monitorTRP3)..", ghostOnStartPhase: "..tostring(TRP3FW.Prefs.ghostOnStartPhase)..", ghostNextSend: "..tostring(TRP3FW.ghostNextSend ~= nil), "ghost")
 
-        if not TRP3FW_Settings.monitorTRP3 and not TRP3FW_Settings.ghostOnStartPhase and not TRP3FW.ghostNextSend then
+        if not TRP3FW.Prefs.monitorTRP3 and not TRP3FW.Prefs.ghostOnStartPhase and not TRP3FW.ghostNextSend then
             TRP3FW:Debug("[sendObject Hook] Bypassing (all conditions false)", "ghost")
             return originalSendObject(prefix, object, ...)
         end
@@ -539,7 +539,7 @@ function TRP3FW:InstallSendObjectHook()
             end
 
             -- Priority 2: Start phase 169 ghost mode
-            if not shouldGhost and TRP3FW.hasEpsilonAPI and TRP3FW_Settings.ghostOnStartPhase then
+            if not shouldGhost and TRP3FW.hasEpsilonAPI and TRP3FW.Prefs.ghostOnStartPhase then
                 local currentPhase = tonumber(C_Epsilon.GetPhaseId())
                 TRP3FW:Debug("[sendObject Hook] Checking start phase: current="..tostring(currentPhase), "ghost")
                 if currentPhase == 169 then
@@ -549,7 +549,7 @@ function TRP3FW:InstallSendObjectHook()
             end
 
             if shouldGhost then
-                local profileID = ghostProfileID or TRP3FW_Settings.ghostProfileID
+                local profileID = ghostProfileID or TRP3FW.Prefs.ghostProfileID
                 local ghostData = TRP3FW:GetGhostDataForInformationType(informationType, profileID)
 
                 if ghostData then

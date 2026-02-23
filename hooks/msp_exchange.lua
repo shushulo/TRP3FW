@@ -17,7 +17,7 @@ end
 -- Generate a full MSP profile string for ghost mode
 -- This constructs a payload like "VP:3`VA:TRP3FW...`NA:Name..."
 function TRP3FW:GenerateMSPGhostPayload(target)
-    local profileID = self:GetGhostProfileID(target) or TRP3FW_Settings.ghostProfileID
+    local profileID = self:GetGhostProfileID(target) or TRP3FW.Prefs.ghostProfileID
     local fields = self:GetProfileMSPFields(profileID)
     
     -- Fallback to blank if profile fetch fails

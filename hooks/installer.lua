@@ -19,8 +19,8 @@ function TRP3FW:CheckHookConflict(hookName, current, cachedOriginal, ourWrapper)
         status.action = "refuse"
         status.reason = "target_not_callable"
     elseif cachedOriginal and current ~= cachedOriginal and current ~= ourWrapper then
-        status.ok = not TRP3FW_Settings.strictHookMode
-        status.action = TRP3FW_Settings.strictHookMode and "refuse" or "chain"
+        status.ok = not TRP3FW.Prefs.strictHookMode
+        status.action = TRP3FW.Prefs.strictHookMode and "refuse" or "chain"
         status.reason = "conflict_existing_hook"
     elseif not cachedOriginal and ourWrapper and current == ourWrapper then
         status.ok = false
@@ -37,7 +37,7 @@ function TRP3FW:CheckHookConflict(hookName, current, cachedOriginal, ourWrapper)
         }
     end
 
-    if TRP3FW_Settings.logHookConflicts and status.reason then
+    if TRP3FW.Prefs.logHookConflicts and status.reason then
         self:Warn(string.format("[Hook %s] conflict (%s) action=%s source=%s", hookName, status.reason, status.action, tostring(status.source)))
     end
 
@@ -79,7 +79,7 @@ function TRP3FW:InstallHooks()
 
     -- Abort if multiple RP addons detected (incompatibility)
     local rpCount = (self.detectedAddons.TRP3 and 1 or 0) + (self.detectedAddons.MRP and 1 or 0) + (self.detectedAddons.XRP and 1 or 0)
-    if rpCount > 1 and TRP3FW_Settings.abortOnMultipleRPAddons then
+    if rpCount > 1 and TRP3FW.Prefs.abortOnMultipleRPAddons then
         self.disabledReason = "multiple_rp_addons"
         self:Warn("TRP3FW disabled: multiple RP addons detected (TRP3/MRP/XRP are incompatible together)")
         self:Info("Detected: TRP3="..tostring(self.detectedAddons.TRP3).." MRP="..tostring(self.detectedAddons.MRP).." XRP="..tostring(self.detectedAddons.XRP))
@@ -97,7 +97,7 @@ function TRP3FW:InstallHooks()
     end
 
     -- RPMapScan incompatible with TRP3 map scanner usage
-    if self.detectedAddons.TRP3 and self.detectedAddons.MapScanner == "RPMapScan" and TRP3FW_Settings.disableMapScanOnTRP3 then
+    if self.detectedAddons.TRP3 and self.detectedAddons.MapScanner == "RPMapScan" and TRP3FW.Prefs.disableMapScanOnTRP3 then
         self.mapScanDisabledReason = "trp3_with_rpmapscan"
         self:Warn("Map scanning disabled: TRP3 + RPMapScan detected (incompatible combo)")
     end

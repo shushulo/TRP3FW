@@ -24,7 +24,7 @@ local function CheckCache(self, playerName)
     local myZone = TRP3FW.currentZoneName or GetRealZoneText()
 
     -- Optimization: Bypass if already known trusted/interactive (if setting enabled)
-    if TRP3FW_Settings.scanResponseAllowCacheBypass then
+    if TRP3FW.Prefs.scanResponseAllowCacheBypass then
         local allowed = CI:Get("allowedSenders", playerName)
         if allowed then
             self:Debug("[Scan Reply] Allowed senders cache hit - allowing scan reply to "..playerName, "hooks")
@@ -44,7 +44,7 @@ local function CheckCache(self, playerName)
         local now = self:GetCurrentTime()
         local age = now - phaseCache.timestamp
 
-        if age < TRP3FW_Settings.phaseCacheDuration and phaseCache.inPhase then
+        if age < TRP3FW.Prefs.phaseCacheDuration and phaseCache.inPhase then
             -- If map checking is enabled, we must also verify the map ID matches
             local mapMatch = true
             if mapCheckEnabled and phaseCache.mapID and myMapID then
@@ -68,7 +68,7 @@ local function CheckCache(self, playerName)
         local now = self:GetCurrentTime()
         local age = now - whoCache.timestamp
 
-        if age < TRP3FW_Settings.whoNameCacheDuration and whoCache.found then
+        if age < TRP3FW.Prefs.whoNameCacheDuration and whoCache.found then
             -- If map checking is enabled, we must verify the zone matches
             local zoneMatch = true
             if mapCheckEnabled and whoCache.zone and myZone then
@@ -92,7 +92,7 @@ end
 -- ===================== Stage 3: Group Check =====================
 
 local function CheckGroup(self, playerName)
-    if TRP3FW_Settings.scanResponseAllowGroupBypass then
+    if TRP3FW.Prefs.scanResponseAllowGroupBypass then
         local isGroupMember = UnitInParty(playerName) or UnitInRaid(playerName)
         if isGroupMember then
             self:Debug("[Scan Reply] Group member - allowing scan reply to "..playerName, "hooks")
@@ -143,9 +143,9 @@ local function MakeDecision(locationOK, alertType, source, cacheInfo, theirZone,
     else
         local mode = "off"
         if alertType and alertType:find("phase") then
-            mode = TRP3FW_Settings.scanResponsePhaseMode or "off"
+            mode = TRP3FW.Prefs.scanResponsePhaseMode or "off"
         elseif alertType and alertType:find("map") then
-            mode = TRP3FW_Settings.scanResponseMapMode or "off"
+            mode = TRP3FW.Prefs.scanResponseMapMode or "off"
         end
 
         if mode == "statistics" then
@@ -177,8 +177,8 @@ end
 -- ===================== Notification Helper =====================
 
 function TRP3FW:ShowScanNotification(targetName, outcome, detail, age, contextLabel, locationInfo)
-    if not TRP3FW_Settings.notifyOnScanResponse then return end
-    if outcome == "allow" and not TRP3FW_Settings.notifyOnScanAllow then return end
+    if not TRP3FW.Prefs.notifyOnScanResponse then return end
+    if outcome == "allow" and not TRP3FW.Prefs.notifyOnScanAllow then return end
 
     local isAlert = (outcome == "alert")
     local isBlock = (outcome == "block")
@@ -262,8 +262,8 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
 
     -- Stage 4: Location Check (async)
     -- Optimization: If both scan response modes are "off", skip expensive location checks
-    local phaseMode = TRP3FW_Settings.scanResponsePhaseMode
-    local mapMode = TRP3FW_Settings.scanResponseMapMode
+    local phaseMode = TRP3FW.Prefs.scanResponsePhaseMode
+    local mapMode = TRP3FW.Prefs.scanResponseMapMode
     
     if (not phaseMode or phaseMode == "off") and (not mapMode or mapMode == "off") then
         self:Debug("[Scan Reply] All scan checks disabled - skipping location check", "hooks")
@@ -278,7 +278,7 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
     -- Calculate enabled flags for cascading check
     -- Scan response phase check has an extra master toggle: scanResponsePhaseCheckEnabled
     local phaseEnabled = (phaseMode and phaseMode ~= "off")
-    if TRP3FW_Settings.scanResponsePhaseCheckEnabled == false then
+    if TRP3FW.Prefs.scanResponsePhaseCheckEnabled == false then
          phaseEnabled = false
     end
     local mapEnabled = (mapMode and mapMode ~= "off")

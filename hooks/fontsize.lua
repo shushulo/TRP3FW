@@ -47,7 +47,7 @@ local function BuildHtmlTag(level, slash, attrs, useUppercase)
 end
 
 function TRP3FW:EnsureMinimumHtmlFont(html)
-    if not TRP3FW_Settings.filterMinimumFontSize then
+    if not TRP3FW.Prefs.filterMinimumFontSize then
         return html
     end
 
@@ -55,7 +55,7 @@ function TRP3FW:EnsureMinimumHtmlFont(html)
         return html
     end
 
-    local level = strlower(TRP3FW_Settings.minimumFontSizeLevel or "h3")
+    local level = strlower(TRP3FW.Prefs.minimumFontSizeLevel or "h3")
     if not HTML_PRIORITY[level] then
         level = "h3"
     end
@@ -86,7 +86,7 @@ function TRP3FW:EnsureMinimumHtmlFont(html)
 end
 
 function TRP3FW:NormalizeFontWrappers(text, force)
-	if not force and not TRP3FW_Settings.filterMinimumFontSize then
+	if not force and not TRP3FW.Prefs.filterMinimumFontSize then
 		return text
 	end
 
@@ -134,7 +134,7 @@ function TRP3FW:InstallFontSizeHooks()
         TRP3_API.utils.str.toHTML = function(text, ...)
             local start = debugprofilestop()
             local sourceText = text
-            if TRP3FW_Settings.filterMinimumFontSize then
+            if TRP3FW.Prefs.filterMinimumFontSize then
                 sourceText = TRP3FW:NormalizeFontWrappers(sourceText)
             end
 
@@ -158,7 +158,7 @@ function TRP3FW:InstallFontSizeHooks()
         mrp.ConvertStringToHTML = function(text, ...)
             local start = debugprofilestop()
             local sourceText = text
-            if TRP3FW_Settings.filterMinimumFontSize then
+            if TRP3FW.Prefs.filterMinimumFontSize then
                 sourceText = TRP3FW:NormalizeFontWrappers(sourceText)
             end
             local html = originalMRPToHTML(sourceText, ...)

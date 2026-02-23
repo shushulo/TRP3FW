@@ -103,9 +103,9 @@ local function TryMapFallbackForWho(playerName, sendId, callback, reasonTag)
 
     local nowTs = TRP3FW:GetCurrentTime()
     local CI = TRP3FW.CacheInterface
-    local cacheDuration = (TRP3FW_Settings and TRP3FW_Settings.scanCacheDuration) or 120
-    local cacheFailDuration = (TRP3FW_Settings and TRP3FW_Settings.scanCacheFailureDuration) or 10
-    local strictNonceRequired = TRP3FW_Settings and TRP3FW_Settings.scanResponseRequireNonce
+    local cacheDuration = (TRP3FW.Prefs and TRP3FW.Prefs.scanCacheDuration) or 120
+    local cacheFailDuration = (TRP3FW.Prefs and TRP3FW.Prefs.scanCacheFailureDuration) or 10
+    local strictNonceRequired = TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
     local myMapID = TRP3FW:GetCurrentMapID()
 
     local function checkEntry(entry, sourceBase, mismatchSource)
@@ -177,7 +177,7 @@ end
 
 local function ShouldSuppressChatOutput()
     -- If suppressAllWhoOutput is enabled, suppress chat messages
-    if TRP3FW_Settings and TRP3FW_Settings.suppressAllWhoOutput then
+    if TRP3FW.Prefs and TRP3FW.Prefs.suppressAllWhoOutput then
         return true
     end
 
@@ -190,7 +190,7 @@ end
 local function IsQueueEntryStale(entry)
     if not entry or not entry.timestamp then return true end
     local now = TRP3FW:GetCurrentTime()
-    local ttl = math.max(TRP3FW_Settings.whoNameCacheDuration or 0, TRP3FW_Settings.whoZoneCacheDuration or 0, 60)
+    local ttl = math.max(TRP3FW.Prefs.whoNameCacheDuration or 0, TRP3FW.Prefs.whoZoneCacheDuration or 0, 60)
     return (now - entry.timestamp) > ttl
 end
 
@@ -241,7 +241,7 @@ local function HasPrivilegedCapacity(category)
     if TRP3FW.GetCategoryPriority then
         local _, config = TRP3FW:GetCategoryPriority(category)
         if config and not config.canUseReserved then
-            local reserved = (TRP3FW_Settings and TRP3FW_Settings.privilegedReservedTokens) or 2
+            local reserved = (TRP3FW.Prefs and TRP3FW.Prefs.privilegedReservedTokens) or 2
             tokens = tokens - reserved
         end
     end
@@ -940,8 +940,8 @@ CheckPlayerViaWho = function(playerName, sendId, callback, trackStats, forceName
         -- NEW LOGIC: Background Refresh
         -- If cache entry is valid but aging, trigger a low-priority refresh
         if cached.found and playerName ~= "__PREPOPULATE__" then
-            local ttl = (cacheType == "name") and (TRP3FW_Settings.whoNameCacheDuration or 180) or (TRP3FW_Settings.whoZoneCacheDuration or 180)
-            local thresholdPercent = TRP3FW_Settings.whoCacheRefreshThreshold or 50
+            local ttl = (cacheType == "name") and (TRP3FW.Prefs.whoNameCacheDuration or 180) or (TRP3FW.Prefs.whoZoneCacheDuration or 180)
+            local thresholdPercent = TRP3FW.Prefs.whoCacheRefreshThreshold or 50
             if age > (ttl * (thresholdPercent / 100)) then
                  TRP3FW:Debug("[WHO Query] Cache entry aging ("..string.format("%.1f", age).."s / "..ttl.."s) - triggering background refresh for "..playerName, "who")
                  -- Low priority background refresh (no callback)
@@ -960,7 +960,7 @@ CheckPlayerViaWho = function(playerName, sendId, callback, trackStats, forceName
     -- Check if zone query is off cooldown
     EnsureWhoQueue()
     local zoneQueryAge = now - TRP3FW.lastZoneQueryTime
-    local zoneQueryOnCooldown = zoneQueryAge < TRP3FW_Settings.whoZoneQueryCooldown
+    local zoneQueryOnCooldown = zoneQueryAge < TRP3FW.Prefs.whoZoneQueryCooldown
     local whoBackoffActive = TRP3FW.nextWhoBackoffUntil and TRP3FW.nextWhoBackoffUntil > now
     local zoneLimitActive = currentZoneName and IsZoneTruncationActive(currentZoneName)
 
@@ -975,7 +975,7 @@ CheckPlayerViaWho = function(playerName, sendId, callback, trackStats, forceName
             TRP3FW:Debug("[WHO Query] Zone truncation window active for zone="..tostring(currentZoneName).." - forcing name/cache fallback for "..playerName, "who")
             forceNameQuery = true
         else
-            TRP3FW:Debug("[WHO Query] Zone query on cooldown ("..string.format("%.1f", zoneQueryAge).."s / "..TRP3FW_Settings.whoZoneQueryCooldown.."s), skipping to name query for "..playerName, "who")
+            TRP3FW:Debug("[WHO Query] Zone query on cooldown ("..string.format("%.1f", zoneQueryAge).."s / "..TRP3FW.Prefs.whoZoneQueryCooldown.."s), skipping to name query for "..playerName, "who")
         end
         
         local reasonTag = whoBackoffActive and "who_backoff" or (zoneLimitActive and "zone_truncation") or "zone_cooldown"
@@ -1008,7 +1008,7 @@ CheckPlayerViaWho = function(playerName, sendId, callback, trackStats, forceName
         -- SECURITY: Enforce queue size limit to prevent resource exhaustion
         EnsureWhoQueue()
         local queueSize = GetWhoQueueSize()
-        if queueSize >= TRP3FW_Settings.whoQueueLimit then
+        if queueSize >= TRP3FW.Prefs.whoQueueLimit then
             TRP3FW:Debug("[SECURITY] WHO query queue full ("..queueSize.." queries), rejecting new query for "..playerName, "security")
             TRP3FW.nextWhoBackoffUntil = now + WHO_BACKOFF_SECONDS
             if not fallbackToMap("queue_full", "queue_full") then

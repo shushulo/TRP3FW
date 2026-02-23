@@ -24,7 +24,7 @@ local CONTROL_CLASS_PATTERN = "%c"
 
 -- Timestamp for debug messages
 function TRP3FW:NowStamp()
-    return TRP3FW_Settings.debugTimestamp and date("[%H:%M:%S] ") or ""
+    return TRP3FW.Prefs.debugTimestamp and date("[%H:%M:%S] ") or ""
 end
 
 -- Colored printing
@@ -84,12 +84,12 @@ end
 --   TRP3FW:Debug("Simple message", "category")  -- String (backwards compatible)
 --   TRP3FW:Debug(function() return "Expensive: "..complexCalculation() end, "category")  -- Function (lazy)
 function TRP3FW:Debug(msg, category)
-    if not TRP3FW_Settings.debug then return end
+    if not TRP3FW.Prefs.debug then return end
 
     -- Check category filter if specified (optimized table lookup)
     if category then
         local settingKey = DEBUG_CATEGORIES[category]
-        if settingKey and not TRP3FW_Settings[settingKey] then return end
+        if settingKey and not TRP3FW.Prefs[settingKey] then return end
     end
 
     -- OPTIMIZATION: Lazy evaluation - only evaluate function if debug is actually enabled
@@ -111,8 +111,8 @@ function TRP3FW:Debug(msg, category)
     debugMsg = RedactSensitiveData(debugMsg)
 
     -- Determine output destination
-    local outputToChat = TRP3FW_Settings.debugOutputChat or TRP3FW_Settings.debugOutputBoth
-    local outputToWindow = TRP3FW_Settings.debugOutputWindow or TRP3FW_Settings.debugOutputBoth
+    local outputToChat = TRP3FW.Prefs.debugOutputChat or TRP3FW.Prefs.debugOutputBoth
+    local outputToWindow = TRP3FW.Prefs.debugOutputWindow or TRP3FW.Prefs.debugOutputBoth
 
     -- Output to chat if enabled
     if outputToChat then
@@ -333,22 +333,22 @@ local function ValidatePrioritySettings(privilegedReservedTokens, privilegedLowP
         reserved = 2
         lowThreshold = 4
         -- Update settings if they were invalid (this happens on reload/init, not on every call)
-        if TRP3FW_Settings then
-            TRP3FW_Settings.privilegedReservedTokens = reserved
-            TRP3FW_Settings.privilegedLowPriorityThreshold = lowThreshold
+        if TRP3FW.Prefs then
+            TRP3FW.Prefs.privilegedReservedTokens = reserved
+            TRP3FW.Prefs.privilegedLowPriorityThreshold = lowThreshold
         end
     end
 
     return reserved, lowThreshold
 end
 
--- Initialize validated priority settings from TRP3FW_Settings, or use default if not available yet.
--- These will be updated when TRP3FW_Settings is fully loaded.
-local RESERVED_TOKENS, LOW_PRIORITY_THRESHOLD = ValidatePrioritySettings(TRP3FW_Settings and TRP3FW_Settings.privilegedReservedTokens, TRP3FW_Settings and TRP3FW_Settings.privilegedLowPriorityThreshold)
+-- Initialize validated priority settings from TRP3FW.Prefs, or use default if not available yet.
+-- These will be updated when TRP3FW.Prefs is fully loaded.
+local RESERVED_TOKENS, LOW_PRIORITY_THRESHOLD = ValidatePrioritySettings(TRP3FW.Prefs and TRP3FW.Prefs.privilegedReservedTokens, TRP3FW.Prefs and TRP3FW.Prefs.privilegedLowPriorityThreshold)
 
 -- Function to update the locally cached validated priority settings if they change at runtime
 function TRP3FW:UpdateValidatedPrioritySettings()
-    RESERVED_TOKENS, LOW_PRIORITY_THRESHOLD = ValidatePrioritySettings(TRP3FW_Settings.privilegedReservedTokens, TRP3FW_Settings.privilegedLowPriorityThreshold)
+    RESERVED_TOKENS, LOW_PRIORITY_THRESHOLD = ValidatePrioritySettings(TRP3FW.Prefs.privilegedReservedTokens, TRP3FW.Prefs.privilegedLowPriorityThreshold)
     TRP3FW:Debug(function()
         return "[PRIORITY] Updated validated settings: Reserved="..RESERVED_TOKENS..", LOW Threshold="..LOW_PRIORITY_THRESHOLD
     end, "security")
@@ -606,7 +606,7 @@ end
 -- SECURITY: Validate configuration settings
 -- FIXED: LOW-5 - Validates numeric ranges for all settings
 function TRP3FW:ValidateSettings()
-    if not TRP3FW_Settings then return end
+    if not TRP3FW.Prefs then return end
 
     -- Validate numeric ranges with sensible bounds
     local numericSettings = {
@@ -629,10 +629,10 @@ function TRP3FW:ValidateSettings()
     }
 
     for _, setting in ipairs(numericSettings) do
-        local value = TRP3FW_Settings[setting.name]
+        local value = TRP3FW.Prefs[setting.name]
         if type(value) ~= "number" or value < setting.min or value > setting.max then
             self:Debug("[SECURITY] Invalid "..setting.name..": "..tostring(value)..", resetting to "..setting.default, "security")
-            TRP3FW_Settings[setting.name] = setting.default
+            TRP3FW.Prefs[setting.name] = setting.default
         end
     end
 end
@@ -640,13 +640,13 @@ end
 -- Whitelist helpers ---------------------------------------------------------
 function TRP3FW:RefreshWhitelistCache()
     self.whitelistCache = {}
-    local rawEntries = (TRP3FW_Settings and TRP3FW_Settings.whitelistEntries) or ""
+    local rawEntries = (TRP3FW.Prefs and TRP3FW.Prefs.whitelistEntries) or ""
     if type(rawEntries) ~= "string" then
         rawEntries = ""
     end
     self.whitelistCacheRaw = rawEntries
 
-    if not TRP3FW_Settings or not TRP3FW_Settings.whitelistEnabled then
+    if not TRP3FW.Prefs or not TRP3FW.Prefs.whitelistEnabled then
         return
     end
 
@@ -668,7 +668,7 @@ function TRP3FW:RefreshWhitelistCache()
 end
 
 function TRP3FW:IsPlayerWhitelisted(playerName)
-    if not TRP3FW_Settings or not TRP3FW_Settings.whitelistEnabled then
+    if not TRP3FW.Prefs or not TRP3FW.Prefs.whitelistEnabled then
         return false
     end
 
@@ -677,7 +677,7 @@ function TRP3FW:IsPlayerWhitelisted(playerName)
         return false
     end
 
-    local raw = (type(TRP3FW_Settings.whitelistEntries) == "string") and TRP3FW_Settings.whitelistEntries or ""
+    local raw = (type(TRP3FW.Prefs.whitelistEntries) == "string") and TRP3FW.Prefs.whitelistEntries or ""
     if (not self.whitelistCache) or (raw ~= self.whitelistCacheRaw) then
         self:RefreshWhitelistCache()
     end

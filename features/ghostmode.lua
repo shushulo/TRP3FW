@@ -112,7 +112,7 @@ function TRP3FW:ModifyArgsForGhostMode(addon, originalArgs)
         modifiedArgs[3] = newPayload
         self:Debug("[Ghost Mode] Modified TRP3 payload to blank profile", "decision")
     elseif addon == "Chomp" then
-        if TRP3FW_Settings.enableChompGhost then
+        if TRP3FW.Prefs.enableChompGhost then
             -- Args: {prefix, text, chatType, target, priority, queue, callback, callbackArg}
             -- Replace payload text with a serialized blank message so Chomp hook can transmit it directly
             modifiedArgs[2] = CreateBlankChompMessage()
@@ -144,7 +144,7 @@ function TRP3FW:ShouldBlockForStartPhase(playerName, isProfileSend)
     end
 
     -- Check if EITHER start phase blocking OR ghost mode is enabled
-    if not TRP3FW_Settings.blockStartPhase and not TRP3FW_Settings.ghostOnStartPhase then
+    if not TRP3FW.Prefs.blockStartPhase and not TRP3FW.Prefs.ghostOnStartPhase then
         return false, nil
     end
 
@@ -166,10 +166,10 @@ function TRP3FW:ShouldBlockForStartPhase(playerName, isProfileSend)
     end
 
     -- Phase 169 detected - determine action (ghost takes priority over block)
-    if TRP3FW_Settings.ghostOnStartPhase and (self.hasTRP3ExchangeHooks or self.hasMSPExchangeHooks) then
+    if TRP3FW.Prefs.ghostOnStartPhase and (self.hasTRP3ExchangeHooks or self.hasMSPExchangeHooks) then
         self:Debug("[Start Phase] Phase 169 detected, ghost mode enabled for "..playerName, "hooks")
         return true, "ghost"
-    elseif TRP3FW_Settings.blockStartPhase then
+    elseif TRP3FW.Prefs.blockStartPhase then
         self:Debug("[Start Phase] Phase 169 detected, blocking send to "..playerName, "hooks")
         return true, "block"
     else

@@ -239,7 +239,7 @@ function TRP3FW:InstallMSPHooks()
     end
 
     -- Hook LibMSP callback system (this catches ALL MSP sends, including TRP3 → MRP)
-    if msp and msp.callback and msp.callback.received and TRP3FW_Settings.monitorMSP then
+    if msp and msp.callback and msp.callback.received and TRP3FW.Prefs.monitorMSP then
         -- The "received" callback fires when LibMSP receives a REQUEST
         -- After processing it, LibMSP automatically sends a REPLY
         -- We can't block the reply, but we can detect it and notify
@@ -285,10 +285,10 @@ function TRP3FW:InstallMSPHooks()
                 local cleanName = TRP3FW:CleanPlayerName(senderName)
 
                 -- Phase 169 detected - handle blocking or ghost mode
-                if TRP3FW_Settings.ghostOnStartPhase then
+                if TRP3FW.Prefs.ghostOnStartPhase then
                     -- Ghost mode enabled - set ghost flag BEFORE LibMSP prepares reply
                     if cleanName and (TRP3FW.hasTRP3ExchangeHooks or TRP3FW.hasMSPExchangeHooks) then
-                        local alternateProfileID = TRP3FW_Settings.ghostProfileID
+                        local alternateProfileID = TRP3FW.Prefs.ghostProfileID
                         local success = TRP3FW:EnableGhostForNextSend(cleanName, alternateProfileID)
                         if success then
                             if alternateProfileID then
@@ -297,7 +297,7 @@ function TRP3FW:InstallMSPHooks()
                                 TRP3FW:Debug("[LibMSP Callback] Phase 169 ghost mode enabled, sending blank profile", "hooks")
                             end
                             -- Show notification if enabled
-                            if TRP3FW_Settings.notifyOnStartPhaseBlock then
+                            if TRP3FW.Prefs.notifyOnStartPhaseBlock then
                                 -- Continue to show notification below
                             else
                                 return -- Ghost send without notification
@@ -310,7 +310,7 @@ function TRP3FW:InstallMSPHooks()
                         TRP3FW:Debug("[LibMSP Callback] Ghost mode enabled but exchange hooks not available, falling back to block", "hooks")
                         -- Fall through to block below
                     end
-                elseif TRP3FW_Settings.blockStartPhase then
+                elseif TRP3FW.Prefs.blockStartPhase then
                     -- Block mode - prevent the send entirely
                     TRP3FW:Debug("[LibMSP Callback] Phase 169 block enabled, will block send", "hooks")
 
@@ -331,7 +331,7 @@ function TRP3FW:InstallMSPHooks()
                     }
 
                     -- Show notification if enabled
-                    if TRP3FW_Settings.notifyOnStartPhaseBlock then
+                    if TRP3FW.Prefs.notifyOnStartPhaseBlock then
                         -- Continue to show notification below
                     else
                         return -- Block without notification
