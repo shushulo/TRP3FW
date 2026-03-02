@@ -110,7 +110,17 @@ local function PerformLocationCheck(self, playerName, callback, options)
     local sendId = sendIdObj and sendIdObj.id or 0
 
     -- Merge default options with provided options
-    local checkOptions = { whoNameOnly = true }
+    -- Map scan replies have a tight window; use WHO in name-only mode (no fresh zone query) to avoid delays.
+    -- If the global SPVP mode is 'preferred', we force it to 'optional' (parallel) for scans to avoid the 
+    -- 5-second sequential handshake delay. If it is 'required', we respect that setting.
+    local currentSPVPMode = TRP3FW.Prefs.spvpMode or "off"
+    local effectiveSPVPMode = (currentSPVPMode == "required") and "required" or "optional"
+    
+    local checkOptions = { 
+        whoNameOnly = true,
+        spvpMode = effectiveSPVPMode,
+        priority = "HIGH"
+    }
     if options then
         for k, v in pairs(options) do
             checkOptions[k] = v
@@ -118,7 +128,6 @@ local function PerformLocationCheck(self, playerName, callback, options)
     end
 
     -- Run cascading location check
-    -- Map scan replies have a tight window; use WHO in name-only mode (no fresh zone query) to avoid delays.
     self:CheckLocationCascading(playerName, sendId, callback, checkOptions)
 end
 

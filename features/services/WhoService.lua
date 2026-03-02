@@ -24,15 +24,33 @@ function WhoService:Initialize()
     self.requestId = 0
     self.cooldownActive = false
     
-    -- Zone Truncation State
     self.zoneLimitState = { zoneName = nil, hits = 0, untilTs = 0, lastHit = 0 }
+    self.lastZoneQueryTime = 0
+    self.lastZoneResultCount = 0
 
     self:InitializeSuppression()
+
+    -- NOTE: Caches are already registered in core/init.lua:InitializeCaches()
+    -- No need to re-register here as it would overwrite the configuration
 
     -- Register for events
     local ES = TRP3FW.ServiceContainer:Get("EventService")
     if ES then
         ES:RegisterCallback("WHO_LIST_UPDATE", function() self:OnWhoListUpdate() end)
+        ES:RegisterCallback("CHAT_MSG_SYSTEM", function(event, msg) self:OnChatMsgSystem(msg) end)
+    end
+end
+
+function WhoService:OnChatMsgSystem(msg)
+    if not self.pendingQuery then return end
+
+    TRP3FW:Debug("[WhoService] CHAT_MSG_SYSTEM (pending query): "..tostring(msg), "who")
+
+    -- Check for "Players found" or "Online Players" patterns which indicate results are ready
+    if msg:find("found") or msg:find("Players") or msg:find("Online") then
+        TRP3FW:Debug("[WhoService] Detected WHO results via chat message, triggering OnWhoListUpdate", "who")
+        -- Small delay to ensure C_FriendList has the data
+        C_Timer.After(0.1, function() self:OnWhoListUpdate() end)
     end
 end
 
@@ -170,7 +188,7 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
 
     -- 1. Check caches first (Delegated to a helper similar to who.lua)
     local CI = TRP3FW.CacheInterface
-    local cached = CI and (CI:Get("whoName", playerName) or CI:Get("whoZone", playerName))
+    local cached = CI and CI:Get("whoName", playerName)
     
     if cached then
         local age = now - cached.timestamp
@@ -185,6 +203,25 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
 
         if callback then callback(cached.found, "cached", age, cached.zone) end
         return
+    end
+
+    -- NEW: Reliable Zone Truncation check
+    -- If we have a fresh whoZone result for the current zone, and it wasn't truncated ( < 50 results),
+    -- we can assume a "Not Found" in whoName is a definitive "Not in Zone" without a new query.
+    local currentZone = TRP3FW.currentZoneName
+    if currentZone and currentZone ~= "" and currentZone ~= "Unknown" then
+        local zoneCache = CI and CI:Get("whoZone", playerName) -- This actually checks if PLAYER is in zone cache
+        -- We need to know if the ZONE ITSELF was scanned recently.
+        -- WhoService tracks this via self.lastZoneQueryTime and self.lastZoneResultCount
+        local zoneAge = now - (self.lastZoneQueryTime or 0)
+        local zoneTTL = 60 -- Only trust "completeness" of a zone scan for 60 seconds
+        
+        if zoneAge < zoneTTL and self.lastZoneResultCount and self.lastZoneResultCount < WHO_RESULT_LIMIT then
+             -- The last zone scan was recent and complete. If they aren't in whoName/whoZone cache, they aren't here.
+             TRP3FW:Debug("[WhoService] Zone scan was recent ("..zoneAge.."s) and complete ("..self.lastZoneResultCount.." results). Skipping query for "..playerName, "who")
+             if callback then callback(false, "cached_zone_complete", zoneAge, nil) end
+             return
+        end
     end
 
     -- 2. If query already pending or on cooldown, queue it
@@ -204,23 +241,50 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
             end
         end
 
-        table.insert(self.queryQueue, { playerName = playerName, sendId = sendId, callback = callback, trackStats = trackStats, forceNameOnly = forceNameOnly, priority = priority, timestamp = now })
+        -- Priority Insertion: HIGH priority jumps to the front of the queue
+        if priority == "HIGH" then
+            table.insert(self.queryQueue, self.queueHead, { playerName = playerName, sendId = sendId, callback = callback, trackStats = trackStats, forceNameOnly = forceNameOnly, priority = priority, timestamp = now })
+            TRP3FW:Debug("[WhoService] Enqueued HIGH priority query for "..playerName.." at head of queue", "who")
+        else
+            table.insert(self.queryQueue, { playerName = playerName, sendId = sendId, callback = callback, trackStats = trackStats, forceNameOnly = forceNameOnly, priority = priority, timestamp = now })
+        end
         return
     end
 
     -- 3. Execute WHO Query
     local zoneName = TRP3FW.currentZoneName
     local useZoneQuery = not forceNameOnly and zoneName and zoneName ~= "" and zoneName ~= "Unknown"
-    
+
+    TRP3FW:Debug("[WhoService] Query decision - forceNameOnly="..tostring(forceNameOnly)..", zoneName="..tostring(zoneName)..", useZoneQuery="..tostring(useZoneQuery), "who")
+
+    -- NEW: Prioritize whozone if stale, not truncated, and cooldown is up
+    -- This allows us to refresh knowledge of the whole zone (better for multiple scanners)
+    -- rather than just querying one person, provided the zone is small enough to not be truncated.
+    if not useZoneQuery and zoneName and zoneName ~= "" and zoneName ~= "Unknown" then
+        local zoneAge = now - (self.lastZoneQueryTime or 0)
+        local cooldown = TRP3FW.Prefs.whoZoneQueryCooldown or 20
+        -- "not truncated" check (last result count < 50)
+        local wasNotTruncated = (not self.lastZoneResultCount or self.lastZoneResultCount < WHO_RESULT_LIMIT)
+        
+        if zoneAge >= cooldown and wasNotTruncated then
+            TRP3FW:Debug("[WhoService] Prioritizing zone refresh over name query (Stale/Not Truncated)", "who")
+            useZoneQuery = true
+        end
+    end
+
     -- Zone query cooldown check
-    if useZoneQuery and (now - self.lastZoneQueryTime) < (TRP3FW.Prefs.whoZoneQueryCooldown or 20) then
+    if useZoneQuery and (now - (self.lastZoneQueryTime or 0)) < (TRP3FW.Prefs.whoZoneQueryCooldown or 20) then
         useZoneQuery = false
     end
 
     -- Construction
+    -- Use obfuscated call from Epsilon diagnostics manual to bypass potential string-matching filters
+    -- Standard Blizzard WHO query format (z- for zone, n- for name)
     local whoQuery = useZoneQuery and ('z-"'..zoneName..'"') or ('n-"'..sanitizedName..'"')
     local category = priority or (useZoneQuery and "who_zone_query" or "who_name_query")
-    local privilegedCode = 'C_FriendList.SetWhoToUi(false) C_FriendList.SendWho([['..whoQuery..']])'
+
+    -- Execute SetWhoToUi and SendWho as separate statements with semicolon separator
+    local privilegedCode = 'C_FriendList.SetWhoToUi(false); C_FriendList.SendWho([['..whoQuery..']])'
 
     self.requestId = self.requestId + 1
     local currentReqId = self.requestId
@@ -238,6 +302,9 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
 
     TRP3FW.whoQuerySentTime = now -- For suppression
 
+    TRP3FW:Debug("[WhoService] Executing WHO query: "..whoQuery.." (useZoneQuery="..tostring(useZoneQuery)..")", "who")
+    TRP3FW:Debug("[WhoService] Privileged code: "..privilegedCode, "who")
+
     local success, err = TRP3FW:RunPrivilegedSafe(privilegedCode, category)
     if not success then
         TRP3FW:Debug("[WhoService] RunPrivileged failed: "..tostring(err), "who")
@@ -247,6 +314,22 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
         self:ProcessQueue()
         return
     end
+
+    TRP3FW:Debug("[WhoService] RunPrivileged succeeded, waiting for WHO_LIST_UPDATE event", "who")
+
+    -- DIAGNOSTIC: Check if results are immediately available (testing if WHO_LIST_UPDATE fires)
+    C_Timer.After(0.5, function()
+        if self.pendingQuery and self.pendingQuery.requestId == currentReqId then
+            local ok, numWho = pcall(C_FriendList.GetNumWhoResults)
+            if ok and numWho and numWho > 0 then
+                TRP3FW:Debug("[WhoService] DIAGNOSTIC: WHO results available ("..tostring(numWho)..") but WHO_LIST_UPDATE hasn't fired yet!", "who")
+                -- Manually trigger processing since event didn't fire
+                self:OnWhoListUpdate()
+            else
+                TRP3FW:Debug("[WhoService] DIAGNOSTIC: No results yet after 0.5s", "who")
+            end
+        end
+    end)
 
     -- Timeout handling
     C_Timer.After(WHO_TIMEOUT_SECONDS, function()
@@ -262,53 +345,81 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
 end
 
 function WhoService:OnWhoListUpdate()
-    if not self.pendingQuery then return end
-    
+    if not self.pendingQuery then
+        TRP3FW:Debug("[WhoService] OnWhoListUpdate called but no pending query", "who")
+        return
+    end
+
     local start = debugprofilestop()
     local pending = self.pendingQuery
     self.pendingQuery = nil
     self.cooldownActive = false
-    
+
+    TRP3FW:Debug("[WhoService] OnWhoListUpdate processing results for "..tostring(pending.playerName), "who")
+
+    local now = TRP3FW:GetCurrentTime()
+    local CI = TRP3FW.CacheInterface
+    local currentZone = pending.zoneName or TRP3FW.currentZoneName
+
     local success, numWho, totalWho = pcall(C_FriendList.GetNumWhoResults)
     if not success or not numWho or numWho < 0 then
+        TRP3FW:Debug("[WhoService] GetNumWhoResults failed or returned invalid count", "who")
         if pending.callback then pending.callback(false, "api_error") end
         self:ProcessQueue()
         return
     end
 
+    TRP3FW:Debug("[WhoService] WHO results: "..tostring(numWho).." players found", "who")
+
+    -- Update last zone scan state if applicable
+    if not pending.isNameQuery or pending.scanMode then
+        self.lastZoneResultCount = numWho
+        TRP3FW:Debug("[WhoService] Last zone scan found "..numWho.." players.", "who")
+
+        -- NEW: Store an entry in whoZone cache for the zone itself
+        -- This marks the zone as "scanned" and populates the Status tab count.
+        if CI and not pending.isNameQuery and currentZone then
+            CI:Set("whoZone", currentZone, {
+                timestamp = now,
+                count = numWho,
+                isFull = (numWho >= WHO_RESULT_LIMIT)
+            })
+            TRP3FW:Debug("[WhoService] Cached zone metadata for "..tostring(currentZone).." (count="..tostring(numWho)..")", "cache")
+        end
+    end
+
     local found = false
     local zone = nil
     local playerList = {} -- For scanMode
-    local now = TRP3FW:GetCurrentTime()
-    local CI = TRP3FW.CacheInterface
     local myName = UnitName("player")
 
+    local cachedCount = 0
     for i = 1, numWho do
         local ok, info = pcall(C_FriendList.GetWhoInfo, i)
         if ok and info and info.fullName then
             local name = TRP3FW:CleanPlayerName(info.fullName)
-            if name and name ~= myName then
-                if pending.scanMode then
-                    table.insert(playerList, name)
+            if name then
+                -- Update caches
+                if CI then
+                    -- Always update whoName cache for any result found
+                    CI:Set("whoName", name, { found = true, zone = info.area, timestamp = now, mapID = nil })
+
+                    -- Populate whoZone if this was a zone-wide scan (prepopulate or scanMode)
+                    if not pending.isNameQuery or pending.scanMode then
+                        CI:Set("whoZone", name, { found = true, zone = info.area, timestamp = now, mapID = nil })
+                    end
+                    cachedCount = cachedCount + 1
                 end
 
                 if name == pending.playerName then
                     found = true
                     zone = info.area
                 end
-
-                -- Cache results
-                if CI then
-                    local cacheName = (pending.isNameQuery or pending.scanMode) and "whoName" or "whoZone"
-                    CI:Set(cacheName, name, {
-                        found = true,
-                        zone = info.area,
-                        timestamp = now
-                    })
-                end
             end
         end
     end
+
+    TRP3FW:Debug("[WhoService] Cached "..tostring(cachedCount).." player results", "cache")
 
     -- Handle callback
     if pending.scanMode then
@@ -321,6 +432,18 @@ function WhoService:OnWhoListUpdate()
             self:CheckPlayer(pending.playerName, nil, pending.callback, false, true, "who_name_fallback")
         end)
     else
+        -- Cache negative results (player not found)
+        if not found and CI and pending.playerName then
+            -- Cache as not found in whoName cache
+            CI:Set("whoName", pending.playerName, {
+                found = false,
+                zone = currentZone,
+                timestamp = now,
+                mapID = nil
+            })
+            TRP3FW:Debug("[WhoService] Cached negative result for "..pending.playerName, "who")
+        end
+
         if pending.callback then
             pending.callback(found, "who_query", 0, zone)
         end
@@ -372,7 +495,7 @@ function WhoService:ScanZoneForPlayers(callback)
     TRP3FW.whoQuerySentTime = now
 
     local whoQuery = 'z-"'..sanitizedZone..'"'
-    local privilegedCode = 'C_FriendList.SetWhoToUi(false) C_FriendList.SendWho([['..whoQuery..']])'
+    local privilegedCode = 'C_FriendList.SetWhoToUi(false); C_FriendList.SendWho([['..whoQuery..']])'
 
     local success, err = TRP3FW:RunPrivilegedSafe(privilegedCode, "who_zone_scan")
     if not success then

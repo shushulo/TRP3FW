@@ -28,8 +28,17 @@ function TRP3FW.ServiceContainer:Get(name)
 end
 
 function TRP3FW.ServiceContainer:InitializeAll()
+    -- Initialize EventService FIRST to ensure it's listening to events
+    local eventService = self.services["EventService"]
+    if eventService and eventService.Initialize and not eventService.initialized then
+        TRP3FW:Debug("[ServiceContainer] Initializing EventService first", "core")
+        eventService:Initialize()
+    end
+
+    -- Initialize all other services
     for name, service in pairs(self.services) do
-        if service.Initialize and not service.initialized then
+        if name ~= "EventService" and service.Initialize and not service.initialized then
+            TRP3FW:Debug("[ServiceContainer] Initializing service: " .. tostring(name), "core")
             service:Initialize()
         end
     end

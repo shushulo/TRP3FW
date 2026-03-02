@@ -63,7 +63,9 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority)
     local healthyCapacity = (immediateCap >= 5)
     local shouldFire = false
     
-    if #self.pendingPhaseChecks >= immediateCap and TRP3FW.Prefs.phaseCheckBatchMode then
+    if priority == "HIGH" then
+        shouldFire = true
+    elseif #self.pendingPhaseChecks >= immediateCap and TRP3FW.Prefs.phaseCheckBatchMode then
         if self.phaseCheckBatchTimer then
             if healthyCapacity then
                 shouldFire = true
@@ -115,7 +117,12 @@ function TRP3FW:ProcessPhaseCheckBatch()
         return
     end
 
-    -- Pull a batch from the queue (with deduplication)
+    -- MUTEX: If a batch or individual check is already running, don't start a new one.
+    -- The new request is already in the queue and will be picked up when the current one finishes.
+    if self.targetingInProgress then
+        TRP3FW:Debug("[Batch] Deferring batch start - targeting already in progress", "phase")
+        return
+    end
     local batch = {}
     local batchIndices = {} -- Map playerName -> batch index
     
@@ -532,7 +539,9 @@ function TRP3FW:ProcessPhaseCheckBatch()
                 TRP3FW:Debug("[Batch] "..check.playerName.." - FAILED ("..tostring(err)..")", "phase")
                 if check.callbacks then
                     for _, cb in ipairs(check.callbacks) do
-                        if cb then cb(nil, "error", nil, "batch") end
+                        -- Treat API error as "Not Found" (false) to trigger descriptive alerts
+                        -- but keep the reason as "error" for technical tracking
+                        if cb then cb(false, "api_error", nil, "batch") end
                     end
                 end
             end
@@ -708,7 +717,10 @@ function TRP3FW:ExecutePhaseCheck(check)
         ES:RegisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
     end
 
-    timeoutTimer = C_Timer.NewTimer(2.0, function()
+    local timeoutDuration = 2.0
+    if priority == "HIGH" then timeoutDuration = 1.0 end
+    
+    timeoutTimer = C_Timer.NewTimer(timeoutDuration, function()
         -- Fallback: If event didn't fire (e.g. target didn't change), verify manually
         if UnitName("target") == playerName then
             handleResult(true, C_Map.GetBestMapForUnit("target"), "targeting_fallback")

@@ -28,6 +28,8 @@ function EventService:Initialize()
     self:Listen("SCENARIO_UPDATE")
     self:Listen("PLAYER_TARGET_CHANGED")
     self:Listen("UPDATE_MOUSEOVER_UNIT")
+    self:Listen("WHO_LIST_UPDATE")
+    self:Listen("CHAT_MSG_SYSTEM")
     
     -- Epsilon-specific events
     if TRP3FW.hasEpsilonAPI then
@@ -71,7 +73,12 @@ end
 
 function EventService:OnEvent(event, ...)
     local now = TRP3FW:GetCurrentTime()
-    
+
+    -- Debug WHO_LIST_UPDATE to diagnose issues
+    if event == "WHO_LIST_UPDATE" then
+        TRP3FW:Debug("[EventService] WHO_LIST_UPDATE event received from WoW", "who")
+    end
+
     if event == "ADDON_LOADED" then
         self:Trigger("ADDON_LOADED", event, ...)
     elseif event == "PLAYER_LOGIN" then
@@ -88,6 +95,8 @@ function EventService:OnEvent(event, ...)
         self:Trigger("LOADING_FINISHED", event, ...)
     elseif event == "WHO_LIST_UPDATE" then
         self:Trigger("WHO_LIST_UPDATE", event, ...)
+    elseif event == "CHAT_MSG_SYSTEM" then
+        self:Trigger("CHAT_MSG_SYSTEM", event, ...)
     end
 end
 

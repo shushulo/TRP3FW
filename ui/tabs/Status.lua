@@ -217,8 +217,10 @@ local function CreateStatusTab(container)
     y = y - 30
     local slider = CreateFrame("Slider", "TRP3FW_StatusRefreshSlider", content, "OptionsSliderTemplate")
     slider:SetPoint("TOPLEFT", 20, y); slider:SetWidth(360); slider:SetMinMaxValues(2, 120); slider:SetValueStep(1); slider:SetObeyStepOnDrag(true)
+    slider:SetValue(TRP3FW.Prefs.statusRefreshRate or 30)  -- Initialize with current value
     uiElements.statusRefreshRate = slider
     getglobal(slider:GetName().."Low"):SetText("2s"); getglobal(slider:GetName().."High"):SetText("120s")
+    getglobal(slider:GetName().."Text"):SetText("Refresh every " .. (TRP3FW.Prefs.statusRefreshRate or 30) .. " seconds")
     slider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value); TRP3FW.Prefs.statusRefreshRate = value
         getglobal(self:GetName().."Text"):SetText("Refresh every " .. value .. " seconds")

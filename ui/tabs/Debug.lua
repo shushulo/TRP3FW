@@ -185,7 +185,21 @@ local function CreateDebugTab(container)
     UIDropDownMenu_Initialize(dOut, function()
         local l = { {t="Chat", f=function() TRP3FW.Prefs.debugOutputChat=true; TRP3FW.Prefs.debugOutputWindow=false; TRP3FW.Prefs.debugOutputBoth=false end}, {t="Window", f=function() TRP3FW.Prefs.debugOutputChat=false; TRP3FW.Prefs.debugOutputWindow=true; TRP3FW.Prefs.debugOutputBoth=false end}, {t="Both", f=function() TRP3FW.Prefs.debugOutputChat=true; TRP3FW.Prefs.debugOutputWindow=true; TRP3FW.Prefs.debugOutputBoth=true end} }
         for _, it in ipairs(l) do local info = UIDropDownMenu_CreateInfo(); info.text=it.t; info.func=function() it.f(); UIDropDownMenu_SetText(dOut, it.t) end; UIDropDownMenu_AddButton(info) end
-    end); y = y - 85
+    end); y = y - 50
+
+    -- Debug Window toggle button
+    local debugWindowButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    debugWindowButton:SetSize(150, 22)
+    debugWindowButton:SetPoint("TOPLEFT", 40, y)
+    debugWindowButton:SetText("Toggle Debug Window")
+    debugWindowButton:SetScript("OnClick", function()
+        if TRP3FW.ToggleDebugWindow then
+            TRP3FW:ToggleDebugWindow()
+        else
+            TRP3FW:Warn("Debug window not loaded yet")
+        end
+    end)
+    y = y - 50
 
     local dCats = { "debugChannel", "debugWhisper", "debugWho", "debugPhase", "debugCleanName", "debugLocation", "debugDecision", "debugHooks", "debugCache", "debugSend", "debugUI", "debugUtils", "debugSecurity", "debugGhost", "debugSPVP" }
     local dLabels = { "Channel", "Whisper", "WHO", "Phase", "Names", "Location", "Decision", "Hooks", "Cache", "Send", "UI", "Utils", "Security", "Ghost", "SPVP" }

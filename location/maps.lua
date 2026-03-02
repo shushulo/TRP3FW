@@ -502,6 +502,14 @@ function TRP3FW:MapScan(name, sendId, callback)
     local now = self:GetCurrentTime()
     local minInterval = (TRP3FW.Prefs and TRP3FW.Prefs.mapScanMinInterval) or MAP_SCAN_MIN_INTERVAL
     if minInterval < 0 then minInterval = MAP_SCAN_MIN_INTERVAL end
+    
+    -- DYNAMIC RATE LIMITING:
+    -- For HIGH priority requests (scan replies), we allow a much tighter interval (5s)
+    -- to ensure we can always respond to new scanners if they aren't in cache.
+    if sendId == "HIGH" or (type(sendId) == "table" and sendId.priority == "HIGH") then
+        minInterval = 5 -- Allow fresh scans every 5s for scan replies
+    end
+
     local lastScanAt = self.lastMapScanAt or 0
     local sinceLastScan = now - lastScanAt
     local scanInProgress = activeScanForMap
@@ -539,8 +547,13 @@ function TRP3FW:MapScan(name, sendId, callback)
         self:Debug("[Map Scan Started] Will cache responses for next 5 seconds (scanning mapID: "..tostring(scannedMapID)..")", "channel")
     end
 
-    -- Use 5 second timeout for this specific player
-    local timerId = C_Timer.NewTimer(5, function()
+    -- Use 5 second timeout for this specific player (shorter for HIGH priority)
+    local timeoutDuration = 5
+    if sendId == "HIGH" or (type(sendId) == "table" and sendId.priority == "HIGH") then
+        timeoutDuration = 2.5
+    end
+
+    local timerId = C_Timer.NewTimer(timeoutDuration, function()
         local scanInfo = activeScanCallbacks[name]
         if scanInfo and not scanInfo.found then
             TRP3FW:Debug("Map scan timeout for "..name.." - not found", "channel")
