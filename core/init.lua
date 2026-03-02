@@ -509,15 +509,36 @@ end
 TRP3FW.pendingSends = {}
 TRP3FW.pendingSendId = 0
 
+-- ===================== Deprecated Tables Metatable =====================
+-- Provides a warning when legacy cache tables are accessed directly
+local function createDeprecatedCacheTable(name, replacement)
+    local proxy = {}
+    local mt = {
+        __index = function(t, k)
+            TRP3FW:Debug("[DEPRECATION] Direct access to TRP3FW."..name.." is deprecated. Use TRP3FW.CacheInterface:Get('"..replacement.."', ...)", "cache")
+            return nil
+        end,
+        __newindex = function(t, k, v)
+            TRP3FW:Debug("[DEPRECATION] Direct assignment to TRP3FW."..name.." is deprecated. Use TRP3FW.CacheInterface:Set('"..replacement.."', ...)", "cache")
+        end,
+        __pairs = function(t)
+            TRP3FW:Debug("[DEPRECATION] Iterating over TRP3FW."..name.." is deprecated.", "cache")
+            return pairs({})
+        end
+    }
+    setmetatable(proxy, mt)
+    return proxy
+end
+
 -- Caches (DEPRECATED: Migrated to CacheInterface - kept for backwards compatibility)
 -- All cache access now goes through TRP3FW.CacheInterface with O(1) LRU eviction
-TRP3FW.allowedSendersCache = {}  -- DEPRECATED: Use CacheInterface:Get/Set("allowedSenders", ...)
-TRP3FW.recentScans = {}  -- DEPRECATED: Use CacheInterface:Get/Set("mapScan", ...)
-TRP3FW.recentBroadcasts = {}  -- DEPRECATED: Use CacheInterface:Get/Set("broadcast", ...)
-TRP3FW.phaseCheckCache = {}  -- DEPRECATED: Use CacheInterface:Get/Set("phaseCheck", ...)
-TRP3FW.whoZoneCache = {}  -- DEPRECATED: Use CacheInterface:Get/Set("whoZone", ...)
-TRP3FW.whoNameCache = {}  -- DEPRECATED: Use CacheInterface:Get/Set("whoName", ...)
-TRP3FW.interactionCache = {}  -- DEPRECATED: Use CacheInterface:Get/Set("interaction", ...)
+TRP3FW.allowedSendersCache = createDeprecatedCacheTable("allowedSendersCache", "allowedSenders")
+TRP3FW.recentScans = createDeprecatedCacheTable("recentScans", "mapScan")
+TRP3FW.recentBroadcasts = createDeprecatedCacheTable("recentBroadcasts", "broadcast")
+TRP3FW.phaseCheckCache = createDeprecatedCacheTable("phaseCheckCache", "phaseCheck")
+TRP3FW.whoZoneCache = createDeprecatedCacheTable("whoZoneCache", "whoZone")
+TRP3FW.whoNameCache = createDeprecatedCacheTable("whoNameCache", "whoName")
+TRP3FW.interactionCache = createDeprecatedCacheTable("interactionCache", "interaction")
 
 -- Performance: Frame-based monotonic time caching (eliminates ~95 syscalls per request)
 TRP3FW.cachedTime = nil
@@ -533,10 +554,10 @@ TRP3FW.PHASE_CACHE_TTL = 1  -- Cache phase ID for 1 second (balance between fres
 -- DEPRECATED: Hash-based player name normalization caches (migrated to CacheInterface)
 -- These tables are kept for backwards compatibility but are no longer used
 -- CleanPlayerName() and SanitizePlayerName() now use CacheInterface:Get/Set("cleanName"/"sanitizedName", ...)
-TRP3FW.cleanNameCache = {}  -- DEPRECATED
-TRP3FW.cleanNameCacheTimestamps = {}  -- DEPRECATED
-TRP3FW.sanitizedNameCache = {}  -- DEPRECATED
-TRP3FW.sanitizedNameCacheTimestamps = {}  -- DEPRECATED
+TRP3FW.cleanNameCache = createDeprecatedCacheTable("cleanNameCache", "cleanName")
+TRP3FW.cleanNameCacheTimestamps = createDeprecatedCacheTable("cleanNameCacheTimestamps", "cleanName")
+TRP3FW.sanitizedNameCache = createDeprecatedCacheTable("sanitizedNameCache", "sanitizedName")
+TRP3FW.sanitizedNameCacheTimestamps = createDeprecatedCacheTable("sanitizedNameCacheTimestamps", "sanitizedName")
 TRP3FW.cleanNameCacheCount = 0  -- DEPRECATED
 TRP3FW.sanitizedNameCacheCount = 0  -- DEPRECATED
 
@@ -577,7 +598,6 @@ TRP3FW.pendingPhaseChecks = {}  -- Queue for phase checks waiting for lock
 TRP3FW.lastZoneChangeTime = 0  -- Timestamp of last zone change (for phase-in delay)
 TRP3FW.lastPhaseChangeTime = 0  -- Timestamp of last phase change (for deduplication)
 TRP3FW.lastZoneEventTime = 0    -- Timestamp of last zone event (for deduplication)
-TRP3FW.pendingPhaseInRequests = {}  -- Queued profile requests during phase-in delay (DEPRECATED - use pendingPhaseInSends)
 TRP3FW.pendingPhaseInSends = {}  -- Queued Chomp sends during phase-in delay
 TRP3FW.PHASE_IN_QUEUE_LIMIT = 200
 
@@ -641,6 +661,86 @@ function TRP3FW:LoadProfile(profileName)
     self:Debug("Loaded profile: " .. profileName, "init")
 end
 
+-- ===================== Cache Initialization =====================
+
+function TRP3FW:InitializeCaches()
+    local CI = TRP3FW.CacheInterface
+    if not CI then
+        TRP3FW:Error("CacheInterface not loaded!")
+        return
+    end
+
+    -- Send Cache (Allowed Senders)
+    CI:Register("allowedSenders", {
+        ttl = TRP3FW.Prefs.sendCacheDuration,
+        maxSize = 1000
+    })
+
+    -- Interaction Cache
+    CI:Register("interaction", {
+        ttl = TRP3FW.Prefs.interactionCacheDuration,
+        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
+    })
+
+    -- Phase Check Cache
+    CI:Register("phaseCheck", {
+        ttl = TRP3FW.Prefs.phaseCacheDuration,
+        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
+    })
+
+    -- WHO Name Cache
+    CI:Register("whoName", {
+        ttl = TRP3FW.Prefs.whoNameCacheDuration,
+        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
+    })
+
+    -- WHO Zone Cache
+    CI:Register("whoZone", {
+        ttl = TRP3FW.Prefs.whoZoneCacheDuration,
+        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
+    })
+
+    -- Map Scan Cache (recentScans)
+    CI:Register("mapScan", {
+        ttl = TRP3FW.Prefs.scanCacheDuration,
+        maxSize = 1000
+    })
+
+    -- Broadcast Cache (recentBroadcasts)
+    CI:Register("broadcast", {
+        ttl = TRP3FW.Prefs.scanCacheDuration,
+        maxSize = 1000
+    })
+
+    -- SPVP Verified Cache
+    CI:Register("spvpVerified", {
+        ttl = TRP3FW.Prefs.spvpVerifiedCacheDuration or 300,
+        maxSize = 1000
+    })
+
+    -- SPVP Phase Salt Cache
+    CI:Register("spvpPhaseSalt", {
+        ttl = TRP3FW.Prefs.spvpSaltCacheDuration or 10800,
+        maxSize = 500
+    })
+
+    -- Name Normalization Caches (Utility)
+    CI:Register("cleanName", {
+        maxSize = TRP3FW.Prefs.cleanNameCacheSize or 500
+    })
+    CI:Register("sanitizedName", {
+        maxSize = TRP3FW.Prefs.sanitizedNameCacheSize or 500
+    })
+
+    -- Map Name Cache
+    CI:Register("mapName", {
+        ttl = 3600, -- 1 hour
+        maxSize = 200
+    })
+
+    TRP3FW:Debug("[Init] Core caches registered with CacheInterface", "cache")
+end
+
 -- Initialize settings
 function TRP3FW:InitializeSettings()
     -- 1. Perform Migration
@@ -653,14 +753,17 @@ function TRP3FW:InitializeSettings()
     -- 3. Load the profile
     self:LoadProfile(profileName)
     
-    -- 4. Set cache size constants
+    -- 4. Initialize Caches (Migrated from CacheService)
+    self:InitializeCaches()
+
+    -- 5. Set cache size constants
     TRP3FW.CLEAN_NAME_CACHE_MAX = self.Prefs.cleanNameCacheSize
     TRP3FW.SANITIZED_NAME_CACHE_MAX = self.Prefs.sanitizedNameCacheSize
 
-    -- 5. Persistent global caches
+    -- 6. Persistent global caches
     TRP3FW_ValidatedNames = TRP3FW_ValidatedNames or {}
 
-    -- 6. SPVP Migration (from InitializeSettings)
+    -- 7. SPVP Migration (from InitializeSettings)
     if self.hasEpsilonAPI and self.Prefs.spvpEnabled == false then
         if not self.Prefs.spvpExplicitlyDisabled then
             self.Prefs.spvpEnabled = true

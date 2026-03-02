@@ -256,6 +256,14 @@ function HistoryService:RecordHistory(playerName, addon, wasAlert, wasBlocked, w
         wasGhost = wasGhost,
         alertType = alertType
     })
+
+    -- Increment session stats
+    if wasAlert then self.sessionStats.alerts = self.sessionStats.alerts + 1 end
+    if wasBlocked then self.sessionStats.blocks = self.sessionStats.blocks + 1 end
+    if wasGhost then self.sessionStats.ghostSends = self.sessionStats.ghostSends + 1 end
+    
+    if alertType == "phase" then self.sessionStats.phaseAlerts = self.sessionStats.phaseAlerts + 1
+    elseif alertType == "map" then self.sessionStats.mapAlerts = self.sessionStats.mapAlerts + 1 end
     
     while #self.notificationHistory > TRP3FW.Prefs.maxHistorySize do
         table.remove(self.notificationHistory)
@@ -269,13 +277,29 @@ end
 function HistoryService:IncrementStat(category, subcategory, amount)
     amount = amount or 1
     if subcategory then
-        if self.sessionStats[category] and self.sessionStats[category][subcategory] then
+        if self.sessionStats[category] and self.sessionStats[category][subcategory] ~= nil then
             self.sessionStats[category][subcategory] = self.sessionStats[category][subcategory] + amount
         end
     else
-        if self.sessionStats[category] then
+        if self.sessionStats[category] ~= nil then
             self.sessionStats[category] = self.sessionStats[category] + amount
         end
+    end
+end
+
+function HistoryService:TrackAddonRequest(addon, sendId)
+    if not addon or type(addon) ~= "string" then return end
+
+    local addonKey = addon:upper()
+    if not self.sessionStats.requestsByAddon[addonKey] then return end
+
+    -- Deduplicate by sendId
+    TRP3FW.lastAddonRequestSendId = TRP3FW.lastAddonRequestSendId or {}
+    if not TRP3FW.lastAddonRequestSendId[sendId] then
+        self.sessionStats.requestsByAddon[addonKey] = self.sessionStats.requestsByAddon[addonKey] + 1
+        TRP3FW.lastAddonRequestSendId[sendId] = true
+        TRP3FW.lastAddonRequestSendIdCount = (TRP3FW.lastAddonRequestSendIdCount or 0) + 1
+        TRP3FW:Debug("Tracked addon request: "..addon.." (sendId: "..tostring(sendId)..")", "send")
     end
 end
 

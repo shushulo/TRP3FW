@@ -168,23 +168,16 @@ function SecurityService:SanitizePlayerName(name)
 
     local sanitized = name:match(SANITIZE_NAME_PATTERN)
     if sanitized then
-        sanitized = sanitized:gsub("\\", "\\\\"):gsub("\"", "\\\"")
+        sanitized = sanitized:gsub("\\", "\\\\"):gsub("\"", "\\\""):gsub("'", "\\'")
     end
 
     if (not sanitized or #sanitized == 0) then
         local fallback = self:CleanPlayerName(name)
         if fallback then
-            fallback = fallback:gsub("[\"\\]", ""):gsub("%c", "")
-            if #fallback >= 2 and #fallback <= 50 and fallback:find("[^%z]") then
-                sanitized = fallback
-            end
-        end
-    end
-
-    if not sanitized or #sanitized == 0 then
-        local fallback = self:CleanPlayerName(name)
-        if fallback then
-            fallback = fallback:gsub("[\"\\]", ""):gsub("%c", "")
+            -- Also escape single quotes in fallback if needed, or strip them if that's safer for fallbacks.
+            -- The spec says "strip-all-quotes" as a fallback strategy if escaping fails.
+            -- Here we'll strip them for the fallback as it already stripped " and \.
+            fallback = fallback:gsub("['\"\\]", ""):gsub("%c", "")
             if #fallback >= 2 and #fallback <= 50 and fallback:find("[^%z]") then
                 sanitized = fallback
             end

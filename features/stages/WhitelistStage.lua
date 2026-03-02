@@ -43,8 +43,7 @@ function WhitelistStage:Process(context)
     end
 
     -- Process queued burst requests
-    TRP3FW:ProcessMSPBurstAllows(context.playerName)
-    TRP3FW:ProcessTRP3BurstAllows(context.playerName)
+    TRP3FW:ProcessBurstAllows(context.playerName)
 
     return {handled = true, allowed = true, reason = "whitelist"}
 end

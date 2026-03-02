@@ -207,15 +207,14 @@ function TRP3FW:ProcessPhaseCheckBatch()
     local previousTargetName = hadTarget and GetUnitName("target", true) or nil -- Capture name with realm
     
     local currentIndex = 1
-    local batchFrame = CreateFrame("Frame")
     local batchTimer = nil
+    local onTargetChanged -- Declare ahead for recursion
 
     local function cleanupBatch()
         if batchTimer then batchTimer:Cancel() batchTimer = nil end
-        if batchFrame then 
-            batchFrame:UnregisterAllEvents() 
-            batchFrame:SetScript("OnEvent", nil)
-            batchFrame = nil 
+        local ES = TRP3FW.ServiceContainer:Get("EventService")
+        if ES and onTargetChanged then
+            ES:UnregisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
         end
         
         -- Delay clearing the flag to ensure CacheService sees it during event propagation
@@ -247,8 +246,10 @@ function TRP3FW:ProcessPhaseCheckBatch()
     local function processNext()
         -- Clean up previous step's timer/event
         if batchTimer then batchTimer:Cancel() batchTimer = nil end
-        batchFrame:UnregisterAllEvents()
-        batchFrame:SetScript("OnEvent", nil)
+        local ES = TRP3FW.ServiceContainer:Get("EventService")
+        if ES and onTargetChanged then
+            ES:UnregisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
+        end
 
         if currentIndex > #batch then
             -- Batch complete, restore target
@@ -427,7 +428,10 @@ function TRP3FW:ProcessPhaseCheckBatch()
             processedThisStep = true
             
             if batchTimer then batchTimer:Cancel() batchTimer = nil end
-            batchFrame:UnregisterAllEvents()
+            local ES = TRP3FW.ServiceContainer:Get("EventService")
+            if ES and onTargetChanged then
+                ES:UnregisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
+            end
             
             -- Cache result
             local CI = TRP3FW.CacheInterface
@@ -466,8 +470,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
         end
 
         -- Event listener for immediate success
-        batchFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
-        batchFrame:SetScript("OnEvent", function()
+        onTargetChanged = function()
             local newName = UnitName("target")
             if newName == check.playerName then
                 local targetMap = C_Map.GetBestMapForUnit("target")
@@ -476,7 +479,10 @@ function TRP3FW:ProcessPhaseCheckBatch()
                 end, "phase")
                 finishStep(true, "batch_targeting", targetMap)
             end
-        end)
+        end
+        if ES then
+            ES:RegisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
+        end
 
         local success, err, waitTime = TRP3FW:RunPrivilegedSafe('TargetUnit("'..sanitizedName..'")', category)
 
@@ -589,15 +595,14 @@ function TRP3FW:ExecutePhaseCheck(check)
     local previousTargetName = hadTarget and GetUnitName("target", true) or nil -- Capture name with realm
     
     -- Create event listener
-    local targetCheckFrame = CreateFrame("Frame")
     local timeoutTimer = nil
     local eventHandled = false
+    local onTargetChanged
 
     local function cleanup()
-        if targetCheckFrame then
-            targetCheckFrame:UnregisterAllEvents()
-            targetCheckFrame:SetScript("OnEvent", nil)
-            targetCheckFrame = nil
+        local ES = TRP3FW.ServiceContainer:Get("EventService")
+        if ES and onTargetChanged then
+            ES:UnregisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
         end
         if timeoutTimer then
             timeoutTimer:Cancel()
@@ -692,13 +697,16 @@ function TRP3FW:ExecutePhaseCheck(check)
         if callback then callback(success, "checked", mapID, reason) end
     end
 
-    targetCheckFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
-    targetCheckFrame:SetScript("OnEvent", function()
+    onTargetChanged = function()
         local newName = UnitName("target")
         if newName == playerName then
             handleResult(true, C_Map.GetBestMapForUnit("target"), "targeting")
         end
-    end)
+    end
+    local ES = TRP3FW.ServiceContainer:Get("EventService")
+    if ES then
+        ES:RegisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
+    end
 
     timeoutTimer = C_Timer.NewTimer(2.0, function()
         -- Fallback: If event didn't fire (e.g. target didn't change), verify manually

@@ -9,10 +9,7 @@ function TRP3FW:InitializeDecisionPipeline()
     -- Stage 1: Whitelist (Fastest, bypasses everything)
     pipeline:AddStage(TRP3FW.WhitelistStage:New("Whitelist"))
 
-    -- Stage 2: Phase-In Delay (Queues requests after zone change)
-    pipeline:AddStage(TRP3FW.PhaseInStage:New("PhaseInDelay"))
-
-    -- Stage 3: SPVP Context (Prepares salt and enabled status)
+    -- Stage 2: SPVP Context (Prepares salt and enabled status)
     pipeline:AddStage(TRP3FW.SPVPStage:New("SPVP"))
 
     -- Stage 4: Cache Check (Phase, Map, Allowed Senders, SPVP Verified)

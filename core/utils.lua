@@ -36,6 +36,10 @@ function TRP3FW:Info(msg)
     self:PrintColored("info", msg)
 end
 
+function TRP3FW:Success(msg)
+    self:PrintColored("info", msg)
+end
+
 function TRP3FW:Warn(msg)
     self:PrintColored("warn", msg)
 end
@@ -222,41 +226,6 @@ function TRP3FW:SanitizeZoneName(zone)
     end
 
     return sanitized
-end
-
--- ===================== Location Formatting =====================
-
-function TRP3FW:FormatLocation(zone, map, phase)
-    --[[
-        Formats location information for display
-
-        @param zone string - Zone name (e.g., "Stormwind City")
-        @param map number|string - Map ID or map name (optional)
-        @param phase number|string - Phase ID (optional)
-        @return string - Formatted location string
-
-        Examples:
-        - FormatLocation("Stormwind", 1453) → "Stormwind (Stormwind City)"
-        - FormatLocation("Stormwind", nil, 169) → "Stormwind (Phase 169)"
-        - FormatLocation("Stormwind") → "Stormwind"
-    --]]
-
-    local parts = {zone or "Unknown"}
-
-    if phase then
-        table.insert(parts, "Phase " .. tostring(phase))
-    elseif map then
-        local mapName = type(map) == "number" and self:GetMapName(map) or map
-        if mapName and mapName ~= zone then
-            table.insert(parts, mapName)
-        end
-    end
-
-    if #parts > 1 then
-        return parts[1] .. " (" .. table.concat(parts, ", ", 2) .. ")"
-    end
-
-    return parts[1]
 end
 
 -- ===================== Burst Queue Processing =====================

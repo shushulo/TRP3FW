@@ -5,24 +5,17 @@ local addonName, TRP3FW = ...
 
 -- ===================== Map Helpers =====================
 
-local mapNameCache = {}
-local mapNameCacheSize = 0
-local MAP_CACHE_SIZE = 200
-local MAP_CACHE_TTL = 3600 -- 1 hour
 local MAP_SCAN_MIN_INTERVAL = 60 -- do not trigger new scans more often than once per minute
 
 function TRP3FW:GetMapName(mapID)
     if not mapID then return "Unknown" end
 
-    -- Check cache first
-    local cached = mapNameCache[mapID]
-    if cached then
-        local age = self:GetCurrentTime() - cached.timestamp
-        if age < MAP_CACHE_TTL then
-            return cached.name -- Cache hit
-        else
-            mapNameCache[mapID] = nil
-            mapNameCacheSize = math.max(mapNameCacheSize - 1, 0)
+    -- Check unified cache first
+    local CI = self.CacheInterface
+    if CI then
+        local cached = CI:Get("mapName", mapID)
+        if cached then
+            return cached
         end
     end
 
@@ -30,23 +23,45 @@ function TRP3FW:GetMapName(mapID)
     local mapInfo = C_Map.GetMapInfo(mapID)
     local name = mapInfo and mapInfo.name or ("Map "..tostring(mapID))
 
-    -- Enforce cache size with simple oldest-eviction
-    if mapNameCacheSize >= MAP_CACHE_SIZE then
-        local oldest, oldestTime = nil, math.huge
-        for id, entry in pairs(mapNameCache) do
-            if entry.timestamp < oldestTime then
-                oldest, oldestTime = id, entry.timestamp
-            end
-        end
-        if oldest then
-            mapNameCache[oldest] = nil
-            mapNameCacheSize = mapNameCacheSize - 1
+    -- Update unified cache
+    if CI then
+        CI:Set("mapName", mapID, name)
+    end
+
+    return name
+end
+
+function TRP3FW:FormatLocation(zone, map, phase)
+    --[[
+        Formats location information for display
+
+        @param zone string - Zone name (e.g., "Stormwind City")
+        @param map number|string - Map ID or map name (optional)
+        @param phase number|string - Phase ID (optional)
+        @return string - Formatted location string
+
+        Examples:
+        - FormatLocation("Stormwind", 1453) → "Stormwind (Stormwind City)"
+        - FormatLocation("Stormwind", nil, 169) → "Stormwind (Phase 169)"
+        - FormatLocation("Stormwind") → "Stormwind"
+    --]]
+
+    local parts = {zone or "Unknown"}
+
+    if phase then
+        table.insert(parts, "Phase " .. tostring(phase))
+    elseif map then
+        local mapName = type(map) == "number" and self:GetMapName(map) or map
+        if mapName and mapName ~= zone then
+            table.insert(parts, mapName)
         end
     end
 
-    mapNameCache[mapID] = {name = name, timestamp = self:GetCurrentTime()}
-    mapNameCacheSize = mapNameCacheSize + 1
-    return name
+    if #parts > 1 then
+        return parts[1] .. " (" .. table.concat(parts, ", ", 2) .. ")"
+    end
+
+    return parts[1]
 end
 
 function TRP3FW:GetCurrentMapID()

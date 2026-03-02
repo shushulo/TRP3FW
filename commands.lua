@@ -200,12 +200,10 @@ SlashCmdList.TRP3FW = function(msg)
                 TRP3FW.Prefs.scanResponseMapMode = mode
                 TRP3FW:Info("Scan reply map mode set to "..mode)
                 if mode == "block" and previous ~= "block" then
-                    if wipe then
-                        wipe(TRP3FW.interactionCache)
-                    else
-                        TRP3FW.interactionCache = {}
+                    if TRP3FW.CacheInterface then
+                        TRP3FW.CacheInterface:Clear("interaction")
                     end
-                    TRP3FW:Debug("[Scan Reply] Cleared interactionCache after enabling map block mode (scan replies)", "cache")
+                    TRP3FW:Debug("[Scan Reply] Cleared interaction cache after enabling map block mode (scan replies)", "cache")
                 end
             else
                 TRP3FW:Warn("Usage: /trp3fw scanreply mapmode <off|alert|block>")
@@ -1084,6 +1082,13 @@ SlashCmdList.TRP3FW = function(msg)
 
     elseif cmd == "minimap" then
         TRP3FW:ToggleMinimapButton()
+
+    elseif cmd == "minimapreset" then
+        if TRP3FW.ResetMinimapButton then
+            TRP3FW:ResetMinimapButton()
+        else
+            TRP3FW:Error("Minimap reset function not available yet (UI not loaded?)")
+        end
 
     elseif cmd == "reset" then
         TRP3FW.Prefs = {}

@@ -82,30 +82,26 @@ local function CheckAutoInitializeSalt()
     TRP3FW:Debug(string.format("SPVP auto-init: Generated salt for phase %d: %s...", phaseID, salt:sub(1, 16)), "spvp")
 end
 
--- Hook into phase change and login events
-local autoInitFrame = CreateFrame("Frame")
-autoInitFrame:RegisterEvent("PLAYER_LOGIN")      -- Login
-autoInitFrame:RegisterEvent("SCENARIO_UPDATE")   -- Phase change fallback (Blizzard)
+-- Hook into phase change and login events via EventService
+C_Timer.After(1, function()
+    local ES = TRP3FW.ServiceContainer:Get("EventService")
+    if not ES then return end
 
--- Custom Epsilon event for phase change (if supported natively)
-pcall(function()
-    autoInitFrame:RegisterEvent("EPSILON_PHASE_CHANGE")
-end)
-
-autoInitFrame:SetScript("OnEvent", function(self, event, arg1)
-    if event == "PLAYER_LOGIN" then
+    ES:RegisterCallback(ES.Events.PLAYER_READY, function()
         -- Wait for addon to fully load before prepopulating
         C_Timer.After(5, function()
             TRP3FW:PrepopulatePhaseSaltCache()
         end)
-    elseif event == "SCENARIO_UPDATE" or event == "EPSILON_PHASE_CHANGE" then
+    end)
+
+    ES:RegisterCallback(ES.Events.PHASE_CHANGED, function(event)
         -- Wait for phase to fully load before checking salt
         C_Timer.After(3, function()
             CheckAutoInitializeSalt()
             -- Also prepopulate the new phase's salt
             TRP3FW:PrepopulatePhaseSaltCache()
         end)
-    end
+    end)
 end)
 
 TRP3FW:Debug("SPVP auto-initialization handlers registered", "core")

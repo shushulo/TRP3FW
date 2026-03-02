@@ -95,8 +95,7 @@ function AlertFastPathStage:Process(context)
         end
         
         -- Process burst allows
-        TRP3FW:ProcessMSPBurstAllows(context.playerName)
-        TRP3FW:ProcessTRP3BurstAllows(context.playerName)
+        TRP3FW:ProcessBurstAllows(context.playerName)
     end)
 
     return {handled = true, allowed = true, reason = "alert_fast_path"}

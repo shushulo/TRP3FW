@@ -14,84 +14,9 @@ local START_PHASE_ID = 169
 function CacheService:Initialize()
     TRP3FW.Service.Initialize(self)
     
-    self:InitializeCaches()
     self:InitializeCacheCleanup()
     self:InitializeZoneCacheClearing()
     self:InitializeInteractionTracking()
-end
-
--- ===================== Cache Initialization =====================
-
-function CacheService:InitializeCaches()
-    local CI = TRP3FW.CacheInterface
-    if not CI then
-        TRP3FW:Error("CacheInterface not loaded!")
-        return
-    end
-
-    -- Send Cache (Allowed Senders)
-    CI:Register("allowedSenders", {
-        ttl = TRP3FW.Prefs.sendCacheDuration,
-        maxSize = 1000
-    })
-
-    -- Interaction Cache
-    CI:Register("interaction", {
-        ttl = TRP3FW.Prefs.interactionCacheDuration,
-        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
-    })
-
-    -- Phase Check Cache
-    CI:Register("phaseCheck", {
-        ttl = TRP3FW.Prefs.phaseCacheDuration,
-        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
-    })
-
-    -- WHO Name Cache
-    CI:Register("whoName", {
-        ttl = TRP3FW.Prefs.whoNameCacheDuration,
-        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
-    })
-
-    -- WHO Zone Cache
-    CI:Register("whoZone", {
-        ttl = TRP3FW.Prefs.whoZoneCacheDuration,
-        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
-    })
-
-    -- Map Scan Cache (recentScans)
-    CI:Register("mapScan", {
-        ttl = TRP3FW.Prefs.scanCacheDuration,
-        maxSize = 1000
-    })
-
-    -- Broadcast Cache (recentBroadcasts)
-    CI:Register("broadcast", {
-        ttl = TRP3FW.Prefs.scanCacheDuration,
-        maxSize = 1000
-    })
-
-    -- SPVP Verified Cache
-    CI:Register("spvpVerified", {
-        ttl = TRP3FW.Prefs.spvpVerifiedCacheDuration or 300,
-        maxSize = 1000
-    })
-
-    -- SPVP Phase Salt Cache
-    CI:Register("spvpPhaseSalt", {
-        ttl = TRP3FW.Prefs.spvpSaltCacheDuration or 10800,
-        maxSize = 500
-    })
-
-    -- Name Normalization Caches (Utility)
-    CI:Register("cleanName", {
-        maxSize = TRP3FW.Prefs.cleanNameCacheSize or 500
-    })
-    CI:Register("sanitizedName", {
-        maxSize = TRP3FW.Prefs.sanitizedNameCacheSize or 500
-    })
-
-    TRP3FW:Debug("[CacheService] Core caches registered with CacheInterface", "cache")
 end
 
 -- ===================== Cleanup Logic =====================
@@ -362,28 +287,6 @@ function CacheService:InitializeCacheCleanup()
                 end
             end
 
-            if TRP3FW.pendingPhaseInRequests then
-                local now = TRP3FW:GetCurrentTime()
-                local pruned = 0
-                local kept = {}
-
-                for i, request in ipairs(TRP3FW.pendingPhaseInRequests) do
-                    local age = now - (request.queuedAt or 0)
-
-                    if age < 60 then
-                        table.insert(kept, request)
-                    else
-                        pruned = pruned + 1
-                        TRP3FW:Debug("[Cache Prune] Removed stale phase-in request for "..tostring(request.playerName).." (age: "..string.format("%.1f", age).."s)", "cache")
-                    end
-                end
-
-                if pruned > 0 then
-                    TRP3FW.pendingPhaseInRequests = kept
-                    TRP3FW:Debug("[Cache Prune] pendingPhaseInRequests: Pruned "..pruned.." stale entries, "..#kept.." remaining", "cache")
-                end
-            end
-
             if TRP3FW.pendingPhaseInSends then
                 local now = TRP3FW:GetCurrentTime()
                 local ttl = math.max((TRP3FW.Prefs.phaseInDelay or 4) * 3, 10)
@@ -536,18 +439,10 @@ end
 -- ===================== Zone/Phase Change Logic =====================
 
 function CacheService:InitializeZoneCacheClearing()
-    local zoneChangeFrame = CreateFrame("Frame")
-    zoneChangeFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    zoneChangeFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    zoneChangeFrame:RegisterEvent("SCENARIO_UPDATE")
-    zoneChangeFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
-    
-    -- Epsilon-specific phase change event
-    if TRP3FW.hasEpsilonAPI then
-        pcall(function() zoneChangeFrame:RegisterEvent("EPSILON_PHASE_CHANGE") end)
-    end
+    local ES = TRP3FW.ServiceContainer:Get("EventService")
+    if not ES then return end
 
-    zoneChangeFrame:SetScript("OnEvent", function(frame, event)
+    local function HandleZonePhaseChange(event, ...)
         local start = debugprofilestop()
         local now = TRP3FW:GetCurrentTime()
         local CI = TRP3FW.CacheInterface
@@ -560,13 +455,6 @@ function CacheService:InitializeZoneCacheClearing()
             zone = GetMinimapZoneText()
         end
         TRP3FW.currentZoneName = (zone and zone ~= "") and zone or nil
-
-        -- Special handling for loading screen end: reset phase-in timer but don't clear caches
-        if event == "LOADING_SCREEN_DISABLED" then
-            TRP3FW:Debug("[Zone Change] Loading screen finished, resetting phase-in timer", "cache")
-            TRP3FW.lastZoneChangeTime = now
-            return
-        end
 
         local shouldClear = false
         if event == "SCENARIO_UPDATE" or event == "EPSILON_PHASE_CHANGE" then
@@ -729,7 +617,14 @@ function CacheService:InitializeZoneCacheClearing()
         
         local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService")
         if hs then hs:RecordPerformance(debugprofilestop() - start, "Zone Change Cleanup") end
-    end)
+    end
+
+    ES:RegisterCallback(ES.Events.ZONE_CHANGED, HandleZonePhaseChange, 10)
+    ES:RegisterCallback(ES.Events.PHASE_CHANGED, HandleZonePhaseChange, 10)
+    ES:RegisterCallback("LOADING_FINISHED", function()
+        TRP3FW:Debug("[Zone Change] Loading screen finished, resetting phase-in timer", "cache")
+        TRP3FW.lastZoneChangeTime = TRP3FW:GetCurrentTime()
+    end, 10)
 end
 
 -- ===================== Interaction Tracking =====================
@@ -739,7 +634,9 @@ function CacheService:InitializeInteractionTracking()
         return
     end
 
-    local interactionFrame = CreateFrame("Frame")
+    local ES = TRP3FW.ServiceContainer:Get("EventService")
+    if not ES then return end
+
     -- OPTIMIZATION: Interaction refresh logic uses percentage of TTL
     local refreshPercent = TRP3FW.Prefs.interactionRefreshRate or 10
     local cacheDuration = TRP3FW.Prefs.interactionCacheDuration or 600
@@ -748,12 +645,7 @@ function CacheService:InitializeInteractionTracking()
     local lastMouseoverProcess = 0
     local MOUSEOVER_THROTTLE = 0.5  -- OPTIMIZATION: Reduced from 0.1s (10Hz) to 0.5s (2Hz) for 80% event reduction
 
-    interactionFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
-    interactionFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
-    self.interactionTrackingInitialized = true
-    TRP3FW:Debug("[CacheService] Interaction tracking enabled (refresh threshold: "..string.format("%.1f", refreshThreshold).."s)", "cache")
-
-    interactionFrame:SetScript("OnEvent", function(frame, event)
+    local function OnInteractionEvent(event)
         local start = debugprofilestop()
         if TRP3FW.Prefs.blockStartPhase and TRP3FW.hasEpsilonAPI then
             local myPhaseID = tonumber(C_Epsilon.GetPhaseId())
@@ -774,7 +666,6 @@ function CacheService:InitializeInteractionTracking()
                 if not unitName then return end
 
                 -- OPTIMIZATION: Check cache BEFORE expensive CleanPlayerName call
-                -- This avoids regex pattern matching on cache hits (common case)
                 local CI = TRP3FW.CacheInterface
                 local now = TRP3FW:GetCurrentTime()
                 local existing = CI and CI:Get("interaction", unitName)
@@ -827,7 +718,13 @@ function CacheService:InitializeInteractionTracking()
 
         local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService")
         if hs then hs:RecordPerformance(debugprofilestop() - start, "Interaction Tracking") end
-    end)
+    end
+
+    ES:RegisterCallback(ES.Events.TARGET_CHANGED, OnInteractionEvent)
+    ES:RegisterCallback("MOUSEOVER_CHANGED", OnInteractionEvent)
+
+    self.interactionTrackingInitialized = true
+    TRP3FW:Debug("[CacheService] Interaction tracking enabled (refresh threshold: "..string.format("%.1f", refreshThreshold).."s)", "cache")
 end
 
 TRP3FW.ServiceContainer:Register(CacheService)

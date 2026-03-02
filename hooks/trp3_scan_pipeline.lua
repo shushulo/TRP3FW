@@ -287,6 +287,24 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
         -- Stage 5: Make Decision
         local decision = MakeDecision(locationOK, alertType, source, cacheInfo, theirZone, myZone)
 
+        -- Update session metrics and record history via HistoryService
+        local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
+        if historyService then
+            historyService:RecordHistory(cleanName, contextLabel or "TRP3", decision.shouldAlert, decision.shouldBlock, false, decision.alertType)
+            
+            if decision.shouldAlert then historyService:IncrementStat("alerts") end
+            if decision.shouldBlock then historyService:IncrementStat("blocks") end
+            
+            if decision.alertType then
+                if decision.alertType:find("phase") then
+                    historyService:IncrementStat("phaseAlerts")
+                end
+                if decision.alertType:find("map") then
+                    historyService:IncrementStat("mapAlerts")
+                end
+            end
+        end
+
         -- Execute decision
         if decision.shouldBlock then
             if decision.shouldAlert then

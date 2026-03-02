@@ -79,7 +79,10 @@ end
 -- Register a new cache
 function TRP3FW.CacheInterface:Register(name, options)
     if self.caches[name] then
-        TRP3FW:Warn("[CacheInterface] Overwriting existing cache: "..tostring(name))
+        -- Silent update of options if already exists, no need to warn in production
+        self.caches[name].options = options or {}
+        TRP3FW:Debug("[CacheInterface] Updated options for cache: "..tostring(name), "cache")
+        return
     end
 
     self.caches[name] = {

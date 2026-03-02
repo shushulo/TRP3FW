@@ -109,10 +109,6 @@ mainFrame:SetScript("OnEvent", function(self, event, arg1)
             TRP3FW.pendingPhaseInSends = {}
         end
 
-        if TRP3FW.pendingPhaseInRequests then
-            TRP3FW.pendingPhaseInRequests = {}
-        end
-
         if TRP3FW.pendingTRP3Sends then
             TRP3FW.pendingTRP3Sends = {}
         end

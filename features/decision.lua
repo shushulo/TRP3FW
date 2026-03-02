@@ -49,40 +49,9 @@ end
 -- ===================== Profile Send Handling =====================
 
 function TRP3FW:TrackAddonRequest(addon, sendId)
-    -- Track requests by addon with sendId deduplication
-    -- FIXED: LOW-3 - Validate addon parameter type and value
-    if not addon or type(addon) ~= "string" then
-        self:Debug("[SECURITY] Invalid addon parameter in TrackAddonRequest", "security")
-        return
-    end
-
-    -- Whitelist of valid addons
-    local validAddons = {TRP3 = true, MRP = true, XRP = true, MSP = true}
-
-    local addonKey = addon:upper()
-    if not validAddons[addonKey] then
-        self:Debug("[SECURITY] Rejected invalid addon type: "..tostring(addon), "security")
-        return
-    end
-
-    if not self.sessionStats.requestsByAddon[addonKey] then
-        return -- Stats not initialized for this addon yet
-    end
-
-    -- Deduplicate by sendId
-    if not self.lastAddonRequestSendId then
-        self.lastAddonRequestSendId = {}
-    end
-
-    if not self.lastAddonRequestSendId[sendId] then
-        -- First time seeing this sendId - count it
-        self.sessionStats.requestsByAddon[addonKey] = self.sessionStats.requestsByAddon[addonKey] + 1
-        self.lastAddonRequestSendId[sendId] = true
-        self.lastAddonRequestSendIdCount = (self.lastAddonRequestSendIdCount or 0) + 1
-        self:Debug("Tracked addon request: "..addon.." (sendId: "..tostring(sendId)..")", "send")
-    else
-        -- Already counted this sendId
-        self:Debug("Duplicate sendId "..tostring(sendId).." for addon "..addon..", skipping addon stat increment", "send")
+    local service = self.ServiceContainer:Get("HistoryService")
+    if service then
+        service:TrackAddonRequest(addon, sendId)
     end
 end
 
@@ -225,12 +194,10 @@ function TRP3FW:CreateDecisionContext(playerName, addon, isWhisper, sendId, orig
     }
 end
 
--- =====================================================================================
--- BURST PROCESSING HELPERS
--- =====================================================================================
+-- ===================== BURST PROCESSING HELPERS =====================
 
-function TRP3FW:ProcessMSPBurstAllows(playerName)
-    -- Process queued MSP burst requests
+function TRP3FW:ProcessBurstAllows(playerName)
+    -- 1. Process MSP queued requests
     if self.pendingMSPReplies and self.pendingMSPReplies[playerName] then
         local queuedRequests = self.pendingMSPReplies[playerName].queuedRequests or {}
         for _, queuedReq in ipairs(queuedRequests) do
@@ -239,151 +206,93 @@ function TRP3FW:ProcessMSPBurstAllows(playerName)
                 local success, err = pcall(self.originalMSPReply, queuedReq.sender, queuedReq.fields)
                 if not success then
                     self:Debug("ERROR calling original MSP Reply for queued request: "..tostring(err), "send")
-                else
-                    self:Debug("Queued MSP request allowed and sent successfully", "send")
                 end
             end
         end
         self.pendingMSPReplies[playerName] = nil
     end
-end
 
-function TRP3FW:ProcessTRP3BurstAllows(playerName)
-    -- Process queued TRP3 Send Hook queued requests
-    if self.pendingTRP3Sends and self.pendingTRP3Sends[playerName] then
-        local queuedRequests = self.pendingTRP3Sends[playerName].queuedRequests or {}
-        for _, queuedReq in ipairs(queuedRequests) do
-            local stale, reason = self:IsBurstRequestStale(queuedReq)
-            if stale then
-                self:Debug("Dropping stale TRP3 burst allow for "..playerName.." ("..tostring(reason)..")", "send")
-            else
-                self:Debug("Processing queued TRP3 Send request for "..playerName.." with ALLOW decision (from burst)", "send")
-                if self.originalTRP3Send then
-                    local success, err = pcall(self.originalTRP3Send, queuedReq.self, queuedReq.messageType, queuedReq.data, queuedReq.target, queuedReq.priority)
-                    if not success then
-                        self:Debug("ERROR calling original TRP3 Send for queued request: "..tostring(err), "send")
-                    else
-                        self:Debug("Queued TRP3 Send request allowed and sent successfully", "send")
-                    end
-                end
-            end
-        end
-        self.pendingTRP3Sends[playerName] = nil
-    end
+    -- 2. Process TRP3/Chomp queued requests
+    local queues = {
+        { tbl = self.pendingTRP3Sends, orig = self.originalTRP3Send, label = "TRP3" },
+        { tbl = self.pendingChompSends, orig = self.originalChompSend, label = "Chomp" }
+    }
 
-    -- Process Chomp Hook queued requests
-    if self.pendingChompSends and self.pendingChompSends[playerName] then
-        local queuedRequests = self.pendingChompSends[playerName].queuedRequests or {}
-        for _, queuedReq in ipairs(queuedRequests) do
-            local stale, reason = self:IsBurstRequestStale(queuedReq)
-            if stale then
-                self:Debug("Dropping stale Chomp burst allow for "..playerName.." ("..tostring(reason)..")", "send")
-            else
-                self:Debug("Processing queued Chomp request for "..playerName.." with ALLOW decision (from burst)", "send")
-                if self.originalChompSend then
-                    local success, err = pcall(self.originalChompSend, queuedReq.prefix, queuedReq.text, queuedReq.chatType, queuedReq.target, queuedReq.priority, queuedReq.queue, queuedReq.callback, queuedReq.callbackArg)
-                    if not success then
-                        self:Debug("ERROR calling original Chomp for queued request: "..tostring(err), "send")
-                    else
-                        self:Debug("Queued Chomp request allowed and sent successfully", "send")
-                    end
-                end
-            end
-        end
-        self.pendingChompSends[playerName] = nil
-    end
-end
-
-function TRP3FW:ProcessTRP3BurstBlocks(playerName, useGhostMode)
-    -- Process TRP3 Send Hook queued requests
-    if self.pendingTRP3Sends and self.pendingTRP3Sends[playerName] then
-        local queuedRequests = self.pendingTRP3Sends[playerName].queuedRequests or {}
-        for _, queuedReq in ipairs(queuedRequests) do
-            if useGhostMode and self.hasTRP3ExchangeHooks then
+    for _, q in ipairs(queues) do
+        if q.tbl and q.tbl[playerName] then
+            local queuedRequests = q.tbl[playerName].queuedRequests or {}
+            for _, queuedReq in ipairs(queuedRequests) do
                 local stale, reason = self:IsBurstRequestStale(queuedReq)
                 if stale then
-                    self:Debug("Dropping stale TRP3 burst ghost/block for "..playerName.." ("..tostring(reason)..")", "send")
+                    self:Debug("Dropping stale "..q.label.." burst allow for "..playerName.." ("..tostring(reason)..")", "send")
                 else
-                    self:Debug("Processing queued TRP3 Send request for "..playerName.." with GHOST decision (from burst)", "send")
-                    local alternateProfileID = TRP3FW.Prefs.ghostProfileID
-                    local success = self:EnableGhostForNextSend(playerName, alternateProfileID)
-                    if success and self.originalTRP3Send then
-                        local callSuccess, err = pcall(self.originalTRP3Send, queuedReq.self, queuedReq.messageType, queuedReq.data, queuedReq.target, queuedReq.priority)
-                        if not callSuccess then
-                            self:Debug("ERROR sending ghost profile for queued TRP3 Send request: "..tostring(err), "send")
+                    self:Debug("Processing queued "..q.label.." request for "..playerName.." with ALLOW decision", "send")
+                    if q.orig then
+                        local success, err
+                        if q.label == "TRP3" then
+                            success, err = pcall(q.orig, queuedReq.self, queuedReq.messageType, queuedReq.data, queuedReq.target, queuedReq.priority)
                         else
-                            self:Debug("Queued TRP3 Send request sent with ghost profile", "send")
+                            success, err = pcall(q.orig, queuedReq.prefix, queuedReq.text, queuedReq.chatType, queuedReq.target, queuedReq.priority, queuedReq.queue, queuedReq.callback, queuedReq.callbackArg)
                         end
-                    else
-                        self:Debug("Queued TRP3 Send request blocked (ghost mode failed)", "send")
+                        if not success then
+                            self:Debug("ERROR calling original "..q.label.." for queued request: "..tostring(err), "send")
+                        end
                     end
                 end
-            else
-                self:Debug("Processing queued TRP3 Send request for "..playerName.." with BLOCK decision (from burst)", "send")
             end
+            q.tbl[playerName] = nil
         end
-        self.pendingTRP3Sends[playerName] = nil
-    end
-
-    -- Process Chomp Hook queued requests
-    if self.pendingChompSends and self.pendingChompSends[playerName] then
-        local queuedRequests = self.pendingChompSends[playerName].queuedRequests or {}
-        for _, queuedReq in ipairs(queuedRequests) do
-            if useGhostMode and self.hasTRP3ExchangeHooks then
-                local stale, reason = self:IsBurstRequestStale(queuedReq)
-                if stale then
-                    self:Debug("Dropping stale Chomp burst ghost/block for "..playerName.." ("..tostring(reason)..")", "send")
-                else
-                    self:Debug("Processing queued Chomp request for "..playerName.." with GHOST decision (from burst)", "send")
-                    local alternateProfileID = TRP3FW.Prefs.ghostProfileID
-                    local success = self:EnableGhostForNextSend(playerName, alternateProfileID)
-                    if success and self.originalChompSend then
-                        local callSuccess, err = pcall(self.originalChompSend, queuedReq.prefix, queuedReq.text, queuedReq.chatType, queuedReq.target, queuedReq.priority, queuedReq.queue, queuedReq.callback, queuedReq.callbackArg)
-                        if not callSuccess then
-                            self:Debug("ERROR sending ghost profile for queued Chomp request: "..tostring(err), "send")
-                        else
-                            self:Debug("Queued Chomp request sent with ghost profile", "send")
-                        end
-                    else
-                        self:Debug("Queued Chomp request blocked (ghost mode failed)", "send")
-                    end
-                end
-            else
-                self:Debug("Processing queued Chomp request for "..playerName.." with BLOCK decision (from burst)", "send")
-            end
-        end
-        self.pendingChompSends[playerName] = nil
     end
 end
 
-function TRP3FW:ProcessMSPBurstBlocks(playerName, useGhostMode)
+function TRP3FW:ProcessBurstBlocks(playerName, useGhostMode)
+    -- 1. Process MSP queued requests
     if self.pendingMSPReplies and self.pendingMSPReplies[playerName] then
-        local mspQueuedRequests = self.pendingMSPReplies[playerName].queuedRequests or {}
-        for _, queuedReq in ipairs(mspQueuedRequests) do
+        local queuedRequests = self.pendingMSPReplies[playerName].queuedRequests or {}
+        for _, queuedReq in ipairs(queuedRequests) do
             if useGhostMode then
                 local stale, reason = self:IsBurstRequestStale(queuedReq)
                 if stale then
                     self:Debug("Dropping stale MSP burst ghost/block for "..playerName.." ("..tostring(reason)..")", "send")
                 else
-                    self:Debug("Processing queued MSP request for "..playerName.." with GHOST decision (from burst)", "send")
-                    local alternateProfileID = TRP3FW.Prefs.ghostProfileID
-                    local ghostEnabled = self:EnableGhostForNextSend(playerName, alternateProfileID)
-                    if ghostEnabled and self.originalMSPReply then
-                        local success, err = pcall(self.originalMSPReply, queuedReq.sender, queuedReq.fields)
-                        if not success then
-                            self:Debug("ERROR sending ghost profile for queued MSP request: "..tostring(err), "send")
-                        else
-                            self:Debug("Queued MSP request sent with ghost profile", "send")
-                        end
-                    else
-                        self:Debug("Queued MSP request blocked (ghost mode unavailable)", "send")
+                    self:Debug("Processing queued MSP request for "..playerName.." with GHOST decision", "send")
+                    local success = self:EnableGhostForNextSend(playerName, TRP3FW.Prefs.ghostProfileID)
+                    if success and self.originalMSPReply then
+                        pcall(self.originalMSPReply, queuedReq.sender, queuedReq.fields)
                     end
                 end
-            else
-                self:Debug("Processing queued MSP request for "..playerName.." with BLOCK decision (from burst)", "send")
             end
         end
         self.pendingMSPReplies[playerName] = nil
+    end
+
+    -- 2. Process TRP3/Chomp queued requests
+    local queues = {
+        { tbl = self.pendingTRP3Sends, orig = self.originalTRP3Send, label = "TRP3" },
+        { tbl = self.pendingChompSends, orig = self.originalChompSend, label = "Chomp" }
+    }
+
+    for _, q in ipairs(queues) do
+        if q.tbl and q.tbl[playerName] then
+            local queuedRequests = q.tbl[playerName].queuedRequests or {}
+            for _, queuedReq in ipairs(queuedRequests) do
+                if useGhostMode and self.hasTRP3ExchangeHooks then
+                    local stale, reason = self:IsBurstRequestStale(queuedReq)
+                    if not stale then
+                        self:Debug("Processing queued "..q.label.." request for "..playerName.." with GHOST decision", "send")
+                        local success = self:EnableGhostForNextSend(playerName, TRP3FW.Prefs.ghostProfileID)
+                        if success and q.orig then
+                            if q.label == "TRP3" then
+                                pcall(q.orig, queuedReq.self, queuedReq.messageType, queuedReq.data, queuedReq.target, queuedReq.priority)
+                            else
+                                pcall(q.orig, queuedReq.prefix, queuedReq.text, queuedReq.chatType, queuedReq.target, queuedReq.priority, queuedReq.queue, queuedReq.callback, queuedReq.callbackArg)
+                            end
+                        end
+                    end
+                end
+            end
+            q.tbl[playerName] = nil
+        end
     end
 end
 
@@ -540,8 +449,7 @@ function TRP3FW:ApplyLocationDecision(context, shouldBlock, shouldAlert, useGhos
         -- Process queued burst requests (BLOCK/GHOST)
         -- Note: These process pendingMSPReplies/pendingTRP3Sends/pendingChompSends
         -- which are separate from the pendingLocationChecks queue
-        self:ProcessMSPBurstBlocks(context.playerName, useGhostMode)
-        self:ProcessTRP3BurstBlocks(context.playerName, useGhostMode)
+        self:ProcessBurstBlocks(context.playerName, useGhostMode)
     else
         self:AllowSender(context.playerName, "location_ok")
         if context.originalFunc then
@@ -549,8 +457,7 @@ function TRP3FW:ApplyLocationDecision(context, shouldBlock, shouldAlert, useGhos
         end
 
         -- Process queued burst requests (ALLOW)
-        self:ProcessMSPBurstAllows(context.playerName)
-        self:ProcessTRP3BurstAllows(context.playerName)
+        self:ProcessBurstAllows(context.playerName)
     end
 end
 

@@ -137,13 +137,19 @@ end
 --- Generate cryptographically random private key
 --- @return number - Private key in range [2, DH_PRIME-2]
 local function GeneratePrivateKey()
-    local now = GetTime()
+    local now = GetTimePreciseSec and GetTimePreciseSec() or GetTime()
     local guid = UnitGUID("player") or "NOGUID"
     local mouse_x, mouse_y = GetCursorPosition()
 
-    -- Mix entropy sources
-    local seed = tonumber(guid:sub(-6), 16) + (now * 1000) + (mouse_x * mouse_y)
+    -- Mix high-resolution entropy sources
+    local seed = (tonumber(guid:sub(-8), 16) or 0) + 
+                 (math.floor(now * 1000000) % 2147483647) + 
+                 (mouse_x * 1337) + (mouse_y * 7331)
+    
     SafeRandomSeed(seed)
+
+    -- Pre-warm PRNG (discard first few outputs)
+    for i = 1, 5 do math.random() end
 
     -- Private key in range [2, DH_PRIME-2]
     local privateKey = math.random(2, DH_PRIME - 2)
@@ -177,25 +183,21 @@ end
 --- Generate cryptographically random session ID (8-char hex)
 --- @return string - 8-character hex session ID
 local function GenerateSessionID()
-    local now = GetTime()
     local guid = UnitGUID("player") or "NOGUID"
-    local mouse_x, mouse_y = GetCursorPosition()
-
-    -- Mix entropy sources
-    local seed = tonumber(guid:sub(-6), 16) + (now * 1000) + (mouse_x * mouse_y)
-    SafeRandomSeed(seed)
-
     local chars = "0123456789ABCDEF"
     local sessionID = ""
 
     for i = 1, 8 do
+        -- Re-seed every character for maximum entropy (PRNG hardening)
+        local now = GetTimePreciseSec and GetTimePreciseSec() or GetTime()
+        local mouse_x, mouse_y = GetCursorPosition()
+        local seed = (tonumber(guid:sub(-6), 16) or 0) + 
+                     (math.floor(now * 1000000) % 2147483647) + 
+                     (mouse_x * i) + (mouse_y * (9-i))
+        SafeRandomSeed(seed)
+        
         local r = math.random(1, 16)
         sessionID = sessionID .. chars:sub(r, r)
-
-        -- Re-seed every 2 chars (add entropy)
-        if i % 2 == 0 then
-            SafeRandomSeed(GetTime() * 1000 + math.random(10000))
-        end
     end
 
     return sessionID
@@ -211,62 +213,35 @@ end
 ---
 --- Entropy Sources (Total: ~100-120 bits):
 --- - Player GUID (last 8 hex chars): ~32 bits
---- - GetTime() millisecond precision: ~40 bits
+--- - GetTimePreciseSec() microsecond precision: ~40 bits
 --- - Mouse position (X * Y): ~20-30 bits
 --- - Frame count: ~20 bits
 --- - Math.random state evolution: ~10-20 bits
 --- @return string - Phase salt (64 hex chars + colon + UTC timestamp)
 function TRP3FW:GeneratePhaseSalt()
     TRP3FW.profiler.start("SPVP:GenerateSalt")
-    -- Entropy Source 1: Player GUID (unique per character)
-    local guid = UnitGUID("player") or "NOGUID"
-    local guidEntropy = tonumber(guid:sub(-8), 16) or 0  -- Last 8 hex chars (32 bits)
-
-    -- Entropy Source 2: High-precision time
-    local timeEntropy = GetTime() * 1000000  -- Microsecond precision if available
-
-    -- Entropy Source 3: Human input (mouse position)
-    local mouse_x, mouse_y = GetCursorPosition()
-    local mouseEntropy = (mouse_x or 0) * 10000 + (mouse_y or 0)
-
-    -- Entropy Source 4: Frame count (temporal jitter)
-    local frameEntropy = GetFramerate() * GetTime() * 1000
-
-    -- Entropy Source 5: Date string hash (adds day/hour/minute variation)
-    local dateStr = date("%Y%m%d%H%M%S")  -- e.g., "20240109143052"
-    local dateEntropy = 0
-    for i = 1, #dateStr do
-        dateEntropy = dateEntropy * 10 + string.byte(dateStr, i)
-    end
-
-    -- Mix all entropy sources (avoid overflow by using modulo)
-    local seed = (guidEntropy % 1000000 +
-                  timeEntropy % 1000000 +
-                  mouseEntropy % 1000000 +
-                  frameEntropy % 1000000 +
-                  dateEntropy % 1000000) % 2147483647  -- Keep in int32 range
-
-    SafeRandomSeed(seed)
-
-    -- Pre-warm PRNG (discard first few outputs which may be poor quality)
-    for i = 1, 10 do
-        math.random()
-    end
-
+    
     local chars = "0123456789ABCDEF"
     local salt = ""
 
     -- Generate 64 characters of hex noise with continuous re-seeding
     for i = 1, 64 do
+        -- Continuous re-seeding with high-res entropy for every 2 chars
+        if i % 2 == 1 then
+            local guid = UnitGUID("player") or "NOGUID"
+            local now = GetTimePreciseSec and GetTimePreciseSec() or GetTime()
+            local mouse_x, mouse_y = GetCursorPosition()
+            
+            local seed = (tonumber(guid:sub(-8), 16) or 0) +
+                         (math.floor(now * 1000000) % 2147483647) +
+                         ((mouse_x or 0) * 100) + ((mouse_y or 0) * i) +
+                         (GetFramerate() * 1000)
+            
+            SafeRandomSeed(seed)
+        end
+
         local r = math.random(1, 16)
         salt = salt .. chars:sub(r, r)
-
-        -- Re-seed frequently to prevent PRNG prediction
-        -- Mix current time + iteration + previous random value
-        if i % 4 == 0 then
-            local newSeed = (GetTime() * 1000000 + i * 12345 + r * 67890) % 2147483647
-            SafeRandomSeed(newSeed)
-        end
     end
 
     -- Append UTC timestamp for tracking (self-documenting)
