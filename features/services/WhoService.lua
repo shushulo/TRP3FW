@@ -195,10 +195,25 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
         -- Background Refresh logic if aging
         local ttl = TRP3FW.Prefs.whoNameCacheDuration or 180
         local refreshThreshold = TRP3FW.Prefs.whoCacheRefreshThreshold or 50
-        
+
         if age > (ttl * (refreshThreshold / 100)) then
              TRP3FW:Debug("[WhoService] Cache entry aging - triggering background refresh for "..playerName, "who")
              self:CheckPlayer(playerName, nil, nil, false, true, "who_refresh_low")
+        end
+
+        -- Track cache hit stats (deduplicate by sendId)
+        if not TRP3FW.lastWhoCacheSendId then
+            TRP3FW.lastWhoCacheSendId = {}
+        end
+
+        if sendId and not TRP3FW.lastWhoCacheSendId[sendId] then
+            -- First time seeing this sendId for WHO cache - count it
+            TRP3FW.sessionStats.cacheStats.whoCacheHits = TRP3FW.sessionStats.cacheStats.whoCacheHits + 1
+            TRP3FW.lastWhoCacheSendId[sendId] = true
+            TRP3FW:Debug("whoCache HIT for "..playerName.." (sendId: "..tostring(sendId)..")", "cache")
+        elseif sendId then
+            -- Already counted this sendId for WHO cache - skip
+            TRP3FW:Debug("Duplicate sendId "..tostring(sendId).." already counted for whoCache, skipping stat increment", "cache")
         end
 
         if callback then callback(cached.found, "cached", age, cached.zone) end
@@ -219,6 +234,22 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
         if zoneAge < zoneTTL and self.lastZoneResultCount and self.lastZoneResultCount < WHO_RESULT_LIMIT then
              -- The last zone scan was recent and complete. If they aren't in whoName/whoZone cache, they aren't here.
              TRP3FW:Debug("[WhoService] Zone scan was recent ("..zoneAge.."s) and complete ("..self.lastZoneResultCount.." results). Skipping query for "..playerName, "who")
+
+             -- Track cache hit stats (zone completeness is a cached result)
+             if not TRP3FW.lastWhoCacheSendId then
+                 TRP3FW.lastWhoCacheSendId = {}
+             end
+
+             if sendId and not TRP3FW.lastWhoCacheSendId[sendId] then
+                 -- First time seeing this sendId for WHO cache - count it
+                 TRP3FW.sessionStats.cacheStats.whoCacheHits = TRP3FW.sessionStats.cacheStats.whoCacheHits + 1
+                 TRP3FW.lastWhoCacheSendId[sendId] = true
+                 TRP3FW:Debug("whoCache HIT (zone complete) for "..playerName.." (sendId: "..tostring(sendId)..")", "cache")
+             elseif sendId then
+                 -- Already counted this sendId for WHO cache - skip
+                 TRP3FW:Debug("Duplicate sendId "..tostring(sendId).." already counted for whoCache, skipping stat increment", "cache")
+             end
+
              if callback then callback(false, "cached_zone_complete", zoneAge, nil) end
              return
         end
@@ -249,6 +280,22 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
             table.insert(self.queryQueue, { playerName = playerName, sendId = sendId, callback = callback, trackStats = trackStats, forceNameOnly = forceNameOnly, priority = priority, timestamp = now })
         end
         return
+    end
+
+    -- Cache miss - will execute fresh query
+    -- Track cache miss stats (deduplicate by sendId)
+    if not TRP3FW.lastWhoCacheSendId then
+        TRP3FW.lastWhoCacheSendId = {}
+    end
+
+    if sendId and not TRP3FW.lastWhoCacheSendId[sendId] then
+        -- First time seeing this sendId for WHO cache - count it
+        TRP3FW.sessionStats.cacheStats.whoCacheMisses = TRP3FW.sessionStats.cacheStats.whoCacheMisses + 1
+        TRP3FW.lastWhoCacheSendId[sendId] = true
+        TRP3FW:Debug("whoCache MISS for "..playerName.." (sendId: "..tostring(sendId)..")", "cache")
+    elseif sendId then
+        -- Already counted this sendId for WHO cache - skip
+        TRP3FW:Debug("Duplicate sendId "..tostring(sendId).." already counted for whoCache, skipping stat increment", "cache")
     end
 
     -- 3. Execute WHO Query

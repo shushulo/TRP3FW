@@ -133,24 +133,7 @@ function NotificationService:Notify(playerName, context)
     -- 3. Update History Timestamp (via HistoryService)
     local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
     if historyService then
-        -- We need to update the timestamp of the last history entry or create a new one if needed
-        -- But HistoryService:RecordHistory adds a NEW entry.
-        -- The legacy logic in notification_service.lua updated TRP3FW.profileSendHistory directly.
-        -- We should probably expose a method in HistoryService to update the timestamp of the active session.
-        -- For now, let's replicate the legacy behavior by accessing the exposed table if needed, 
-        -- or better, add a method to HistoryService.
-        
-        -- Legacy behavior:
-        -- if TRP3FW.profileSendHistory[playerName] then ... else ... end
-        -- Since HistoryService exposes profileSendHistory via TRP3FW.profileSendHistory, we can use that for now
-        -- to maintain exact behavior, or use a new method.
-        -- Let's use the alias for now to be safe, as HistoryService manages it.
-        if TRP3FW.profileSendHistory[playerName] then
-            TRP3FW.profileSendHistory[playerName].timestamp = TRP3FW:GetCurrentTime()
-            TRP3FW.profileSendHistory[playerName].suppressedCount = 0
-        else
-            TRP3FW.profileSendHistory[playerName] = {timestamp = TRP3FW:GetCurrentTime(), suppressedCount = 0}
-        end
+        historyService:RecordSend(playerName)
     end
 
     -- 4. Display

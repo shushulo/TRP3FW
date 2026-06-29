@@ -6,7 +6,7 @@ local addonName, TRP3FW = ...
 local HistoryService = TRP3FW.Service:New("HistoryService")
 
 function HistoryService:Initialize()
-    TRP3FW.Service.Initialize(self)
+    TRP3FW.Service.Initialize(self)  -- Base init; called as function because subclass `self` carries the override
     
     self.notificationHistory = {}
     self.profileSendHistory = {}
@@ -257,13 +257,26 @@ function HistoryService:RecordHistory(playerName, addon, wasAlert, wasBlocked, w
         alertType = alertType
     })
 
-    -- Increment session stats
+    -- Increment session stats. Single source of truth: callers MUST NOT also call
+    -- IncrementStat for these top-level counters. Use :find so combined alertTypes
+    -- like "phase+map" bump both phaseAlerts and mapAlerts.
     if wasAlert then self.sessionStats.alerts = self.sessionStats.alerts + 1 end
-    if wasBlocked then self.sessionStats.blocks = self.sessionStats.blocks + 1 end
-    if wasGhost then self.sessionStats.ghostSends = self.sessionStats.ghostSends + 1 end
-    
-    if alertType == "phase" then self.sessionStats.phaseAlerts = self.sessionStats.phaseAlerts + 1
-    elseif alertType == "map" then self.sessionStats.mapAlerts = self.sessionStats.mapAlerts + 1 end
+    if wasBlocked then
+        if wasGhost then
+            self.sessionStats.ghostSends = self.sessionStats.ghostSends + 1
+        else
+            self.sessionStats.blocks = self.sessionStats.blocks + 1
+        end
+    end
+
+    if alertType then
+        if alertType == "start_phase_block" then
+            self.sessionStats.startPhaseBlocks = self.sessionStats.startPhaseBlocks + 1
+        else
+            if alertType:find("phase") then self.sessionStats.phaseAlerts = self.sessionStats.phaseAlerts + 1 end
+            if alertType:find("map")   then self.sessionStats.mapAlerts   = self.sessionStats.mapAlerts + 1 end
+        end
+    end
     
     while #self.notificationHistory > TRP3FW.Prefs.maxHistorySize do
         table.remove(self.notificationHistory)
@@ -272,6 +285,34 @@ end
 
 function HistoryService:GetSessionStats()
     return self.sessionStats
+end
+
+-- Read send-history entry (timestamp, suppressedCount) for a player.
+function HistoryService:GetSendHistory(playerName)
+    return self.profileSendHistory[playerName]
+end
+
+-- Determine whether the next send for `playerName` is a "first send" relative to the
+-- suppression window. Returns (isFirstTime, suppressedCount).
+function HistoryService:IsFirstSend(playerName, now, suppressionTime)
+    local entry = self.profileSendHistory[playerName]
+    if not entry then return true, 0 end
+    local isFirst = (now - entry.timestamp) > (suppressionTime or 0)
+    return isFirst, entry.suppressedCount or 0
+end
+
+-- Stamp `playerName` as having just sent now (resets suppressedCount).
+-- Use this when a notification is shown/refreshed and we want the suppression
+-- window to start over.
+function HistoryService:RecordSend(playerName, now)
+    now = now or TRP3FW:GetCurrentTime()
+    local entry = self.profileSendHistory[playerName]
+    if entry then
+        entry.timestamp = now
+        entry.suppressedCount = 0
+    else
+        self.profileSendHistory[playerName] = { timestamp = now, suppressedCount = 0 }
+    end
 end
 
 function HistoryService:IncrementStat(category, subcategory, amount)

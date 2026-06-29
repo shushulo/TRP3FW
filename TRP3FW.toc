@@ -7,8 +7,8 @@
 ## OptionalDeps: TotalRP3, MyRolePlay, XRP
 
 # Core systems (load first)
-core\init.lua
 core\utils.lua
+core\init.lua
 core\Service.lua
 core\ServiceContainer.lua
 core\EventService.lua

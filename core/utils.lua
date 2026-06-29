@@ -577,31 +577,39 @@ end
 function TRP3FW:ValidateSettings()
     if not TRP3FW.Prefs then return end
 
-    -- Validate numeric ranges with sensible bounds
+    -- M7: Bounds only. Defaults are pulled from `TRP3FW.defaultSettings` so there's a
+    -- single source of truth — bad input now resets to the documented default rather
+    -- than a separate (often stale) value local to this function.
     local numericSettings = {
-        {name = "suppressionTime", min = 0, max = 3600, default = 300},
-        {name = "scanCacheDuration", min = 10, max = 600, default = 120},
-        {name = "sendCacheDuration", min = 60, max = 7200, default = 600},
-        {name = "phaseCacheDuration", min = 30, max = 600, default = 120},
-        {name = "whoZoneCacheDuration", min = 10, max = 300, default = 60},
-        {name = "whoNameCacheDuration", min = 10, max = 300, default = 60},
-        {name = "interactionCacheDuration", min = 30, max = 1800, default = 300},
-        {name = "cacheSizeLimit", min = 50, max = 10000, default = 500},
-        {name = "whoQueueLimit", min = 10, max = 500, default = 100},
-        {name = "interactionRefreshRate", min = 0, max = 100, default = 10},
-        {name = "sendCacheRefreshRate", min = 0, max = 100, default = 10},
-        {name = "whoCacheRefreshThreshold", min = 0, max = 100, default = 50},
-        {name = "phaseRefreshCooldown", min = 0, max = 300, default = 30},
-        {name = "statusRefreshRate", min = 2, max = 120, default = 30},
-        {name = "validatedNamesCacheDuration", min = 86400, max = 2592000, default = 604800}, -- 1-30 days (in seconds)
-        {name = "validatedNamesCacheLimit", min = 500, max = 10000, default = 5000}, -- 500-10000 entries
+        {name = "suppressionTime", min = 0, max = 3600},
+        {name = "scanCacheDuration", min = 10, max = 600},
+        {name = "sendCacheDuration", min = 60, max = 7200},
+        {name = "phaseCacheDuration", min = 30, max = 600},
+        {name = "whoZoneCacheDuration", min = 10, max = 300},
+        {name = "whoNameCacheDuration", min = 10, max = 300},
+        {name = "interactionCacheDuration", min = 30, max = 1800},
+        {name = "cacheSizeLimit", min = 50, max = 10000},
+        {name = "whoQueueLimit", min = 10, max = 500},
+        {name = "interactionRefreshRate", min = 0, max = 100},
+        {name = "sendCacheRefreshRate", min = 0, max = 100},
+        {name = "whoCacheRefreshThreshold", min = 0, max = 100},
+        {name = "phaseRefreshCooldown", min = 0, max = 300},
+        {name = "statusRefreshRate", min = 2, max = 120},
+        {name = "validatedNamesCacheDuration", min = 86400, max = 2592000}, -- 1-30 days (in seconds)
+        {name = "validatedNamesCacheLimit", min = 500, max = 10000},        -- 500-10000 entries
     }
 
+    local defaults = TRP3FW.defaultSettings or {}
     for _, setting in ipairs(numericSettings) do
         local value = TRP3FW.Prefs[setting.name]
         if type(value) ~= "number" or value < setting.min or value > setting.max then
-            self:Debug("[SECURITY] Invalid "..setting.name..": "..tostring(value)..", resetting to "..setting.default, "security")
-            TRP3FW.Prefs[setting.name] = setting.default
+            local fallback = defaults[setting.name]
+            if type(fallback) ~= "number" then
+                -- Last-ditch fallback if defaults table is missing this entry: clamp to range.
+                fallback = setting.min
+            end
+            self:Debug("[SECURITY] Invalid "..setting.name..": "..tostring(value)..", resetting to "..tostring(fallback), "security")
+            TRP3FW.Prefs[setting.name] = fallback
         end
     end
 end

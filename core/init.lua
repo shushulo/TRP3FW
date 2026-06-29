@@ -382,12 +382,11 @@ function TRP3FW.profiler.stop(name)
     stats.minTime = math.min(stats.minTime, elapsed)
     stats.maxTime = math.max(stats.maxTime, elapsed)
 
-    -- Keep last 1000 calls for percentile calculations
+    -- Keep last 1000 calls for percentile calculations (FIFO; the previous random
+    -- eviction biased P95/P99 toward older outliers).
     table.insert(stats.calls, elapsed)
     if #stats.calls > 1000 then
-        -- FIXED: MEDIUM-2 - Use random eviction instead of FIFO to prevent timing attacks
-        local randomIndex = math.random(1, #stats.calls)
-        table.remove(stats.calls, randomIndex)
+        table.remove(stats.calls, 1)
     end
 end
 
@@ -509,36 +508,9 @@ end
 TRP3FW.pendingSends = {}
 TRP3FW.pendingSendId = 0
 
--- ===================== Deprecated Tables Metatable =====================
--- Provides a warning when legacy cache tables are accessed directly
-local function createDeprecatedCacheTable(name, replacement)
-    local proxy = {}
-    local mt = {
-        __index = function(t, k)
-            TRP3FW:Debug("[DEPRECATION] Direct access to TRP3FW."..name.." is deprecated. Use TRP3FW.CacheInterface:Get('"..replacement.."', ...)", "cache")
-            return nil
-        end,
-        __newindex = function(t, k, v)
-            TRP3FW:Debug("[DEPRECATION] Direct assignment to TRP3FW."..name.." is deprecated. Use TRP3FW.CacheInterface:Set('"..replacement.."', ...)", "cache")
-        end,
-        __pairs = function(t)
-            TRP3FW:Debug("[DEPRECATION] Iterating over TRP3FW."..name.." is deprecated.", "cache")
-            return pairs({})
-        end
-    }
-    setmetatable(proxy, mt)
-    return proxy
-end
-
--- Caches (DEPRECATED: Migrated to CacheInterface - kept for backwards compatibility)
--- All cache access now goes through TRP3FW.CacheInterface with O(1) LRU eviction
-TRP3FW.allowedSendersCache = createDeprecatedCacheTable("allowedSendersCache", "allowedSenders")
-TRP3FW.recentScans = createDeprecatedCacheTable("recentScans", "mapScan")
-TRP3FW.recentBroadcasts = createDeprecatedCacheTable("recentBroadcasts", "broadcast")
-TRP3FW.phaseCheckCache = createDeprecatedCacheTable("phaseCheckCache", "phaseCheck")
-TRP3FW.whoZoneCache = createDeprecatedCacheTable("whoZoneCache", "whoZone")
-TRP3FW.whoNameCache = createDeprecatedCacheTable("whoNameCache", "whoName")
-TRP3FW.interactionCache = createDeprecatedCacheTable("interactionCache", "interaction")
+-- L3: legacy cache table proxies removed. All cache access goes through
+-- TRP3FW.CacheInterface (O(1) LRU eviction). The deprecation-warning proxies
+-- previously here are no longer referenced anywhere outside their own declaration.
 
 -- Performance: Frame-based monotonic time caching (eliminates ~95 syscalls per request)
 TRP3FW.cachedTime = nil
@@ -550,16 +522,6 @@ TRP3FW.cachedTimeFrame = 0
 TRP3FW.cachedPhaseID = nil
 TRP3FW.cachedPhaseTimestamp = 0
 TRP3FW.PHASE_CACHE_TTL = 1  -- Cache phase ID for 1 second (balance between freshness and performance)
-
--- DEPRECATED: Hash-based player name normalization caches (migrated to CacheInterface)
--- These tables are kept for backwards compatibility but are no longer used
--- CleanPlayerName() and SanitizePlayerName() now use CacheInterface:Get/Set("cleanName"/"sanitizedName", ...)
-TRP3FW.cleanNameCache = createDeprecatedCacheTable("cleanNameCache", "cleanName")
-TRP3FW.cleanNameCacheTimestamps = createDeprecatedCacheTable("cleanNameCacheTimestamps", "cleanName")
-TRP3FW.sanitizedNameCache = createDeprecatedCacheTable("sanitizedNameCache", "sanitizedName")
-TRP3FW.sanitizedNameCacheTimestamps = createDeprecatedCacheTable("sanitizedNameCacheTimestamps", "sanitizedName")
-TRP3FW.cleanNameCacheCount = 0  -- DEPRECATED
-TRP3FW.sanitizedNameCacheCount = 0  -- DEPRECATED
 
 -- Performance: Object pools for WHO query results (reduces GC pressure)
 -- Removed pool (unused) - cache entries are created on demand

@@ -65,6 +65,10 @@ local function MoveToTail(cache, key)
     else
         cache.head = nextKey
     end
+    -- H1: defensive — early return at the top covers `key == tail` (which implies nextKey == nil).
+    -- Under correct invariants we never reach here with nextKey == nil, but if the linked list
+    -- ever falls out of sync (partial Clear, interleaved Remove/iterate) this prevents an index-on-nil crash.
+    if not nextKey then return end
     cache.data[nextKey].prev = prevKey
 
     -- Attach at tail

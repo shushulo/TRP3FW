@@ -377,6 +377,13 @@ function CacheService:InitializeCacheCleanup()
     -- OPTIMIZATION: TTL-based cleanup for validated names cache (user-configurable)
     -- Removes entries older than validatedNamesCacheDuration (default: 7 days)
     -- Also enforces hard limit of 5000 entries as safety fallback
+    --
+    -- N10 — CLOCK CONVENTION:
+    --   Persistent SavedVariables caches (TRP3FW_ValidatedNames) MUST use `time()` (Unix
+    --   epoch seconds). Session caches (anything keyed off TRP3FW:GetCurrentTime() or
+    --   GetTime()) MUST use session-relative seconds. Mixing the two produces ~1.7e9-second
+    --   age math and prunes everything on first cleanup. The assertion below guards writers
+    --   that get this wrong.
     C_Timer.NewTicker(3600, function()  -- Once per hour
         if not TRP3FW_ValidatedNames or not TRP3FW.Prefs then return end
 
@@ -384,17 +391,28 @@ function CacheService:InitializeCacheCleanup()
         local ttl = TRP3FW.Prefs.validatedNamesCacheDuration or 604800 -- Default: 7 days
         local pruned = 0
         local total = 0
+        local skippedBadClock = 0
 
         -- Prune expired entries based on TTL
         for name, entry in pairs(TRP3FW_ValidatedNames) do
             total = total + 1
             local timestamp = type(entry) == "table" and entry.timestamp or 0
-            local age = now - timestamp
 
-            if age > ttl then
-                TRP3FW_ValidatedNames[name] = nil
-                pruned = pruned + 1
+            -- N10 guard: session-relative timestamps will be tiny vs `time()` epoch values.
+            -- Skip them and warn rather than mass-pruning legitimate entries on first run.
+            if timestamp > 0 and timestamp < 1000000000 then
+                skippedBadClock = skippedBadClock + 1
+            else
+                local age = now - timestamp
+                if age > ttl then
+                    TRP3FW_ValidatedNames[name] = nil
+                    pruned = pruned + 1
+                end
             end
+        end
+
+        if skippedBadClock > 0 then
+            TRP3FW:Warn("[ValidatedNames] "..skippedBadClock.." entries have session-relative timestamps; writer is using GetTime() instead of time(). Skipping prune for those.")
         end
 
         local remaining = total - pruned
@@ -497,8 +515,8 @@ function CacheService:InitializeZoneCacheClearing()
                 if TRP3FW.Prefs.clearAllowedSendersOnPhaseChange then if CI then CI:Clear("allowedSenders") end end
                 if TRP3FW.Prefs.clearInteractionOnPhaseChange then if CI then CI:Clear("interaction") end end
                 if TRP3FW.Prefs.clearSuppressionOnPhaseChange then
-                    TRP3FW.profileSendHistory = {}
-                    TRP3FW.scanNotificationHistory = {}
+                    if TRP3FW.profileSendHistory then wipe(TRP3FW.profileSendHistory) end
+                    if TRP3FW.scanNotificationHistory then wipe(TRP3FW.scanNotificationHistory) end
                 end
                 if TRP3FW.Prefs.clearRecentBroadcastsOnPhaseChange then if CI then CI:Clear("broadcast") end end
                 if TRP3FW.Prefs.clearRecentScansOnPhaseChange then if CI then CI:Clear("mapScan") end end
@@ -522,8 +540,8 @@ function CacheService:InitializeZoneCacheClearing()
                     if CI then CI:Clear("interaction") end
                 end
                 if TRP3FW.Prefs.clearSuppressionOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearSuppressionOnPhaseChange) then
-                    TRP3FW.profileSendHistory = {}
-                    TRP3FW.scanNotificationHistory = {}
+                    if TRP3FW.profileSendHistory then wipe(TRP3FW.profileSendHistory) end
+                    if TRP3FW.scanNotificationHistory then wipe(TRP3FW.scanNotificationHistory) end
                 end
                 if TRP3FW.Prefs.clearRecentBroadcastsOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearRecentBroadcastsOnPhaseChange) then
                     if CI then CI:Clear("broadcast") end
@@ -708,6 +726,7 @@ function CacheService:InitializeInteractionTracking()
                             CI:Set("interaction", name, {
                                 timestamp = now,
                                 zone = zone,
+                                mapID = TRP3FW.currentMapID,
                                 source = "mouseover"
                             })
                             TRP3FW:Debug(function()
@@ -735,6 +754,7 @@ function CacheService:InitializeInteractionTracking()
                         CI:Set("interaction", name, {
                             timestamp = now,
                             zone = zone,
+                            mapID = TRP3FW.currentMapID,
                             source = "target"
                         })
                         TRP3FW:Debug(function()
