@@ -1,0 +1,5 @@
+# Whitespace/EOL-only commits to ignore in git blame.
+# Configure once with: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Normalize line endings to LF and strip trailing whitespace
+1e00ba3e13cbb3941a0cb2811d890e0ec54030f9
