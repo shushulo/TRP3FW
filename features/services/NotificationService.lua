@@ -11,12 +11,12 @@ end
 
 function NotificationService:Initialize()
     TRP3FW.Service.Initialize(self)
-    
+
     self.suppressionHistory = {} -- playerName -> {lastNotification, suppressedCount, lastType}
     self.startPhaseNotifications = {}
     self.lastGhostScreenNotification = {}
     self.lastGhostChatNotification = {}
-    
+
     -- Register legacy alias for suppressor
     TRP3FW.NotificationSuppressor = {
         ShouldSuppress = function(_, playerName, notificationType, settings)

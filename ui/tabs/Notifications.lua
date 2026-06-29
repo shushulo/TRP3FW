@@ -7,7 +7,7 @@ local TabManager = TRP3FW.TabManager
 local function CreateNotificationsTab(container)
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
-    
+
     local scrollFrame, content = TabManager:CreateScrollFrame(tab, 600)
     local uiElements = TabManager:GetUI()
     local y = -10
@@ -117,15 +117,15 @@ local function CreateNotificationsTab(container)
 
     uiElements.suppressionTime = TabManager:CreateEditBox(content, "Duration (s)", "How many seconds to suppress repeated notifications from the same player.", 80, "suppressionTime")
     uiElements.suppressionTime:SetPoint("TOPLEFT", 20, y)
-    
+
     local function saveSuppressionTime(self)
         local val = tonumber(self:GetText())
         if val and val >= 0 then TRP3FW.Prefs.suppressionTime = val else self:SetText(TRP3FW.Prefs.suppressionTime or 30) end
     end
-    
+
     uiElements.suppressionTime:SetScript("OnEnterPressed", function(self) saveSuppressionTime(self); self:ClearFocus() end)
     uiElements.suppressionTime:SetScript("OnEditFocusLost", saveSuppressionTime)
-    
+
     y = y - 40
     uiElements.refreshSuppression = TabManager:CreateCheckbox(content, "Extend on Activity", "Refresh the suppression window when new profile sends are detected from the same player (sliding window).", "refreshSuppression")
     uiElements.refreshSuppression:SetPoint("TOPLEFT", 20, y)

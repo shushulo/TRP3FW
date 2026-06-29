@@ -7,7 +7,7 @@ local TabManager = TRP3FW.TabManager
 local function CreateAlertsTab(container)
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
-    
+
     local scrollFrame, content = TabManager:CreateScrollFrame(tab, 1150)
     local uiElements = TabManager:GetUI()
     local epsilonControls = TabManager:GetEpsilonControls()
@@ -74,8 +74,8 @@ local function CreateAlertsTab(container)
         if preset == "strict" or preset == "recommended" or preset == "relaxed" then
             TRP3FW.Prefs.phaseCheckRefundOnNoChange = false
         end
-        
-        if TRP3FW.ShouldClearAllowedSenders and (TRP3FW:ShouldClearAllowedSenders(TRP3FW.Prefs.phaseCheckMode, prevPhaseMode) or 
+
+        if TRP3FW.ShouldClearAllowedSenders and (TRP3FW:ShouldClearAllowedSenders(TRP3FW.Prefs.phaseCheckMode, prevPhaseMode) or
            TRP3FW:ShouldClearAllowedSenders(TRP3FW.Prefs.mapCheckMode, prevMapMode)) then
             local CI = TRP3FW.CacheInterface
             if CI then CI:Clear("allowedSenders") end
@@ -135,7 +135,7 @@ local function CreateAlertsTab(container)
     UIDropDownMenu_Initialize(pcm, function(self, level)
         local l = { {t="Off", v="off"}, {t="Statistics only", v="statistics"}, {t="Notify only", v="alert"}, {t="Block (silent)", v="block"}, {t="Send blank profile", v="ghost"}, {t="Block (with notification)", v="alert_block"}, {t="Send blank profile (with notification)", v="alert_ghost"} }
         for _, it in ipairs(l) do
-            local info = UIDropDownMenu_CreateInfo(); info.text=it.t; info.func=function() 
+            local info = UIDropDownMenu_CreateInfo(); info.text=it.t; info.func=function()
                 local prev = TRP3FW.Prefs.phaseCheckMode; TRP3FW.Prefs.phaseCheckMode=it.v; UIDropDownMenu_SetText(pcm, it.t)
                 if it.v=="ghost" or it.v=="alert_ghost" then if TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end
                 if TRP3FW.ShouldClearAllowedSenders and TRP3FW:ShouldClearAllowedSenders(it.v, prev) then local CI = TRP3FW.CacheInterface; if CI then CI:Clear("allowedSenders") end end
@@ -143,13 +143,13 @@ local function CreateAlertsTab(container)
             end; UIDropDownMenu_AddButton(info)
         end
     end)
-    
+
     local mcm, mcl = TabManager:CreateDropdown(content, "Map Check Mode", "How should TRP3FW respond when someone from a different map requests your profile? Default: Alert.", 200, "mapCheckMode")
     mcm:SetPoint("TOPLEFT", 300, y); uiElements.mapCheckModeDropdown = mcm
     UIDropDownMenu_Initialize(mcm, function(self, level)
         local l = { {t="Off", v="off"}, {t="Statistics only", v="statistics"}, {t="Notify only", v="alert"}, {t="Block (silent)", v="block"}, {t="Send blank profile", v="ghost"}, {t="Block (with notification)", v="alert_block"}, {t="Send blank profile (with notification)", v="alert_ghost"} }
         for _, it in ipairs(l) do
-            local info = UIDropDownMenu_CreateInfo(); info.text=it.t; info.func=function() 
+            local info = UIDropDownMenu_CreateInfo(); info.text=it.t; info.func=function()
                 local prev = TRP3FW.Prefs.mapCheckMode; TRP3FW.Prefs.mapCheckMode=it.v; UIDropDownMenu_SetText(mcm, it.t)
                 if it.v=="ghost" or it.v=="alert_ghost" then if TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end
                 if TRP3FW.ShouldClearAllowedSenders and TRP3FW:ShouldClearAllowedSenders(it.v, prev) then local CI = TRP3FW.CacheInterface; if CI then CI:Clear("allowedSenders") end end
@@ -180,11 +180,11 @@ local function CreateAlertsTab(container)
         if #profiles > 0 then
             for _, p in ipairs(profiles) do
                 local info = UIDropDownMenu_CreateInfo(); info.text=p.name; if p.isCurrent then info.text=info.text.." (current)" end
-                info.func=function() 
-                    TRP3FW.Prefs.ghostProfileID=p.id; 
+                info.func=function()
+                    TRP3FW.Prefs.ghostProfileID=p.id;
                     TRP3FW.Prefs.ghostProfileName=p.name;
-                    UIDropDownMenu_SetText(gpd, p.name); 
-                    if p.name=="TRP3FW_BLANK" and TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end 
+                    UIDropDownMenu_SetText(gpd, p.name);
+                    if p.name=="TRP3FW_BLANK" and TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end
                 end
                 info.checked=(TRP3FW.Prefs.ghostProfileID==p.id); UIDropDownMenu_AddButton(info)
             end
@@ -219,7 +219,7 @@ local function CreateAlertsTab(container)
 
     uiElements.ghostProfileWhitelistEnabled = TabManager:CreateCheckbox(content, "Exclude Phases/Maps", "Keep real profile in specific areas.", "ghostProfileWhitelistEnabled")
     uiElements.ghostProfileWhitelistEnabled:SetPoint("TOPLEFT", 20, y)
-    uiElements.ghostProfileWhitelistEnabled:SetScript("OnClick", function(self) 
+    uiElements.ghostProfileWhitelistEnabled:SetScript("OnClick", function(self)
         TRP3FW.Prefs.ghostProfileWhitelistEnabled = self:GetChecked()
         if uiElements.ghostProfileWhitelistEdit then local e = self:GetChecked(); if e then uiElements.ghostProfileWhitelistEdit:Enable() else uiElements.ghostProfileWhitelistEdit:Disable() end; uiElements.ghostProfileWhitelistEdit:SetAlpha(e and 1 or 0.5) end
     end)
@@ -228,7 +228,7 @@ local function CreateAlertsTab(container)
 
     local wlScroll, wlEdit = TabManager:CreateEditBox(content, "Exclusion entries:", nil, 500, "ghostProfileWhitelist") -- Using EditBox helper but we need multiline, so customizing
     wlEdit:Hide(); wlScroll:Hide() -- Hide the single line one created by helper
-    
+
     local wls = CreateFrame("ScrollFrame", nil, content, "UIPanelScrollFrameTemplate"); wls:SetPoint("TOPLEFT", 40, y); wls:SetSize(460, 100); uiElements.ghostProfileWhitelistScroll = wls
     local wle = CreateFrame("EditBox", nil, wls); wle:SetMultiLine(true); wle:SetFontObject(ChatFontNormal); wle:SetWidth(440); wle:SetHeight(100); wle:SetAutoFocus(false); wle:SetMaxLetters(3000)
     wle:SetText(TRP3FW.Prefs.ghostProfileWhitelist or ""); wle:SetScript("OnTextChanged", function(self) TRP3FW.Prefs.ghostProfileWhitelist = self:GetText() end)
@@ -254,7 +254,7 @@ local function CreateAlertsTab(container)
 
     TabManager:CreateSectionHeader(content, "Overrides", y)
     y = y - 35
-    
+
     uiElements.profileOverrides = {}
     TRP3FW.Prefs.ghostProfileOverrides = TRP3FW.Prefs.ghostProfileOverrides or {}
 

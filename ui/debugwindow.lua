@@ -74,11 +74,11 @@ local function RefreshDebugOutput()
 
     local lines = {}
     local count = 0
-    
+
     -- Only process the last 1000 messages to keep UI responsive even if array grows
     -- (Though array is capped at 1000 anyway)
     local startIdx = math.max(1, #debugMessages - 1000)
-    
+
     for i = startIdx, #debugMessages do
         local entry = debugMessages[i]
         if currentFilter == "all" or entry.category == currentFilter then
@@ -86,7 +86,7 @@ local function RefreshDebugOutput()
             lines[count] = entry.text
         end
     end
-    
+
     local text = table.concat(lines, "\n")
     editBox:SetText(text)
 

@@ -1,0 +1,11 @@
+# Normalize line endings to LF for all text files in the repo.
+# WoW reads either CRLF or LF fine; LF keeps diffs deterministic across
+# machines regardless of each contributor's core.autocrlf setting.
+* text=auto eol=lf
+
+*.lua text eol=lf
+*.toc text eol=lf
+*.md  text eol=lf
+LICENSE text eol=lf
+.gitattributes text eol=lf
+.gitignore   text eol=lf

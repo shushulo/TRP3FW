@@ -198,7 +198,7 @@ function SecurityService:SanitizePlayerName(name)
             sanitized = strippedName
         end
     end
-    
+
     local hyphenCount = countChar(sanitized, "-")
     if hyphenCount > 1 then
         TRP3FW:Debug("[SECURITY] Rejected player name with multiple hyphens", "security")

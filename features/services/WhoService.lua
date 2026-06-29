@@ -15,7 +15,7 @@ local WHO_ZONE_LIMIT_HITS = 2
 
 function WhoService:Initialize()
     TRP3FW.Service.Initialize(self)
-    
+
     self.pendingQuery = nil
     self.queryQueue = {}
     self.queueHead = 1
@@ -23,7 +23,7 @@ function WhoService:Initialize()
     self.nextBackoffUntil = 0
     self.requestId = 0
     self.cooldownActive = false
-    
+
     self.zoneLimitState = { zoneName = nil, hits = 0, untilTs = 0, lastHit = 0 }
     self.lastZoneQueryTime = 0
     self.lastZoneResultCount = 0
@@ -146,13 +146,13 @@ end
 
 function WhoService:ProcessQueue()
     if self.pendingQuery or self.cooldownActive then return end
-    
+
     local size = self:GetQueueSize()
     if size == 0 then return end
-    
+
     local nextQuery = self.queryQueue[self.queueHead]
     self:AdvanceQueue(self.queueHead + 1)
-    
+
     -- Check if stale
     local now = TRP3FW:GetCurrentTime()
     if (now - nextQuery.timestamp) > 60 then
@@ -161,7 +161,7 @@ function WhoService:ProcessQueue()
         self:ProcessQueue()
         return
     end
-    
+
     -- Execute
     TRP3FW:Debug("[WhoService] Processing queued query for "..tostring(nextQuery.playerName), "who")
     self:CheckPlayer(nextQuery.playerName, nextQuery.sendId, nextQuery.callback, nextQuery.trackStats, nextQuery.forceNameOnly, nextQuery.priority)
@@ -189,7 +189,7 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
     -- 1. Check caches first (Delegated to a helper similar to who.lua)
     local CI = TRP3FW.CacheInterface
     local cached = CI and CI:Get("whoName", playerName)
-    
+
     if cached then
         local age = now - cached.timestamp
         -- Background Refresh logic if aging
@@ -230,7 +230,7 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
         -- WhoService tracks this via self.lastZoneQueryTime and self.lastZoneResultCount
         local zoneAge = now - (self.lastZoneQueryTime or 0)
         local zoneTTL = 60 -- Only trust "completeness" of a zone scan for 60 seconds
-        
+
         if zoneAge < zoneTTL and self.lastZoneResultCount and self.lastZoneResultCount < WHO_RESULT_LIMIT then
              -- The last zone scan was recent and complete. If they aren't in whoName/whoZone cache, they aren't here.
              TRP3FW:Debug("[WhoService] Zone scan was recent ("..zoneAge.."s) and complete ("..self.lastZoneResultCount.." results). Skipping query for "..playerName, "who")
@@ -312,7 +312,7 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
         local cooldown = TRP3FW.Prefs.whoZoneQueryCooldown or 20
         -- "not truncated" check (last result count < 50)
         local wasNotTruncated = (not self.lastZoneResultCount or self.lastZoneResultCount < WHO_RESULT_LIMIT)
-        
+
         if zoneAge >= cooldown and wasNotTruncated then
             TRP3FW:Debug("[WhoService] Prioritizing zone refresh over name query (Stale/Not Truncated)", "who")
             useZoneQuery = true
@@ -335,7 +335,7 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
 
     self.requestId = self.requestId + 1
     local currentReqId = self.requestId
-    
+
     self.pendingQuery = {
         playerName = playerName,
         callback = callback,

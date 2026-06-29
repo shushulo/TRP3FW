@@ -40,7 +40,7 @@ function TRP3FW:InstallIconHooks()
                     data[field] = TRP3FW:StripAllIcons(data[field])
                 end
             end
-            
+
             local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService")
             if hs then hs:RecordPerformance(debugprofilestop() - start, "Icon Filter (MSP)") end
         end)

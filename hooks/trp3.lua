@@ -352,7 +352,7 @@ function TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queu
             -- Only replace payload if it looks like data fields (contains : or !)
             -- Requests (?) are harmless and shouldn't be ghosted
             -- Tooltip requests (?TT) or partials (?) are also harmless queries
-            
+
             -- Generate ghost payload for this target
             local ghostPayload = self:GenerateMSPGhostPayload(playerName)
             if ghostPayload and ghostPayload ~= "" then
@@ -399,12 +399,12 @@ function TRP3FW:InstallChompHook()
         local start = debugprofilestop()
         local ret = TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queue, callback, callbackArg, originalSend)
         local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService")
-        if hs then 
+        if hs then
             local addon = "TRP3"
             if prefix and tostring(prefix):find("MSP") then
                 addon = "MSP"
             end
-            hs:RecordPerformance(debugprofilestop() - start, addon) 
+            hs:RecordPerformance(debugprofilestop() - start, addon)
         end
         return ret
     end

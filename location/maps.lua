@@ -233,7 +233,7 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
         end
 
         local scanInfo = activeScanCallbacks[senderName]
-        
+
         -- If no specific callback, check if we are in a global scan mode (manual scan initiated by user)
         if not scanInfo and not activeScanForMap then
             TRP3FW:Debug("[WHISPER Response] No active scan awaiting "..senderName.." and no global scan active, ignoring unsolicited response", "whisper")
@@ -284,7 +284,7 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
             return
         end
         local CI = TRP3FW.CacheInterface
-        
+
         local wasInCache = false
         if CI then
             wasInCache = CI:Get("broadcast", senderName) ~= nil
@@ -424,12 +424,12 @@ function TRP3FW:MapScan(name, sendId, callback)
     -- This is more reliable than triggering a new scan
     -- Players broadcast when: opening map, changing zones, periodically
     self:Debug("[Map Scan] Checking recentBroadcasts for '"..name.."'", "channel")
-    
+
     local recentBroadcast = nil
     if CI then
         recentBroadcast = CI:Get("broadcast", name)
     end
-    
+
     if recentBroadcast then
         local timestamp = type(recentBroadcast) == "table" and recentBroadcast.timestamp or recentBroadcast
         local cachedMapID = type(recentBroadcast) == "table" and recentBroadcast.mapID or nil
@@ -502,7 +502,7 @@ function TRP3FW:MapScan(name, sendId, callback)
     local now = self:GetCurrentTime()
     local minInterval = (TRP3FW.Prefs and TRP3FW.Prefs.mapScanMinInterval) or MAP_SCAN_MIN_INTERVAL
     if minInterval < 0 then minInterval = MAP_SCAN_MIN_INTERVAL end
-    
+
     -- DYNAMIC RATE LIMITING:
     -- For HIGH priority requests (scan replies), we allow a much tighter interval (5s)
     -- to ensure we can always respond to new scanners if they aren't in cache.
@@ -560,7 +560,7 @@ function TRP3FW:MapScan(name, sendId, callback)
 
             -- Cache negative result with the map we intended to scan (fallback to current map)
             local timeoutMapID = scanInfo.scanMapID or scannedMapID or TRP3FW:GetCurrentMapID()
-            
+
             local CI = TRP3FW.CacheInterface
             if CI then
                 CI:Set("mapScan", name, {

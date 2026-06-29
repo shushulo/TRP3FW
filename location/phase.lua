@@ -43,17 +43,17 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority)
     if not inserted then
         table.insert(self.pendingPhaseChecks, entry)
     end
-    
+
     self:Debug("[Phase Queue] Enqueued "..playerName.." (priority: "..priority..", queue size: "..#self.pendingPhaseChecks..")", "phase")
 
     -- Check if we have enough items to justify an immediate full-capacity batch
     -- "If we get up to the point where we would consume all of the available tokens, we should immediately fire off the batch"
     local available = TRP3FW:GetAvailablePrivilegedTokens()
-    
+
     -- Calculate capacity for immediate firing (aggressive) - matching ProcessPhaseCheckBatch formula
     local reserved = TRP3FW.Prefs.privilegedReservedTokens or 2
     local overhead = math.max(1, reserved)
-    
+
     local immediateCap = math.floor(available) - overhead
     if immediateCap < 1 then immediateCap = 1 end
 
@@ -62,7 +62,7 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority)
     -- Rule: If timer is running, only interrupt if we have healthy capacity (>= 5 items)
     local healthyCapacity = (immediateCap >= 5)
     local shouldFire = false
-    
+
     if priority == "HIGH" then
         shouldFire = true
     elseif #self.pendingPhaseChecks >= immediateCap and TRP3FW.Prefs.phaseCheckBatchMode then
@@ -80,8 +80,8 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority)
 
     if shouldFire then
         self:Debug("[Phase Queue] Immediate fire triggered (Queue: "..#self.pendingPhaseChecks..", Cap: "..immediateCap..")", "phase")
-        if self.phaseCheckBatchTimer then 
-            self.phaseCheckBatchTimer:Cancel() 
+        if self.phaseCheckBatchTimer then
+            self.phaseCheckBatchTimer:Cancel()
             self.phaseCheckBatchTimer = nil
         end
         self:ProcessPhaseCheckBatch()
@@ -93,13 +93,13 @@ function TRP3FW:SchedulePhaseCheckProcessing(customDelay)
 
     -- Use custom delay if provided (e.g. for refill waiting), otherwise default to setting
     local delay = customDelay or TRP3FW.Prefs.phaseCheckBatchDelay or 1.0
-    
+
     self.phaseCheckBatchTimer = C_Timer.After(delay, function()
         self.phaseCheckBatchTimer = nil
-        
+
         local queueSize = #self.pendingPhaseChecks
         local minSize = TRP3FW.Prefs.phaseCheckBatchMinSize or 3
-        
+
         if queueSize >= minSize and TRP3FW.Prefs.phaseCheckBatchMode then
             self:ProcessPhaseCheckBatch()
         else
@@ -125,44 +125,44 @@ function TRP3FW:ProcessPhaseCheckBatch()
     end
     local batch = {}
     local batchIndices = {} -- Map playerName -> batch index
-    
+
     -- DYNAMIC BATCH SIZING: Calculate max batch size based on available tokens
     -- "batch until we would run out of secure tokens"
     local availableTokens = TRP3FW:GetAvailablePrivilegedTokens()
-    
+
     -- Calculate overhead based on reserved tokens setting
     -- Formula: available - max(1, reserved)
-    -- We need at least 1 token for the restore action (HIGH priority), 
+    -- We need at least 1 token for the restore action (HIGH priority),
     -- and we must respect the reserved amount for NORMAL priority targeting calls.
     local reserved = TRP3FW.Prefs.privilegedReservedTokens or 2
     local overhead = math.max(1, reserved)
-    
+
     local dynamicMax = math.floor(availableTokens) - overhead
     if dynamicMax < 1 then dynamicMax = 1 end -- Always try at least one if we're running
-    
+
     local settingsMax = TRP3FW.Prefs.phaseCheckBatchSize or 5
-    
+
     -- If we have plenty of tokens (full bucket), allow larger batches than default settings
     -- to clear the queue faster ("3 second window" accumulation implies larger bursts)
     -- BUT never exceed dynamicMax (token limit)
     if availableTokens >= 9 then
         settingsMax = math.max(settingsMax, 8)
     end
-    
+
     local maxSize = math.min(settingsMax, dynamicMax)
 
     local count = 0
     local totalProcessed = 0
-    
+
     while #self.pendingPhaseChecks > 0 and count < maxSize do
         totalProcessed = totalProcessed + 1
         local check = self.pendingPhaseChecks[1] -- Peek head
-        
+
         if batchIndices[check.playerName] then
             -- Already have this player in THIS batch - merge callback and drop duplicate
             local idx = batchIndices[check.playerName]
             local existing = batch[idx]
-            
+
             if check.callback then
                 if not existing.callbacks then
                     existing.callbacks = { existing.callback }
@@ -170,7 +170,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
                 end
                 table.insert(existing.callbacks, check.callback)
             end
-            
+
             TRP3FW:Debug("[Batch] Merged duplicate queue entry for "..check.playerName, "phase")
             table.remove(self.pendingPhaseChecks, 1)
         else
@@ -178,7 +178,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
             local entry = table.remove(self.pendingPhaseChecks, 1)
             entry.callbacks = { entry.callback } -- Start list
             entry.callback = nil
-            
+
             table.insert(batch, entry)
             count = count + 1
             batchIndices[entry.playerName] = count
@@ -207,12 +207,12 @@ function TRP3FW:ProcessPhaseCheckBatch()
     -- FIXED: HIGH-2 - Acquire mutex lock
     self.targetingInProgress = true
     self.phaseCheckTargeting = true
-    
+
     -- Save current target state ONCE for the whole batch
     local hadTarget = UnitExists("target")
     local previousTargetGUID = hadTarget and UnitGUID("target") or nil
     local previousTargetName = hadTarget and GetUnitName("target", true) or nil -- Capture name with realm
-    
+
     local currentIndex = 1
     local batchTimer = nil
     local onTargetChanged -- Declare ahead for recursion
@@ -223,10 +223,10 @@ function TRP3FW:ProcessPhaseCheckBatch()
         if ES and onTargetChanged then
             ES:UnregisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
         end
-        
+
         -- Delay clearing the flag to ensure CacheService sees it during event propagation
-        C_Timer.After(0.1, function() 
-            TRP3FW.targetingInProgress = false 
+        C_Timer.After(0.1, function()
+            TRP3FW.targetingInProgress = false
             TRP3FW.phaseCheckTargeting = false
 
             -- Check if more items pending
@@ -237,13 +237,13 @@ function TRP3FW:ProcessPhaseCheckBatch()
                 local currentTokens = TRP3FW:GetAvailablePrivilegedTokens()
                 local targetTokens = 8 -- Aim for a healthy batch size
                 local refillRate = 10 -- Tokens per second
-                
+
                 local delay = 0.1 -- Min delay
                 if currentTokens < targetTokens then
                     delay = (targetTokens - currentTokens) / refillRate
                     if delay < 0.1 then delay = 0.1 end
                 end
-                
+
                 TRP3FW:Debug("[Batch] Scheduling next batch in "..string.format("%.2fs", delay).." (Refill wait)", "phase")
                 TRP3FW:SchedulePhaseCheckProcessing(delay)
             end
@@ -285,17 +285,17 @@ function TRP3FW:ProcessPhaseCheckBatch()
                     end
                 end
             end)
-            
+
             TRP3FW:Debug("[Batch] Complete - processed "..#batch.." players", "phase")
             cleanupBatch()
             return
         end
 
         local check = batch[currentIndex]
-        
+
         local CI = TRP3FW.CacheInterface
         local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService") -- Get HS once
-        
+
         -- OPTIMIZATION 1: Check interaction cache (Strongest "In Phase" signal)
         local interactionCached = CI and CI:Get("interaction", check.playerName)
         if interactionCached then
@@ -303,13 +303,13 @@ function TRP3FW:ProcessPhaseCheckBatch()
              local ttl = TRP3FW.Prefs.interactionCacheDuration or 600
              if (now - interactionCached.timestamp) < ttl then
                  TRP3FW:Debug("[Batch] "..check.playerName.." - Interaction Cache HIT (skipping target)", "phase")
-                 
+
                  if check.callbacks then
                      for _, cb in ipairs(check.callbacks) do
                          if cb then cb(true, "interaction_cache", nil, "batch") end
                      end
                  end
-                 
+
                  currentIndex = currentIndex + 1
                  processNext()
                  return
@@ -352,7 +352,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
 
                      if cached.inPhase == false then ttl = TRP3FW.Prefs.phaseCacheFailureDuration or 10 end
 
-                     
+
 
                      -- If this is a REFRESH (Low Prio), only skip if someone else refreshed it (Fresh)
 
@@ -366,23 +366,23 @@ function TRP3FW:ProcessPhaseCheckBatch()
 
                      local isValid = (now - cached.timestamp) < ttl
 
-                     
+
 
                                   if (isRefresh and isFresh) or (not isRefresh and isValid) then
 
-                     
+
 
                                       TRP3FW:Debug("[Batch] "..check.playerName.." - Phase Cache HIT (skipping target)", "phase")
 
-                     
+
 
                                       if hs then hs:IncrementStat("cacheStats", "phaseCacheHits") end
 
-                     
 
-                                      
 
-                     
+
+
+
 
                                       if check.callbacks then
 
@@ -394,7 +394,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
 
                          end
 
-                         
+
 
                          currentIndex = currentIndex + 1
 
@@ -409,7 +409,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
 
         local beforeGUID = UnitGUID("target")
         local processedThisStep = false -- Guard against double-processing (event + timer race)
-        
+
         -- Determine category based on priority
         local category = "phase_check_target"
         if check.priority == "LOW" then
@@ -433,13 +433,13 @@ function TRP3FW:ProcessPhaseCheckBatch()
         local function finishStep(result, reason, mapID)
             if processedThisStep then return end
             processedThisStep = true
-            
+
             if batchTimer then batchTimer:Cancel() batchTimer = nil end
             local ES = TRP3FW.ServiceContainer:Get("EventService")
             if ES and onTargetChanged then
                 ES:UnregisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
             end
-            
+
             -- Cache result
             local CI = TRP3FW.CacheInterface
             if CI then
@@ -498,12 +498,12 @@ function TRP3FW:ProcessPhaseCheckBatch()
             local interDelay = TRP3FW.Prefs.phaseCheckInterTargetDelay or 0.1
             batchTimer = C_Timer.NewTimer(interDelay, function()
                 if processedThisStep then return end
-                
+
                 local afterGUID = UnitGUID("target")
                 local result = false
                 local reason = "batch_not_targetable"
                 local mapID = nil
-                
+
                 if beforeGUID == afterGUID then
                     -- Target didn't change - out of phase
                     TRP3FW:Debug(function()
@@ -527,7 +527,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
                         reason = "batch_name_mismatch"
                     end
                 end
-                
+
                 finishStep(result, reason, mapID)
             end)
         else
@@ -556,15 +556,15 @@ end
 -- Process queue individually (Legacy/Fallback mode)
 function TRP3FW:ProcessPhaseCheckQueue()
     if #self.pendingPhaseChecks == 0 then return end
-    
+
     local check = table.remove(self.pendingPhaseChecks, 1)
-    
+
     -- Determine category
     local category = "phase_check_target"
     if check.priority == "LOW" then
         category = "phase_check_target_low"
     end
-    
+
     -- Check capacity (Optimization #9) - if low priority and scarce, defer
     if check.priority == "LOW" and TRP3FW.GetCategoryPriority then
         local _, config = TRP3FW:GetCategoryPriority(category)
@@ -573,7 +573,7 @@ function TRP3FW:ProcessPhaseCheckQueue()
             -- We'll rely on ExecutePhaseCheck handling the deferral
         end
     end
-    
+
     self:ExecutePhaseCheck(check)
 end
 
@@ -582,7 +582,7 @@ function TRP3FW:ExecutePhaseCheck(check)
     local playerName = check.playerName
     local callback = check.callback
     local priority = check.priority
-    
+
     -- Sanitize
     local sanitizedName = self:SanitizePlayerName(playerName)
     if not sanitizedName then
@@ -602,7 +602,7 @@ function TRP3FW:ExecutePhaseCheck(check)
     local hadTarget = UnitExists("target")
     local previousTargetGUID = hadTarget and UnitGUID("target") or nil
     local previousTargetName = hadTarget and GetUnitName("target", true) or nil -- Capture name with realm
-    
+
     -- Create event listener
     local timeoutTimer = nil
     local eventHandled = false
@@ -617,9 +617,9 @@ function TRP3FW:ExecutePhaseCheck(check)
             timeoutTimer:Cancel()
             timeoutTimer = nil
         end
-        
+
         -- Delay clearing the flag to ensure CacheService sees it during event propagation
-        C_Timer.After(0.1, function() 
+        C_Timer.After(0.1, function()
             self.targetingInProgress = false
             self.phaseCheckTargeting = false
             self:Debug("[Phase Check] Released mutex", "phase")
@@ -719,7 +719,7 @@ function TRP3FW:ExecutePhaseCheck(check)
 
     local timeoutDuration = 2.0
     if priority == "HIGH" then timeoutDuration = 1.0 end
-    
+
     timeoutTimer = C_Timer.NewTimer(timeoutDuration, function()
         -- Fallback: If event didn't fire (e.g. target didn't change), verify manually
         if UnitName("target") == playerName then
@@ -778,7 +778,7 @@ function TRP3FW:CheckPlayerPhase(playerName, sendId, callback, priority)
     -- Check Cache (Optimization #1)
     local CI = self.CacheInterface
     local cached = CI and CI:Get("phaseCheck", sanitizedName)
-    
+
     local hs = self.ServiceContainer and self.ServiceContainer:Get("HistoryService")
 
     if cached then
@@ -786,7 +786,7 @@ function TRP3FW:CheckPlayerPhase(playerName, sendId, callback, priority)
         local age = now - cached.timestamp
         local ttl = TRP3FW.Prefs.phaseCacheDuration or 300
         local refreshThreshold = ttl * (TRP3FW.Prefs.phaseCacheRefreshThreshold or 0.2)
-        
+
         -- Short failure TTL
         if cached.inPhase == false then
             ttl = TRP3FW.Prefs.phaseCacheFailureDuration or 10
@@ -803,10 +803,10 @@ function TRP3FW:CheckPlayerPhase(playerName, sendId, callback, priority)
             self:Debug("Phase cache HIT (stale) for "..sanitizedName.." - scheduling refresh", "phase")
             if hs then hs:IncrementStat("cacheStats", "phaseCacheHits") end
             if callback then callback(cached.inPhase, "cached", cached.mapID, cached.method) end
-            
+
             -- Queue low priority refresh
             self:QueuePhaseCheck(sanitizedName, sendId, nil, "LOW") -- No callback for refresh
-            
+
             -- Trigger processing
             self:SchedulePhaseCheckProcessing()
             return

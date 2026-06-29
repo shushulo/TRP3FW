@@ -19,15 +19,15 @@ end
 function TRP3FW:GenerateMSPGhostPayload(target)
     local profileID = self:GetGhostProfileID(target) or TRP3FW.Prefs.ghostProfileID
     local fields = self:GetProfileMSPFields(profileID)
-    
+
     -- Fallback to blank if profile fetch fails
     if not fields then
         fields = self:GetBlankMSPFields()
     end
-    
+
     local parts = {}
     local SEP = string.char(0x60) -- MSP field separator (backtick)
-    
+
     for k, v in pairs(fields) do
         -- MSP protocol: FIELD:VALUE
         -- We don't need to send CRC (!FIELD:CRC) for updates, raw data is accepted
@@ -35,7 +35,7 @@ function TRP3FW:GenerateMSPGhostPayload(target)
             table.insert(parts, k .. ":" .. tostring(v))
         end
     end
-    
+
     return table.concat(parts, SEP)
 end
 

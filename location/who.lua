@@ -94,7 +94,7 @@ function TRP3FW:CheckPlayerViaWho(playerName, sendId, callback, trackStats, forc
                 return
             end
         end
-        
+
         if callback then callback(found, source, age, zone, mapID) end
     end, trackStats, forceNameQuery, priority)
 end

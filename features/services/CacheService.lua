@@ -13,7 +13,7 @@ local START_PHASE_ID = 169
 
 function CacheService:Initialize()
     TRP3FW.Service.Initialize(self)
-    
+
     self:InitializeCacheCleanup()
     self:InitializeZoneCacheClearing()
     self:InitializeInteractionTracking()
@@ -522,11 +522,11 @@ function CacheService:InitializeZoneCacheClearing()
                 if TRP3FW.Prefs.clearRecentScansOnPhaseChange then if CI then CI:Clear("mapScan") end end
                 if TRP3FW.Prefs.clearWhoZoneOnPhaseChange then if CI then CI:Clear("whoZone") end end
                 if TRP3FW.Prefs.clearWhoNameOnPhaseChange then if CI then CI:Clear("whoName") end end
-                if TRP3FW.Prefs.clearSpvpOnPhaseChange then 
-                    if CI then 
+                if TRP3FW.Prefs.clearSpvpOnPhaseChange then
+                    if CI then
                         CI:Clear("spvpVerified")
                         CI:Clear("spvpPhaseSalt")
-                    end 
+                    end
                 end
 
             elseif event == "ZONE_CHANGED_NEW_AREA" then
@@ -557,9 +557,9 @@ function CacheService:InitializeZoneCacheClearing()
                     if CI then CI:Clear("whoName") end
                 end
                 if TRP3FW.Prefs.clearSpvpOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearSpvpOnPhaseChange) then
-                    if CI then 
+                    if CI then
                         CI:Clear("spvpVerified")
-                        CI:Clear("spvpPhaseSalt") 
+                        CI:Clear("spvpPhaseSalt")
                     end
                 end
 
@@ -661,7 +661,7 @@ function CacheService:InitializeZoneCacheClearing()
 
             TRP3FW:Debug("[Prepopulate] Timer scheduled for "..tostring(prepopulateDelay).."s", "cache")
         end
-        
+
         local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService")
         if hs then hs:RecordPerformance(debugprofilestop() - start, "Zone Change Cleanup") end
     end
@@ -688,7 +688,7 @@ function CacheService:InitializeInteractionTracking()
     local refreshPercent = TRP3FW.Prefs.interactionRefreshRate or 10
     local cacheDuration = TRP3FW.Prefs.interactionCacheDuration or 600
     local refreshThreshold = cacheDuration * (refreshPercent / 100)
-    
+
     local lastMouseoverProcess = 0
     local MOUSEOVER_THROTTLE = 0.5  -- OPTIMIZATION: Reduced from 0.1s (10Hz) to 0.5s (2Hz) for 80% event reduction
 
@@ -748,7 +748,7 @@ function CacheService:InitializeInteractionTracking()
                 if name then
                     local now = TRP3FW:GetCurrentTime()
                     local zone = TRP3FW.currentZoneName or "Unknown"
-                    
+
                     local CI = TRP3FW.CacheInterface
                     if CI then
                         CI:Set("interaction", name, {

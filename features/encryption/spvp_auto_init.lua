@@ -56,13 +56,13 @@ local function CheckAutoInitializeSalt()
 
     -- Generate and set salt
     local salt = TRP3FW:GeneratePhaseSalt()
-    
+
     -- Safety check
     if not salt or #salt < 32 then
         TRP3FW:Error("Generated salt is invalid or too weak. Aborting auto-init.")
         return
     end
-    
+
     C_Epsilon.SetPhaseAddonData("TRP3FW_SPVP_KEY", salt)
 
     -- Update cache

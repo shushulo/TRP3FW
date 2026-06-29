@@ -21,11 +21,11 @@ end
 
 function TRP3FW.Pipeline:Run(context)
     TRP3FW:Debug("Pipeline '" .. self.name .. "' started.", "pipeline")
-    
+
     for _, stage in ipairs(self.stages) do
         if stage.Process then
             local result = stage:Process(context)
-            
+
             -- If result indicates handled, stop pipeline
             if result and result.handled then
                 TRP3FW:Debug("Pipeline '" .. self.name .. "' handled by stage '" .. (stage.name or "unknown") .. "'", "pipeline")
@@ -35,7 +35,7 @@ function TRP3FW.Pipeline:Run(context)
             TRP3FW:Error("Invalid stage in pipeline '" .. self.name .. "'")
         end
     end
-    
+
     TRP3FW:Debug("Pipeline '" .. self.name .. "' completed without handling.", "pipeline")
     return { handled = false }
 end

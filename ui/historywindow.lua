@@ -637,13 +637,13 @@ local function UpdateBudgetPanel()
     -- Update reusable table values
     reusableBudgets.latency.budget = GetLatencyBudget()
     reusableBudgets.latency.current = latest.peakLatency or 0
-    
+
     reusableBudgets.load.budget = BUDGETS.load
     reusableBudgets.load.current = latest.maxLoad or 0
-    
+
     reusableBudgets.throughput.budget = BUDGETS.throughput
     reusableBudgets.throughput.current = latest.peakThroughput or 0
-    
+
     reusableBudgets.memory.budget = BUDGETS.memory
     reusableBudgets.memory.current = latest.memory or 0
 

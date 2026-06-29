@@ -29,7 +29,7 @@ function InteractionStage:Process(context)
             lastInteraction = nil
         end
     end
-    
+
     local interactionDuration = context.settings.interactionCacheDuration or 600
     local hadInteractionCacheHit = false
     local interactionSource = nil
@@ -43,7 +43,7 @@ function InteractionStage:Process(context)
             local age = context.now - timestamp
             local zoneInfo = lastInteraction.zone and (" in "..lastInteraction.zone) or ""
             TRP3FW:Debug("Sender "..context.playerName.." recently interacted with ("..string.format("%.1f", age).."s ago"..zoneInfo.."), allowing without checks", "send")
-            
+
             -- Deduplicate by sendId: Only increment stats once per unique sendId FOR THIS CACHE TYPE
             if not TRP3FW.lastInteractionCacheSendId then TRP3FW.lastInteractionCacheSendId = {} end
             if not TRP3FW.lastInteractionCacheSendId[context.sendId] then
@@ -53,7 +53,7 @@ function InteractionStage:Process(context)
                 TRP3FW.lastInteractionCacheSendId[context.sendId] = true
                 TRP3FW.lastInteractionCacheSendIdCount = (TRP3FW.lastInteractionCacheSendIdCount or 0) + 1
             end
-            
+
             hadInteractionCacheHit = true
             interactionSource = lastInteraction.source
         end
@@ -99,7 +99,7 @@ function InteractionStage:Process(context)
             TRP3FW.lastInteractionCacheSendId[context.sendId] = true
             TRP3FW.lastInteractionCacheSendIdCount = (TRP3FW.lastInteractionCacheSendIdCount or 0) + 1
         end
-        
+
         return {handled = false}
     end
 

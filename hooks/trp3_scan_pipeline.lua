@@ -320,7 +320,7 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
     -- Optimization: If both scan response modes are "off", skip expensive location checks
     local phaseMode = TRP3FW.Prefs.scanResponsePhaseMode
     local mapMode = TRP3FW.Prefs.scanResponseMapMode
-    
+
     if (not phaseMode or phaseMode == "off") and (not mapMode or mapMode == "off") then
         self:Debug("[Scan Reply] All scan checks disabled - skipping location check", "hooks")
         -- Treat as allowed
@@ -330,7 +330,7 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
 
     -- We need to pass ... arguments to originalFunc in the callback
     local args = {...}
-    
+
     -- Calculate enabled flags for cascading check
     -- Scan response phase check has an extra master toggle: scanResponsePhaseCheckEnabled
     local phaseEnabled = (phaseMode and phaseMode ~= "off")
@@ -383,7 +383,7 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
             end
             originalFunc(unpack(args))
         end
-    end, { 
+    end, {
         phaseCheckEnabled = phaseEnabled,
         mapCheckEnabled = mapEnabled
     })

@@ -31,18 +31,18 @@ local complexityWidgets = {}
 -- Widgets with custom Enable/Disable logic in RefreshUI that should NOT be overridden by complexity
 local CUSTOM_LOGIC_KEYS = {
     minimumFontSizeLevel = true,
-    clearPhaseCheckOnPhaseChange = true, clearAllowedSendersOnPhaseChange = true, clearInteractionOnPhaseChange = true, 
+    clearPhaseCheckOnPhaseChange = true, clearAllowedSendersOnPhaseChange = true, clearInteractionOnPhaseChange = true,
     clearSuppressionOnPhaseChange = true, clearRecentBroadcastsOnPhaseChange = true, clearRecentScansOnPhaseChange = true,
     clearWhoZoneOnPhaseChange = true, clearWhoNameOnPhaseChange = true, clearSpvpOnPhaseChange = true,
-    clearPhaseCheckOnZoneChange = true, clearAllowedSendersOnZoneChange = true, clearInteractionOnZoneChange = true, 
+    clearPhaseCheckOnZoneChange = true, clearAllowedSendersOnZoneChange = true, clearInteractionOnZoneChange = true,
     clearSuppressionOnZoneChange = true, clearRecentBroadcastsOnZoneChange = true, clearRecentScansOnZoneChange = true,
     clearWhoZoneOnZoneChange = true, clearWhoNameOnZoneChange = true, clearSpvpOnZoneChange = true,
     debugTimestamp = true, debugChannel = true, debugWhisper = true, debugWho = true, debugPhase = true, debugCleanName = true,
     debugLocation = true, debugDecision = true, debugHooks = true, debugCache = true, debugSend = true, debugUI = true,
     debugUtils = true, debugSecurity = true, debugGhost = true, debugSPVP = true,
-    scanResponseRequireNonce = true, scanResponseCacheEnabled = true, scanResponseAllowCacheBypass = true, 
-    scanResponseAllowGroupBypass = true, scanResponseWhitelistEnabled = true, scanResponseWhitelistEdit = true, 
-    scanResponseWhitelistScroll = true, scanResponsePhaseMode = true, scanResponseMapMode = true, 
+    scanResponseRequireNonce = true, scanResponseCacheEnabled = true, scanResponseAllowCacheBypass = true,
+    scanResponseAllowGroupBypass = true, scanResponseWhitelistEnabled = true, scanResponseWhitelistEdit = true,
+    scanResponseWhitelistScroll = true, scanResponsePhaseMode = true, scanResponseMapMode = true,
     notifyOnScanResponse = true, notifyOnScanAllow = true,
     redactNames = true, redactLocations = true, redactNetwork = true, redactSPVP = true,
     ghostProfileWhitelistEdit = true, ghostProfileWhitelistScroll = true,
@@ -90,9 +90,9 @@ local function UpdateUIComplexity()
     for _, widget in ipairs(complexityWidgets) do
         local wLevel = widget.complexityLevel or 4
         local enabled = wLevel <= currentLevel
-        
+
         local hasCustomLogic = widget.settingKey and CUSTOM_LOGIC_KEYS[widget.settingKey]
-        
+
         if enabled then
             -- Complexity Met: Enable ONLY if no custom logic (allow RefreshUI to handle custom ones)
             if not hasCustomLogic then
@@ -202,7 +202,7 @@ function TRP3FW:UpdateStatusTab()
         -- Window
         local lastInt = perfStats.lastInterval
         local duration = lastInt and lastInt.duration or 1
-        
+
         local avgLatency = (lastInt and lastInt.requests > 0) and (lastInt.time / lastInt.requests) or 0
         local avgLoad = (lastInt and lastInt.time > 0) and ((lastInt.time / (duration * 1000)) * 100) or 0
         local avgThroughput = (lastInt and lastInt.requests > 0) and (lastInt.requests / duration) or 0
@@ -229,13 +229,13 @@ function TRP3FW:UpdateStatusTab()
             if phaseSalt and phaseSalt ~= "" then
                 local _, timestamp = TRP3FW:ParsePhaseSalt(phaseSalt)
                 local ageStr = ""
-                
+
                 -- Validate salt format (Basic check)
                 -- Expecting either "HEX:TIMESTAMP" or pure "HEX"
                 -- Allow some leniency for custom salts but flag them
                 local isHex = phaseSalt:match("^[0-9a-fA-F:]+$")
                 local isLongEnough = #phaseSalt >= 16
-                
+
                 if timestamp then
                     local daysOld = math.floor((time() - timestamp) / 86400)
                     ageStr = string.format(" (Age: %d days)", daysOld)
@@ -303,13 +303,13 @@ function TRP3FW:UpdateStatusTab()
     if uiElements.statusRecentEvents then
         local history = TRP3FW.notificationHistory or {}
         local suppressWindow = 30
-        
+
         -- Optimization: Reuse display objects to prevent garbage churn
         TRP3FW.statusDisplayCache = TRP3FW.statusDisplayCache or { display = {}, seen = {} }
         local display = TRP3FW.statusDisplayCache.display
         local seen = TRP3FW.statusDisplayCache.seen
         wipe(seen)
-        
+
         local displayCount = 0
 
         for _, entry in ipairs(history) do
@@ -317,7 +317,7 @@ function TRP3FW:UpdateStatusTab()
                 local key = (entry.player or "")
                 local ts = entry.timestamp or 0
                 local index = seen[key]
-                
+
                 -- Check if we've seen this player recently (using index to look up prev timestamp)
                 if index and display[index] and (display[index].ts - ts) <= suppressWindow then
                     local item = display[index]
@@ -329,20 +329,20 @@ function TRP3FW:UpdateStatusTab()
                         item = {}
                         display[displayCount] = item
                     end
-                    
+
                     item.entry = entry
                     item.count = 1
                     item.ts = ts
-                    
+
                     seen[key] = displayCount
-                    
+
                     if displayCount >= #uiElements.statusRecentEvents then
                         break
                     end
                 end
             end
         end
-        
+
         -- Clear stale entries from display reuse pool to release references
         for i = displayCount + 1, #display do
             display[i].entry = nil
@@ -368,7 +368,7 @@ function TRP3FW:UpdateStatusTab()
                 local player = entry.player or "Unknown"
                 local addon = entry.addon or "?"
                 local countSuffix = (item.count and item.count > 1) and string.format(" (x%d)", item.count) or ""
-                
+
                 if row.Time then row.Time:SetText(ts) end
                 if row.Player then row.Player:SetText(player) end
                 if row.Addon then row.Addon:SetText(addon) end
@@ -377,7 +377,7 @@ function TRP3FW:UpdateStatusTab()
                 if row.Time then row.Time:SetText("") end
                 if row.Player then row.Player:SetText("") end
                 if row.Addon then row.Addon:SetText("") end
-                if row.Result then 
+                if row.Result then
                     if i == 1 and displayCount == 0 then
                         row.Result:SetText("|cff555555No recent events yet|r")
                     else
@@ -449,7 +449,7 @@ function TRP3FW:UpdateStatusTab()
         if cacheCountState.counts and (now - cacheCountState.timestamp) < 5 then
             return cacheCountState.counts
         end
-        
+
         local CI = TRP3FW.CacheInterface
         local counts = {
             phase = CI and CI:GetSize("phaseCheck") or 0,
@@ -528,7 +528,7 @@ function TRP3FW:UpdateStatusTab()
             local now = TRP3FW:GetCurrentTime()
             local elapsed = now - lastRefill
             local currentTokens = math.min(10, storedTokens + (elapsed * 10))
-            
+
             local tokens = math.floor(currentTokens * 10) / 10
             local color = tokens >= 7 and "|cff00ff00" or (tokens >= 4 and "|cffffaa00" or "|cffff0000")
             uiElements.statusPrivilegedBucket:SetText(string.format("%s%.1f/10|r", color, tokens))
@@ -547,14 +547,14 @@ local refreshing = false
 function TRP3FW:RefreshUI()
     if refreshing or not settingsFrame or not settingsFrame:IsVisible() then refreshScheduled = false; return end
     refreshing = true
-    
-    if TRP3FW.TabManager.activeTab and TRP3FW.TabManager.activeTab.refresh then 
-        TRP3FW.TabManager.activeTab.refresh() 
+
+    if TRP3FW.TabManager.activeTab and TRP3FW.TabManager.activeTab.refresh then
+        TRP3FW.TabManager.activeTab.refresh()
     end
-    
+
     local p = self.Prefs or {}
     if uiElements.statusRefreshRate then uiElements.statusRefreshRate:SetValue(p.statusRefreshRate or 30); getglobal(uiElements.statusRefreshRate:GetName().."Text"):SetText("Refresh every " .. (p.statusRefreshRate or 30) .. " seconds") end
-    
+
     local hasScanner = TRP3FW.detectedAddons.MapScanner or TRP3FW.detectedAddons.TRP3; local hasEpsilon = TRP3FW.hasEpsilonAPI
 
     -- Scan Reply Gating Logic
@@ -591,14 +591,14 @@ function TRP3FW:RefreshUI()
         setControlEnabled(uiElements.notifyOnScanResponse, true)
         setControlEnabled(uiElements.scanResponsePhaseModeDropdown, hasEpsilon)
         setControlEnabled(uiElements.scanResponseWhoModeDropdown, hasEpsilon)
-        
+
         setControlEnabled(uiElements.notifyOnScanAllow, gatingActive)
         setControlEnabled(uiElements.scanResponseRequireNonce, gatingActive)
         setControlEnabled(uiElements.scanResponseCacheEnabled, gatingActive)
         setControlEnabled(uiElements.scanResponseAllowCacheBypass, gatingActive)
         setControlEnabled(uiElements.scanResponseAllowGroupBypass, gatingActive)
         setControlEnabled(uiElements.scanResponseWhitelistEnabled, gatingActive)
-        
+
         local wlEnabled = gatingActive and p.scanResponseWhitelistEnabled
         setControlEnabled(uiElements.scanResponseWhitelistEdit, wlEnabled)
         if uiElements.scanResponseWhitelistScroll then uiElements.scanResponseWhitelistScroll:SetAlpha(wlEnabled and 1 or 0.5) end
@@ -609,8 +609,8 @@ function TRP3FW:RefreshUI()
     "clearCacheOnPhaseChange", "clearPhaseCheckOnPhaseChange", "clearAllowedSendersOnPhaseChange", "clearInteractionOnPhaseChange", "clearSuppressionOnPhaseChange", "clearRecentBroadcastsOnPhaseChange", "clearRecentScansOnPhaseChange", "clearWhoZoneOnPhaseChange", "clearWhoNameOnPhaseChange", "clearSpvpOnPhaseChange",
     "clearCacheOnZoneChange", "clearPhaseCheckOnZoneChange", "clearAllowedSendersOnZoneChange", "clearInteractionOnZoneChange", "clearSuppressionOnZoneChange", "clearRecentBroadcastsOnZoneChange", "clearRecentScansOnZoneChange", "clearWhoZoneOnZoneChange", "clearWhoNameOnZoneChange", "clearSpvpOnZoneChange",
     "debugChannel", "debugWhisper", "debugWho", "debugPhase", "debugCleanName", "debugLocation", "debugDecision", "debugHooks", "debugCache", "debugSend", "debugUI", "debugUtils", "debugSecurity", "debugGhost", "debugSPVP" }
-    for _, k in ipairs(checks) do 
-        if uiElements[k] then 
+    for _, k in ipairs(checks) do
+        if uiElements[k] then
             local val = p[k]
             if val == nil then
                 if TRP3FW.defaultSettings and TRP3FW.defaultSettings[k] ~= nil then
@@ -620,17 +620,17 @@ function TRP3FW:RefreshUI()
                 end
             end
             uiElements[k]:SetChecked(val)
-        end 
+        end
     end
 
     local edits = { suppressionTime = 30, sendCacheDuration = 3600, sendCacheRefreshRate = 10, interactionCacheDuration = 600, interactionRefreshRate = 10, whoZoneCacheDuration = 45, whoNameCacheDuration = 180, whoZoneQueryCooldown = 20, whoCacheRefreshThreshold = 50, phaseCacheDuration = 300, phaseCacheFailureDuration = 10, scanCacheDuration = 300, scanCacheFailureDuration = 10, mapScanMinInterval = 60, phaseCacheRefreshThreshold = 20, spvpVerifiedCacheDuration = 300, spvpVerifiedRefreshRate = 50, spvpPhaseSaltRefreshRate = 50, cacheSizeLimit = 1000, phaseInDelay = 4, transitionGracePeriod = 10, validatedNamesCacheLimit = 5000, maxHistorySize = 100, privilegedReservedTokens = 2, privilegedLowPriorityThreshold = 4 }
     for k, d in pairs(edits) do if uiElements[k] then local v = p[k] or d; if k:find("Threshold") or k:find("RefreshRate") then if v < 1 then v = v * 100 end end; uiElements[k]:SetText(tostring(v)) end end
-    
+
     if uiElements.validatedNamesCacheDuration then
         local seconds = p.validatedNamesCacheDuration or 604800
         uiElements.validatedNamesCacheDuration:SetText(tostring(math.floor(seconds / 86400)))
     end
-    
+
     if uiElements.scanResponseWhitelistEdit then
         local enabled = p.scanResponseWhitelistEnabled
         if enabled then
@@ -656,14 +656,14 @@ function TRP3FW:RefreshUI()
         end
         uiElements.whitelistEdit:SetText(p.whitelistEntries or "")
     end
-    if uiElements.ghostProfileWhitelistEdit then 
+    if uiElements.ghostProfileWhitelistEdit then
         uiElements.ghostProfileWhitelistEdit:SetText(p.ghostProfileWhitelist or "")
         local wlEnabled = p.ghostProfileWhitelistEnabled
         if wlEnabled then uiElements.ghostProfileWhitelistEdit:Enable(); uiElements.ghostProfileWhitelistEdit:SetAlpha(1.0)
         else uiElements.ghostProfileWhitelistEdit:Disable(); uiElements.ghostProfileWhitelistEdit:SetAlpha(0.5) end
         if uiElements.ghostProfileWhitelistScroll then uiElements.ghostProfileWhitelistScroll:SetAlpha(wlEnabled and 1 or 0.5) end
     end
-    
+
     local dropdownConfig = {
         phaseCheckMode = {
             ["off"] = "Off", ["statistics"] = "Statistics only", ["alert"] = "Notify only", ["block"] = "Block (silent)",
@@ -695,7 +695,7 @@ function TRP3FW:RefreshUI()
             UIDropDownMenu_SetText(uiElements[k.."Dropdown"], label)
         end
     end
-    
+
     if uiElements.complexityDropdown then
         local level = p.uiComplexityLevel or 2
         UIDropDownMenu_SetText(uiElements.complexityDropdown, COMPLEXITY_NAMES[level] or "Intermediate")
@@ -719,9 +719,9 @@ function TRP3FW:RefreshUI()
             UIDropDownMenu_SetText(uiElements.ghostProfileDropdown, currentProfile)
         end
     end
-    
+
     if uiElements.profileOverrides then for i, r in ipairs(uiElements.profileOverrides) do local e = (p.ghostProfileOverrides and p.ghostProfileOverrides[i]) or {}; if r.edit then r.edit:SetText(e.match or "") end; if r.dropdown then UIDropDownMenu_SetText(r.dropdown, e.profileName or "(Global)") end end end
-    
+
     if uiElements.spvpBlockDurationSlider then
         uiElements.spvpBlockDurationSlider:SetValue(p.spvpBlockDuration or 60)
     end
@@ -738,19 +738,19 @@ function TRP3FW:RefreshUI()
             local map = dropdownConfig.scanResponsePhaseMode or {}
             return map[val] or "Off"
         end
-        
+
         local phaseMode = p.phaseCheckMode or "alert"
         local mapMode = p.mapCheckMode or "alert"
         local whoText = "WHO: Default (user /who via UI; addon auto)"
-        
+
         local lines = {}
         table.insert(lines, string.format("Profiles: Phase: %s   Map: %s   %s", modeText(phaseMode), modeText(mapMode), whoText))
 
         local scanPhaseMode = p.scanResponsePhaseMode or "off"
         local scanMapMode = p.scanResponseMapMode or "off"
-        
+
         local gatingActive = hasScanner and (scanPhaseMode ~= "off" or scanMapMode ~= "off")
-        
+
         if gatingActive then
             table.insert(lines, string.format("Scan reply: Phase: %s   Map: %s", scanModeText(scanPhaseMode), scanModeText(scanMapMode)))
         else
@@ -773,7 +773,7 @@ function TRP3FW:RefreshUI()
         for _, control in ipairs(epsilonControls) do
             if control then
                 if control.SetShown then control:SetShown(hasEpsilon) end
-                
+
                 if hasEpsilon then
                     if control.Enable then control:Enable() end
                     if control.EnableDropDown then control:EnableDropDown() end

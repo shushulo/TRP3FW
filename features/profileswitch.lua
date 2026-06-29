@@ -882,7 +882,7 @@ end
 -- Monitor phase/map changes and switch profiles automatically
 local function OnProfileSwitchEvent(event)
     local ES = TRP3FW.ServiceContainer:Get("EventService")
-    
+
     -- Initialize profile tracking on login
     if event == "PLAYER_ENTERING_WORLD" then
         InitializeProfileTracking()

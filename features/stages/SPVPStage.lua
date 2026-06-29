@@ -22,7 +22,7 @@ end
 function TRP3FW.SPVPStage:Process(context)
     -- Master toggle
     local spvpEnabled = (context.settings and context.settings.spvpEnabled ~= nil) and context.settings.spvpEnabled or TRP3FW.Prefs.spvpEnabled
-    
+
     if not spvpEnabled then
         TRP3FW:Debug("SPVP skipped: Master toggle (spvpEnabled) is disabled in settings", "spvp")
         return { handled = false }
@@ -43,14 +43,14 @@ function TRP3FW.SPVPStage:Process(context)
 
     -- Check if phase has a salt configured
     local phaseSalt = TRP3FW:GetPhaseSalt(currentPhaseID)
-    
+
     if phaseSalt == nil then
         -- SALT LOADING (Async fetch in progress)
         TRP3FW:Debug("SPVP pending: Phase salt loading...", "spvp")
-        
+
         -- We return async=true to tell the pipeline to wait
-        -- BUT, since GetPhaseSalt doesn't take a callback here, we need a way to 
-        -- resume the pipeline. 
+        -- BUT, since GetPhaseSalt doesn't take a callback here, we need a way to
+        -- resume the pipeline.
         -- For now, let's skip SPVP if not ready, rather than blocking the whole pipeline.
         -- Preferred mode in Cascading Check will handle late-resolution.
         return { handled = false }

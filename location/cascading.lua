@@ -8,13 +8,13 @@ local START_PHASE_ID = 169  -- Epsilon start phase ID (blocks all transmissions)
 
 -- ===================== Helpers =====================
 
-local function IsMethodStrong(m) 
-    return m and (m:find("target") or m:find("batch") or m == "nameplate" or m == "group" or m:find("scanned") or m == "who_query") 
+local function IsMethodStrong(m)
+    return m and (m:find("target") or m:find("batch") or m == "nameplate" or m == "group" or m:find("scanned") or m == "who_query")
 end
 
 local function IsReliableMapFailure(results, source, spvpVerified)
     if not source then return false end
-    
+
     -- Throttles and backoffs are always unreliable signals of location
     if source:find("backoff") or source:find("rate_limit") then return false end
 
@@ -27,10 +27,10 @@ local function IsReliableMapFailure(results, source, spvpVerified)
             if source:find("timeout") or source == "who_not_found" or source == "cached" then return false end
         end
     end
-    
+
     -- Standard reliable failure sources (mismatch, explicit who/scanned fail)
     local isReliable = (source == "cached" or source:find("mismatch") or source:find("no_zone") or source:find("who") or source:find("scanned") or source == "cached_zone_complete")
-    
+
     -- Timeouts are considered reliable failures if we don't have a nearness signal (Targeting)
     -- (Unless we are in a transition grace period where everything is unreliable)
     if source:find("timeout") and not results.recentTransition then
@@ -73,7 +73,7 @@ local function EvaluateResults(results)
         local phaseVerified = (results.phaseCheck == true or spvpVerified)
         local isStrongPhase = IsMethodStrong(results.phaseMethod)
         local isStrongMap = IsMethodStrong(results.mapMethod)
-        
+
         if mapVerified and phaseVerified and (isStrongPhase or isStrongMap) and spvpMode ~= "required" then
             TRP3FW:Debug("Early Success (Mutual) triggered for "..playerName..": Phase/Map verified (skipping pending SPVP)", "location")
         elseif mapVerified and isStrongMap and results.whoNameOnly and spvpMode == "optional" then
@@ -167,7 +167,7 @@ local function EvaluateResults(results)
         if not reliableMapFailure then
             locationOK = true
             alertTypes = {} -- CLEAR ALERTS on success!
-            
+
             -- FORCE NOTIFICATION TO SHOW SUCCESS
             if spvpVerified and results.phaseCheck ~= true then
                 results.phaseCheck = true
@@ -204,7 +204,7 @@ end
 local function RunMapCheck(results, priority)
     if not results.mapCheckEnabled or results.mapCheck ~= nil or results.mapCheckStarted then return end
     results.mapCheckStarted = true
-    
+
     local playerName = results.playerName
     local sendId = results.sendId
 
@@ -212,9 +212,9 @@ local function RunMapCheck(results, priority)
         if results.mapCheck ~= nil or results.mapScanTriggered then return end
         results.mapScanTriggered = true
         if TRP3FW.detectedAddons.MapScanner then
-            TRP3FW:MapScan(playerName, sendId, function(f, s, a) 
+            TRP3FW:MapScan(playerName, sendId, function(f, s, a)
                 if s:find("cached") then results.cacheInfo.mapCache = "hit" end
-                HandleMapResult(results, f, s, a) 
+                HandleMapResult(results, f, s, a)
             end)
         else
             -- No scanner, fail map check
@@ -229,7 +229,7 @@ local function RunMapCheck(results, priority)
         -- Trigger WHO
         TRP3FW:CheckPlayerViaWho(playerName, sendId, function(found, source, age, zone, tMapID)
             if source == "cached" then results.cacheInfo.whoCache = "hit" end
-            
+
             -- If we already have a map result (e.g. from parallel scan), don't trigger another one
             if results.mapCheck ~= nil then return end
 
@@ -266,10 +266,10 @@ local function HandlePhaseResult(results, inPhase, source, theirMapID, phaseMeth
         MarkComplete(results, "map")
         EvaluateResults(results)
     else
-        if results.mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then 
-            RunMapCheck(results, priority) 
-        else 
-            EvaluateResults(results) 
+        if results.mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
+            RunMapCheck(results, priority)
+        else
+            EvaluateResults(results)
         end
     end
 end
@@ -296,8 +296,8 @@ local function StartStandardChecks(results, priority)
             end)
         end
     elseif results.phaseCheck ~= nil then
-        if results.mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then 
-            RunMapCheck(results, priority) 
+        if results.mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
+            RunMapCheck(results, priority)
         end
     else
         -- Start map check if phase is disabled or not started
@@ -370,7 +370,7 @@ end
 function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     options = options or {}
     TRP3FW.profiler.start("CheckLocationCascading")
-    
+
     local now = self:GetCurrentTime()
 
     -- OPTIMIZATION: Start Phase Early Exit (Fail Fast)

@@ -17,12 +17,12 @@ function LocationStage:Process(context)
     if not phaseCheckEnabled and not mapCheckEnabled then
         -- No checks enabled - just allow
         TRP3FW:TrackAddonRequest(context.addon, context.sendId)
-        
+
         local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
         if historyService then
             historyService:RecordHistory(context.playerName, context.addon, false, false)
         end
-        
+
         TRP3FW:AllowSender(context.playerName, "no_alerts")
         if context.originalFunc then
             pcall(context.originalFunc, unpack(context.originalArgs))
@@ -88,7 +88,7 @@ function LocationStage:Process(context)
     local shouldBlockStartPhase, blockType = TRP3FW:ShouldBlockForStartPhase(context.playerName, true)
     if shouldBlockStartPhase then
         TRP3FW:Debug("Start phase block triggered for "..context.playerName.." (type: "..tostring(blockType)..")", "send")
-        
+
         local locationResult = {
             locationOK = false,
             alertType = "start_phase_block",
@@ -101,21 +101,21 @@ function LocationStage:Process(context)
             timeSinceTransition = 0,
             checkDetails = {}
         }
-        
+
         -- Merge sendInfo context
         context.isFirstTime = isFirstTime
         context.suppressedCount = suppressedCount
-        
+
         -- Call Decision Stage directly (or via pipeline if we restructure)
         -- For now, we'll call the legacy helper which will be converted later
         TRP3FW:Pipeline_DecisionStage(context, locationResult)
-        
+
         -- Clear pending sends
         TRP3FW.pendingSends[context.sendId] = nil
         if TRP3FW.pendingLocationChecks then
              TRP3FW.pendingLocationChecks[context.playerName] = nil
         end
-        
+
         return {handled = true, async = false, allowed = false, reason = "start_phase_block"}
     end
 
@@ -139,7 +139,7 @@ function LocationStage:Process(context)
             timeSinceTransition = timeSinceTransition,
             checkDetails = checkDetails
         }
-        
+
         -- Call Decision Stage
         TRP3FW:ProcessLocationDecision(context, locationResult)
     end, options)

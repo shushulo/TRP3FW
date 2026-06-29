@@ -13,7 +13,7 @@ function AlertFastPathStage:Process(context)
     local alertOnlyMap   = TRP3FW:ShouldAlertOnMap()   and not TRP3FW:ShouldBlockOnMap()
     local noPhaseChecks  = not TRP3FW:IsPhaseCheckEnabled()
     local noMapChecks    = not TRP3FW:IsMapCheckEnabled()
-    
+
     local alertOnly = (alertOnlyPhase or noPhaseChecks) and (alertOnlyMap or noMapChecks) and not startPhaseActive and not TRP3FW:IsProfileSwitchOverrideActive()
 
     if not alertOnly then
@@ -22,19 +22,19 @@ function AlertFastPathStage:Process(context)
 
     TRP3FW:Debug("[Fast Allow] Alert-only mode, sending immediately and deferring checks", "send")
     TRP3FW:TrackAddonRequest(context.addon, context.sendId)
-    
+
     -- Call original function immediately
     if context.originalFunc then
         pcall(context.originalFunc, unpack(context.originalArgs))
     end
-    
+
     local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
     if historyService then
         historyService:RecordHistory(context.playerName, context.addon, false, false)
     end
-    
+
     TRP3FW:AllowSender(context.playerName, "alert_only_allow")
-    
+
     -- Perform Check with SPVP context
     local options = {
         spvpEnabled = context.spvpEnabled,
@@ -59,9 +59,9 @@ function AlertFastPathStage:Process(context)
                     historyService:RecordSend(context.playerName, context.now)
                 end
             end
-            
+
             TRP3FW:Debug("[Fast Allow] Alert-only async result for "..context.playerName..": ALERT", "send")
-            
+
             if notificationService then
                 notificationService:Notify(context.playerName, {
                     type = "alert",
@@ -86,7 +86,7 @@ function AlertFastPathStage:Process(context)
         -- A "Profile sent" toast 1-2s after the actual send is detached from the action that
         -- triggered it and looks like a stuck/duplicate event. If users want delayed allow
         -- notifications, that should be a separate explicit setting.
-        
+
         -- Process burst allows
         TRP3FW:ProcessBurstAllows(context.playerName)
     end)

@@ -113,7 +113,7 @@ TRP3FW.defaultSettings = {
     phaseCacheDuration = 300,    -- 5 minutes (up from 120s)
     phaseCacheRefreshThreshold = 0.5, -- Refresh when age > 50% of TTL (150s)
     phaseCacheFailureDuration = 10, -- Short cache duration for failed phase checks (allows quick retries)
-    
+
     -- Batch Phase Check Settings (Optimization #2)
     phaseCheckBatchMode = true,         -- Enable batched phase checks
     phaseCheckBatchSize = 5,            -- Max batch size (2-10)
@@ -132,7 +132,7 @@ TRP3FW.defaultSettings = {
     whoNameCacheDuration = 180,  -- Cache WHO name lookups longer for stability (configurable via UI/command)
     whoCacheRefreshThreshold = 50, -- Refresh when age > 50% of TTL (0-100%)
     whoZoneQueryCooldown = 20,   -- Increased from 15s to be more server-friendly (configurable via UI/command)
-    
+
 
     suppressAllWhoOutput = true, -- Suppress ALL WHO output (not just TRP3FW queries) - helps reduce spam
     interactionCacheDuration = 600, -- LONG duration: Skip location checks for people you've interacted with (mouseover/target)
@@ -582,14 +582,14 @@ function TRP3FW:MigrateSettings()
     -- TRP3FW_Settings (legacy global) might contain data if it was just loaded
     if TRP3FW_Settings and next(TRP3FW_Settings) and not TRP3FW_Settings.profiles then
         self:Debug("Migration: Found legacy flat settings. Migrating to 'Default' profile.", "init")
-        
+
         -- Copy flat data to Default profile
         TRP3FW_DB.profiles["Default"] = CopyTable(TRP3FW_Settings)
-        
+
         -- Wipe legacy container (to avoid double-saving or confusion)
         for k in pairs(TRP3FW_Settings) do TRP3FW_Settings[k] = nil end
     end
-    
+
     -- Ensure at least one profile exists
     if not next(TRP3FW_DB.profiles) then
         TRP3FW_DB.profiles["Default"] = CopyTable(self.defaultSettings)
@@ -602,24 +602,24 @@ function TRP3FW:LoadProfile(profileName)
         self:Debug("Profile '" .. profileName .. "' not found. Falling back to 'Default'.", "init")
         profileName = "Default"
     end
-    
+
     -- Point Prefs to the active profile table
     self.Prefs = db.profiles[profileName]
-    
+
     -- Ensure all default keys exist in the profile
     for k, v in pairs(self.defaultSettings) do
         if self.Prefs[k] == nil then
             self.Prefs[k] = v
         end
     end
-    
+
     -- Update current character's key
     local charKey = self:GetCharacterKey()
     db.profileKeys[charKey] = profileName
-    
+
     -- Store reference to Global DB
     TRP3FW.GlobalDB = db
-    
+
     self:Debug("Loaded profile: " .. profileName, "init")
 end
 
@@ -707,14 +707,14 @@ end
 function TRP3FW:InitializeSettings()
     -- 1. Perform Migration
     self:MigrateSettings()
-    
+
     -- 2. Identify active profile for current character
     local charKey = self:GetCharacterKey()
     local profileName = TRP3FW_DB.profileKeys[charKey] or "Default"
-    
+
     -- 3. Load the profile
     self:LoadProfile(profileName)
-    
+
     -- 4. Initialize Caches (Migrated from CacheService)
     self:InitializeCaches()
 

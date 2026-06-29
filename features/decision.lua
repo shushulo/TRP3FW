@@ -153,7 +153,7 @@ function TRP3FW:AllowSender(playerName, reason)
         local ttl = TRP3FW.Prefs.sendCacheDuration or 600
         local refreshPercent = TRP3FW.Prefs.sendCacheRefreshRate or 10
         local refreshThreshold = ttl * (refreshPercent / 100)
-        
+
         local cached = CI:Get("allowedSenders", cleanName)
         if cached and (now - cached.timestamp) < refreshThreshold then
             self:Debug("[AllowSender] Skipping cache update for '"..cleanName.."' (age < "..string.format("%.1f", refreshThreshold).."s)", "cache")
@@ -184,13 +184,13 @@ function TRP3FW:CheckLocationAndNotify(playerName, addon, isWhisper, sendId, ori
 
     -- Cache time once per request to avoid repeated syscalls along the pipeline.
     local now = self:GetCurrentTime()
-    
+
     -- CRITICAL: Create context object ONCE (TOCTOU fix)
     local context = self:CreateDecisionContext(playerName, addon, isWhisper, sendId, originalFunc, originalArgs, now)
-    
+
     self:Debug("=== CheckLocationAndNotify START for "..playerName.." ===", "send")
     self:Debug("  addon: "..tostring(addon)..", isWhisper: "..tostring(isWhisper)..", sendId: "..tostring(sendId), "send")
-    
+
     -- Flag MSP automatic replies (e.g., mutual exchanges triggered by MSP callbacks) to suppress allow spam
     if addon == "MSP" and self.IsPendingMSPAutoReply then
         context.isMSPAutoReply = self:IsPendingMSPAutoReply(playerName)
@@ -198,13 +198,13 @@ function TRP3FW:CheckLocationAndNotify(playerName, addon, isWhisper, sendId, ori
             self:Debug("[MSP Auto Reply] Suppressing allow notification for "..playerName, "send")
         end
     end
-    
+
     -- Track whether this send follows a user-initiated query (mouse over / target / manual request)
     context.isUserInitiated = self:IsUserInitiatedExchange(playerName)
-    
+
     -- Run Pipeline
     local result = self.DecisionPipeline:Run(context)
-    
+
     return result.allowed
 end
 
@@ -501,7 +501,7 @@ end
 
 function TRP3FW:ProcessLocationDecision(context, locationResult)
     -- locationResult: { locationOK, alertType, source, mapCacheAge, theirZone, myZone, cacheInfo, recentTransition, timeSinceTransition, checkDetails }
-    
+
     local shouldAlert = false
     local shouldBlock = false
     local alertType = locationResult.alertType
@@ -539,7 +539,7 @@ function TRP3FW:ProcessLocationDecision(context, locationResult)
         -- Check if SPVP was already verified in the pipeline (but we are still blocking, e.g. strict map check)
         local spvpDetails = locationResult.checkDetails and locationResult.checkDetails.spvp
         local alreadyVerified = spvpDetails and spvpDetails.result == true
-        
+
         if alreadyVerified then
              self:Debug("SPVP already verified but block persists (Strict Map Check) - Skipping rescue", "spvp")
              -- Do NOT attempt rescue, fall through to ApplyLocationDecision (BLOCK)

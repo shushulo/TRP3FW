@@ -45,7 +45,7 @@ mainFrame:SetScript("OnEvent", function(self, event, arg1)
         C_Timer.After(5, function()
             -- Initialize interaction tracking (mouseover and target)
             -- TRP3FW:InitializeInteractionTracking() -- Moved to CacheService
-            
+
             TRP3FW:Debug("[Init] Interaction tracking initialized (deferred to avoid login freeze)", "init")
         end)
 

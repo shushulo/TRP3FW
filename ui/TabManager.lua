@@ -29,7 +29,7 @@ function TabManager:RegisterTab(id, name, title, createFunc, refreshFunc)
         TRP3FW:Warn("Tab already registered: "..tostring(id))
         return
     end
-    
+
     local tab = {
         id = id,
         name = name,
@@ -38,7 +38,7 @@ function TabManager:RegisterTab(id, name, title, createFunc, refreshFunc)
         refresh = refreshFunc,
         frame = nil
     }
-    
+
     self.tabs[id] = tab
     table.insert(self.orderedTabs, tab)
     TRP3FW:Debug("Registered settings tab: "..tostring(id), "ui")
@@ -72,7 +72,7 @@ end
 
 function TabManager:AppendDefaultToTooltip(tooltipText, settingKey, level)
     local text = tooltipText or ""
-    
+
     -- Append default value
     if settingKey and TRP3FW and TRP3FW.defaultSettings then
         local defaultVal = TRP3FW.defaultSettings[settingKey]
@@ -90,7 +90,7 @@ function TabManager:AppendDefaultToTooltip(tooltipText, settingKey, level)
             else
                 suffix = "Default set."
             end
-            
+
             if text ~= "" then
                 text = text .. " " .. suffix
             else
@@ -98,7 +98,7 @@ function TabManager:AppendDefaultToTooltip(tooltipText, settingKey, level)
             end
         end
     end
-    
+
     -- Append Complexity Level
     if level and level > 1 then
         local color = "00ff00"
@@ -106,12 +106,12 @@ function TabManager:AppendDefaultToTooltip(tooltipText, settingKey, level)
         elseif level == 3 then color = "ff8800"
         elseif level == 4 then color = "ff0000"
         end
-        
+
         local COMPLEXITY_NAMES = { [1] = "Basic", [2] = "Intermediate", [3] = "Advanced", [4] = "Everything" }
         local levelName = COMPLEXITY_NAMES[level] or "Unknown"
         text = text .. string.format("\n|cff%s[%s Setting]|r", color, levelName)
     end
-    
+
     return text
 end
 
@@ -196,10 +196,10 @@ function TabManager:CreateDropdown(parent, labelText, tooltipText, width, settin
     local level = TRP3FW.SETTING_LEVELS and TRP3FW.SETTING_LEVELS[settingKey] or 4
     dropdown.complexityLevel = level
     dropdown.settingKey = settingKey
-    
+
     dropdown.EnableDropDown = function(self) UIDropDownMenu_EnableDropDown(self) end
     dropdown.DisableDropDown = function(self) UIDropDownMenu_DisableDropDown(self) end
-    
+
     table.insert(self.complexityWidgets, dropdown)
 
     local tooltip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
@@ -333,26 +333,26 @@ end
 
 function TabManager:SwitchToTab(id)
     if not self.tabs[id] then return end
-    
+
     -- Hide current
     if self.activeTab and self.activeTab.frame then
         self.activeTab.frame:Hide()
     end
-    
+
     local tab = self.tabs[id]
-    
+
     -- Create if needed (Lazy Loading)
     if not tab.frame then
         -- Important: Ensure the created frame is what we show/hide
         -- If create() returns a scrollFrame, that's what we store and hide.
         tab.frame = tab.create(self.container)
     end
-    
+
     if tab.frame then
         tab.frame:Show()
     end
     self.activeTab = tab
-    
+
     if tab.refresh then
         tab.refresh()
     end

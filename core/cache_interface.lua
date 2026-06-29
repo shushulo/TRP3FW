@@ -245,14 +245,14 @@ function TRP3FW.CacheInterface:PruneIncremental(name, budget)
         local node = cache.data[cursorKey]
         -- Capture next key BEFORE potentially removing current node
         local nextKey = node.next
-        
+
         processed = processed + 1
 
         if ttl and node.timestamp and (now - node.timestamp) > ttl then
             RemoveNode(cache, cursorKey)
             pruned = pruned + 1
         end
-        
+
         cursorKey = nextKey
     end
 

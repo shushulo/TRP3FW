@@ -7,7 +7,7 @@ local TabManager = TRP3FW.TabManager
 local function CreateFiltersTab(container)
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
-    
+
     local scrollFrame, content = TabManager:CreateScrollFrame(tab, 350)
     local uiElements = TabManager:GetUI()
     local y = -10
@@ -16,11 +16,11 @@ local function CreateFiltersTab(container)
     local complexityLabel = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     complexityLabel:SetPoint("TOPLEFT", 20, y); complexityLabel:SetText("Settings Complexity Level")
     y = y - 30
-    
+
     local complexityDropdown = CreateFrame("Frame", "TRP3FW_ComplexityDropdown", content, "UIDropDownMenuTemplate")
     complexityDropdown:SetPoint("TOPLEFT", 20, y); UIDropDownMenu_SetWidth(complexityDropdown, 200)
     uiElements.complexityDropdown = complexityDropdown
-    
+
     local COMPLEXITY_NAMES = { [1] = "Basic", [2] = "Intermediate", [3] = "Advanced", [4] = "Everything" }
     UIDropDownMenu_Initialize(complexityDropdown, function(self, level)
         for i = 1, 4 do
@@ -41,17 +41,17 @@ local function CreateFiltersTab(container)
     uiElements.filterGradients:SetPoint("TOPLEFT", 20, y)
     uiElements.filterGradients:SetScript("OnClick", function(self) TRP3FW.Prefs.filterGradients = self:GetChecked(); TRP3FW:Info("Filter change will take effect after /reload") end)
     y = y - 35
-    
+
     uiElements.filterIcons = TabManager:CreateCheckbox(content, "Strip Icons from Profiles", "Remove embedded icons from profile fields.", "filterIcons")
     uiElements.filterIcons:SetPoint("TOPLEFT", 20, y)
     uiElements.filterIcons:SetScript("OnClick", function(self) TRP3FW.Prefs.filterIcons = self:GetChecked(); TRP3FW:Info("Filter change will take effect after /reload") end)
     y = y - 35
-    
+
     uiElements.filterMinimumFontSize = TabManager:CreateCheckbox(content, "Minimum Font Size", "Inject minimum font size into incoming profiles.", "filterMinimumFontSize")
     uiElements.filterMinimumFontSize:SetPoint("TOPLEFT", 20, y)
     uiElements.filterMinimumFontSize:SetScript("OnClick", function(self) TRP3FW.Prefs.filterMinimumFontSize = self:GetChecked(); TRP3FW:RefreshUI() end)
     y = y - 40
-    
+
     local fsd, fsl = TabManager:CreateDropdown(content, "Font Size Level", "Minimum font size to inject.", 200, "minimumFontSizeLevel")
     fsd:SetPoint("TOPLEFT", 40, y); uiElements.minimumFontSizeLevelDropdown = fsd
     UIDropDownMenu_Initialize(fsd, function(self, level)

@@ -142,10 +142,10 @@ local function GeneratePrivateKey()
     local mouse_x, mouse_y = GetCursorPosition()
 
     -- Mix high-resolution entropy sources
-    local seed = (tonumber(guid:sub(-8), 16) or 0) + 
-                 (math.floor(now * 1000000) % 2147483647) + 
+    local seed = (tonumber(guid:sub(-8), 16) or 0) +
+                 (math.floor(now * 1000000) % 2147483647) +
                  (mouse_x * 1337) + (mouse_y * 7331)
-    
+
     SafeRandomSeed(seed)
 
     -- Pre-warm PRNG (discard first few outputs)
@@ -191,11 +191,11 @@ local function GenerateSessionID()
         -- Re-seed every character for maximum entropy (PRNG hardening)
         local now = GetTimePreciseSec and GetTimePreciseSec() or GetTime()
         local mouse_x, mouse_y = GetCursorPosition()
-        local seed = (tonumber(guid:sub(-6), 16) or 0) + 
-                     (math.floor(now * 1000000) % 2147483647) + 
+        local seed = (tonumber(guid:sub(-6), 16) or 0) +
+                     (math.floor(now * 1000000) % 2147483647) +
                      (mouse_x * i) + (mouse_y * (9-i))
         SafeRandomSeed(seed)
-        
+
         local r = math.random(1, 16)
         sessionID = sessionID .. chars:sub(r, r)
     end
@@ -220,7 +220,7 @@ end
 --- @return string - Phase salt (64 hex chars + colon + UTC timestamp)
 function TRP3FW:GeneratePhaseSalt()
     TRP3FW.profiler.start("SPVP:GenerateSalt")
-    
+
     local chars = "0123456789ABCDEF"
     local salt = ""
 
@@ -231,12 +231,12 @@ function TRP3FW:GeneratePhaseSalt()
             local guid = UnitGUID("player") or "NOGUID"
             local now = GetTimePreciseSec and GetTimePreciseSec() or GetTime()
             local mouse_x, mouse_y = GetCursorPosition()
-            
+
             local seed = (tonumber(guid:sub(-8), 16) or 0) +
                          (math.floor(now * 1000000) % 2147483647) +
                          ((mouse_x or 0) * 100) + ((mouse_y or 0) * i) +
                          (GetFramerate() * 1000)
-            
+
             SafeRandomSeed(seed)
         end
 
@@ -305,12 +305,12 @@ function TRP3FW:SecureCurrentPhase()
     end
 
     local salt = self:GeneratePhaseSalt()
-    
+
     if not salt or #salt < 32 then
         self:Error("Generated salt is invalid/weak. Aborting secure.")
         return
     end
-    
+
     C_Epsilon.SetPhaseAddonData("TRP3FW_SPVP_KEY", salt)
 
     -- Invalidate cache and update with new salt
@@ -370,11 +370,11 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
                 local age = self:GetCurrentTime() - cached.timestamp
                 self:Debug(string.format("Phase salt cache hit for phase %d (age: %.0fs)",
                     phaseID, age), "spvp")
-                
+
                 -- Background refresh logic
                 local ttl = TRP3FW.Prefs.spvpSaltCacheDuration or 10800
                 local refreshThreshold = ttl * ((TRP3FW.Prefs.spvpPhaseSaltRefreshRate or 50) / 100)
-                
+
                 if age > refreshThreshold then
                     self:Debug(string.format("Phase salt cache aging (%.0fs) - triggering background refresh", age), "spvp")
                     -- Trigger API fetch (HandleSaltResponse will update cache)
@@ -391,7 +391,7 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
                     self.sessionStats.spvpCache.hits = self.sessionStats.spvpCache.hits + 1
                     self.sessionStats.spvpCache.apiCallsSaved = self.sessionStats.spvpCache.apiCallsSaved + 1
                 end
-                
+
                 return cached.salt
             end
         end
@@ -408,7 +408,7 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
 
     -- Asynchronous/Synchronous Request
     local result = C_Epsilon.GetPhaseAddonData("TRP3FW_SPVP_KEY")
-    
+
     if not result or result == "" then
         -- Immediate "No Salt" result
         self:Debug("Phase salt not found (Synchronous) for phase "..phaseID..", caching negative result (1h)", "spvp")
@@ -426,21 +426,21 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
         -- If the client already has the data, it might return it directly
         if #result >= 32 and result:match("^[0-9a-fA-F:]+$") then
             self:Debug("Synchronous phase salt fetch successful for phase "..phaseID, "spvp")
-            
+
             -- Cache it immediately
             if CI then
                 CI:Set("spvpPhaseSalt", phaseID, {
                     salt = result,
                     timestamp = self:GetCurrentTime()
                 })
-                
+
                 -- Update stats
                 if self.sessionStats and self.sessionStats.spvpCache then
                     self.sessionStats.spvpCache.lastRefresh = self:GetCurrentTime()
                     self.sessionStats.spvpCache.activeEntries = CI:GetSize("spvpPhaseSalt") or 0
                 end
             end
-            
+
             return result
         else
             -- Result is a ticket (Async)
@@ -537,9 +537,9 @@ TRP3FW.pendingSPVPInits = {}   -- [{sender, message}] - Queued while salt loads
 function TRP3FW:HandleSaltResponse(ticket, salt)
     local phaseID = self.pendingSaltTickets[ticket]
     if not phaseID then return end
-    
+
     self.pendingSaltTickets[ticket] = nil
-    
+
     -- Validate salt
     if not salt or salt == "" or #salt < 32 or not salt:match("^[0-9a-fA-F:]+$") then
         self:Debug("Async salt missing/invalid for phase "..phaseID..", caching negative result (1h)", "spvp")
@@ -550,7 +550,7 @@ function TRP3FW:HandleSaltResponse(ticket, salt)
                 timestamp = self:GetCurrentTime()
             })
         end
-        
+
         -- Fail any pending INITs for this phase (we can't verify)
         if #self.pendingSPVPInits > 0 then
             for _, pending in ipairs(self.pendingSPVPInits) do
@@ -560,10 +560,10 @@ function TRP3FW:HandleSaltResponse(ticket, salt)
             end
             self.pendingSPVPInits = {}
         end
-        
+
         return
     end
-    
+
     -- Cache valid salt
     local CI = self.CacheInterface
     if CI then
@@ -572,7 +572,7 @@ function TRP3FW:HandleSaltResponse(ticket, salt)
             timestamp = self:GetCurrentTime()
         })
         self:Debug("Async salt cached for phase "..phaseID, "spvp")
-        
+
         -- Update stats
         if self.sessionStats and self.sessionStats.spvpCache then
             self.sessionStats.spvpCache.lastRefresh = self:GetCurrentTime()
@@ -673,7 +673,7 @@ function TRP3FW:CheckPlayerViaSPVP(playerName, sendId, callback)
             TRP3FW:Debug(string.format("SPVP cache hit (aging): %s - triggering background refresh", playerName), "spvp")
             if hs then hs:IncrementStat("cacheStats", "spvpVerifiedCacheHits") end
             callback(true, "cached")
-            
+
             -- Background refresh (no callback)
             StartSPVPHandshakeWithRetry(playerName, sendId, nil, 0)
             return
@@ -801,7 +801,7 @@ function TRP3FW:HandleSPVPConfirm(message, sender)
     local expectedVerifier = HashKey(incoming.sharedKey)
     if verifier == expectedVerifier then
         TRP3FW:Debug(string.format("SPVP SUCCESS (Mutual): %s verified via CONFIRM", sender), "spvp")
-        
+
         -- Cache result for Bob
         local CI = TRP3FW.CacheInterface
         if CI then

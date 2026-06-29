@@ -16,10 +16,10 @@ EventService.Events = {
 
 function EventService:Initialize()
     TRP3FW.Service.Initialize(self)
-    
+
     self.frame = CreateFrame("Frame")
     self.frame:SetScript("OnEvent", function(_, event, ...) self:OnEvent(event, ...) end)
-    
+
     -- Core events to listen for
     self:Listen("ADDON_LOADED")
     self:Listen("PLAYER_LOGIN")
@@ -31,7 +31,7 @@ function EventService:Initialize()
     self:Listen("UPDATE_MOUSEOVER_UNIT")
     self:Listen("WHO_LIST_UPDATE")
     self:Listen("CHAT_MSG_SYSTEM")
-    
+
     -- Epsilon-specific events
     if TRP3FW.hasEpsilonAPI then
         pcall(function() self:Listen("EPSILON_PHASE_CHANGE") end)
@@ -47,13 +47,13 @@ end
 -- Priority: Lower numbers execute first (default: 50)
 function EventService:RegisterCallback(event, func, priority)
     if not event or not func then return end
-    
+
     self.callbacks[event] = self.callbacks[event] or {}
     table.insert(self.callbacks[event], {
         func = func,
         priority = priority or 50
     })
-    
+
     -- Sort by priority
     table.sort(self.callbacks[event], function(a, b)
         return a.priority < b.priority
@@ -63,7 +63,7 @@ end
 -- Unregister a callback
 function EventService:UnregisterCallback(event, func)
     if not event or not func or not self.callbacks[event] then return end
-    
+
     for i, callback in ipairs(self.callbacks[event]) do
         if callback.func == func then
             table.remove(self.callbacks[event], i)
@@ -103,7 +103,7 @@ end
 
 function EventService:Trigger(event, sourceEvent, ...)
     if not self.callbacks[event] then return end
-    
+
     for _, callback in ipairs(self.callbacks[event]) do
         local ok, err = pcall(callback.func, sourceEvent, ...)
         if not ok then

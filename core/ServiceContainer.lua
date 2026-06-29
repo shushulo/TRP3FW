@@ -12,13 +12,13 @@ function TRP3FW.ServiceContainer:Register(service)
         TRP3FW:Error("Attempted to register invalid service")
         return
     end
-    
+
     local name = service:GetName()
     if self.services[name] then
         TRP3FW:Warn("Service already registered: " .. tostring(name))
         return
     end
-    
+
     self.services[name] = service
     TRP3FW:Debug("Registered service: " .. tostring(name), "core")
 end

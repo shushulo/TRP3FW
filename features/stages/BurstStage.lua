@@ -15,7 +15,7 @@ function BurstStage:Process(context)
     -- Check if a location check is already in progress for this player
     if TRP3FW.pendingLocationChecks[context.playerName] then
         TRP3FW:Debug("Location check already in progress for "..context.playerName..", queuing this request", "send")
-        
+
         -- Check suppression state for queued request
         local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
         local isFirstTime, suppressedCount = true, 0

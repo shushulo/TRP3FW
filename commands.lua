@@ -539,7 +539,7 @@ SlashCmdList.TRP3FW = function(msg)
                     ["whoname"] = "whoName",
                     ["all"] = "all"
                 }
-                
+
                 if validCaches[eventType] then
                     local target = validCaches[eventType]
                     if TRP3FW.CacheInterface then
@@ -892,10 +892,10 @@ SlashCmdList.TRP3FW = function(msg)
         local phaseID = TRP3FW:GetCurrentPhaseID() or "Unknown"
         local salt = C_Epsilon.GetPhaseAddonData("TRP3FW_SPVP_KEY")
         local isTicket = salt and #salt < 32
-        
+
         local cachedSalt = "None"
         local timestamp = "None"
-        
+
         if TRP3FW.CacheInterface then
             local cached = TRP3FW.CacheInterface:Get("spvpPhaseSalt", phaseID)
             if cached then
@@ -913,7 +913,7 @@ SlashCmdList.TRP3FW = function(msg)
 
         local isOwner = C_Epsilon.IsOwner and C_Epsilon.IsOwner()
         local isOfficer = C_Epsilon.IsOfficer and C_Epsilon.IsOfficer()
-        
+
         -- Check for Ticket ID correlation
         local ticketID = "Unknown"
         local saltMatchesTicket = false
@@ -930,7 +930,7 @@ SlashCmdList.TRP3FW = function(msg)
         TRP3FW:Info("SPVP Mode: " .. (TRP3FW.Prefs.spvpMode or "off"))
         TRP3FW:Info("Player Status: " .. (isOwner and "|cff00ff00Owner|r" or (isOfficer and "|cff00ff00Officer|r" or "|cffaaaaaaMember|r")))
         TRP3FW:Info("Auto-Init Setting: " .. (TRP3FW.Prefs.spvpAutoInitialize and "|cff00ff00ENABLED|r" or "|cffaaaaaaDISABLED|r"))
-        
+
         local apiStatus = "Nil"
         if salt then
             if salt == "" then apiStatus = "Empty String"
@@ -939,14 +939,14 @@ SlashCmdList.TRP3FW = function(msg)
             end
         end
         TRP3FW:Info("API Salt: " .. apiStatus)
-        
+
         if saltMatchesTicket then
             TRP3FW:Info("|cffff0000WARNING: API Salt matches Phase Ticket ID! This is insecure/default behavior.|r")
         end
         TRP3FW:Info("Cached Salt: " .. (cachedSalt == "Empty" and "Empty String" or (cachedSalt == "None" and "None" or "Present (Preview: "..cachedSalt:sub(1,8).."...)")))
         TRP3FW:Info("Cache Age: " .. timestamp)
         TRP3FW:Info("Time Since Phase Change: " .. transitionTime)
-        
+
         if isTicket then
             TRP3FW:Info("Salt Mismatch: |cff888888N/A (Async Wait)|r")
         else
@@ -1285,7 +1285,7 @@ SlashCmdList.TRP3FW = function(msg)
     -- Priority System Configuration
     elseif cmd == "priority" then
         local subcommand = args[1]
-        
+
         if subcommand == "reserved" then
             local value = tonumber(args[2])
             if not value then

@@ -273,12 +273,12 @@ function TRP3FW:GetAvailablePrivilegedTokens()
     if not self.privilegedRate then
         return RATE_LIMIT -- Default max if not initialized
     end
-    
+
     local now = self:GetCurrentTime()
     local elapsed = now - self.privilegedRate.lastRefill
     local refill = elapsed * RATE_LIMIT
     local tokens = math.min(RATE_LIMIT, (self.privilegedRate.tokens or RATE_LIMIT) + refill)
-    
+
     return tokens
 end
 

@@ -7,7 +7,7 @@ local TabManager = TRP3FW.TabManager
 local function CreateDebugTab(container)
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
-    
+
     local scrollFrame, content = TabManager:CreateScrollFrame(tab, 3550)
     local uiElements = TabManager:GetUI()
     local y = -15
@@ -48,7 +48,7 @@ local function CreateDebugTab(container)
     y = y - 55
     uiElements.whoCacheRefreshThreshold = TabManager:CreateEditBox(content, "WHO Refresh Threshold (%)", "TTL percentage to trigger refresh.", 80, "whoCacheRefreshThreshold"); uiElements.whoCacheRefreshThreshold:SetPoint("TOPLEFT", 20, y); setupEditBox(uiElements.whoCacheRefreshThreshold, "whoCacheRefreshThreshold", 0, 100, true)
     y = y - 50
-    
+
     uiElements.prepopulateWhoCache = TabManager:CreateCheckbox(content, "Prepopulate WHO Cache", "Run WHO queries automatically after area changes.", "prepopulateWhoCache"); uiElements.prepopulateWhoCache:SetPoint("TOPLEFT", 20, y)
     uiElements.prepopulateWhoCache:SetScript("OnClick", function(self) TRP3FW.Prefs.prepopulateWhoCache = self:GetChecked(); TRP3FW:RefreshUI() end)
     y = y - 35
@@ -128,7 +128,7 @@ local function CreateDebugTab(container)
     uiElements.transitionGracePeriod = TabManager:CreateEditBox(content, "Transition Grace (s)", "Race condition protection window.", 80, "transitionGracePeriod"); uiElements.transitionGracePeriod:SetPoint("TOPLEFT", 20, y); setupEditBox(uiElements.transitionGracePeriod, "transitionGracePeriod", 0, 30)
     y = y - 55
     uiElements.validatedNamesCacheDuration = TabManager:CreateEditBox(content, "Name Cache TTL (days)", "TTL for persistent names.", 80, "validatedNamesCacheDuration"); uiElements.validatedNamesCacheDuration:SetPoint("TOPLEFT", 20, y)
-    
+
     local function saveNameTTL(self)
         local d = tonumber(self:GetText())
         if d and d >= 1 and d <= 30 then
