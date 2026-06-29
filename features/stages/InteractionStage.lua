@@ -17,12 +17,17 @@ function InteractionStage:Process(context)
     local CI = TRP3FW.CacheInterface
     local lastInteraction = CI and CI:Get("interaction", context.playerName)
     local currentZone = TRP3FW.currentZoneName
+    local currentMapID = TRP3FW.currentMapID
 
-    if lastInteraction and currentZone and lastInteraction.zone and lastInteraction.zone ~= currentZone then
-        if CI then
-            CI:Remove("interaction", context.playerName)
+    if lastInteraction then
+        local mapMismatch = currentMapID and lastInteraction.mapID and lastInteraction.mapID ~= currentMapID
+        local zoneMismatch = currentZone and lastInteraction.zone and lastInteraction.zone ~= currentZone
+        if mapMismatch or zoneMismatch then
+            if CI then
+                CI:Remove("interaction", context.playerName)
+            end
+            lastInteraction = nil
         end
-        lastInteraction = nil
     end
     
     local interactionDuration = context.settings.interactionCacheDuration or 600
@@ -61,7 +66,7 @@ function InteractionStage:Process(context)
             local zone = TRP3FW.currentZoneName or "Unknown"
             TRP3FW:Debug("Sender "..context.playerName.." is current target, allowing without checks", "send")
             if CI then
-                CI:Set("interaction", context.playerName, { timestamp = context.now, zone = zone, source = "target" })
+                CI:Set("interaction", context.playerName, { timestamp = context.now, zone = zone, mapID = TRP3FW.currentMapID, source = "target" })
             end
             interactionSource = "target"
             hadInteractionCacheHit = true
@@ -75,7 +80,7 @@ function InteractionStage:Process(context)
         if mouseName == context.playerName then
             local zone = TRP3FW.currentZoneName or "Unknown"
             if CI then
-                CI:Set("interaction", context.playerName, { timestamp = context.now, zone = zone, source = "mouseover_live" })
+                CI:Set("interaction", context.playerName, { timestamp = context.now, zone = zone, mapID = TRP3FW.currentMapID, source = "mouseover_live" })
             end
             TRP3FW:Debug("Sender "..context.playerName.." is current mouseover, allowing without checks", "send")
             interactionSource = "mouseover_live"

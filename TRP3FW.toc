@@ -56,7 +56,6 @@ features\profiles\adapter_factory.lua
 # Stages
 core\Stage.lua
 features\stages\WhitelistStage.lua
-features\stages\PhaseInStage.lua
 features\stages\SPVPStage.lua
 features\stages\BurstStage.lua
 features\stages\InteractionStage.lua

@@ -52,11 +52,11 @@ function AlertFastPathStage:Process(context)
             -- Update suppression
             local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
             if historyService then
-                local history = historyService.profileSendHistory[context.playerName]
-                if not history then
-                    historyService.profileSendHistory[context.playerName] = { timestamp = context.now, suppressedCount = 0 }
+                local existing = historyService:GetSendHistory(context.playerName)
+                if existing then
+                    existing.timestamp = context.now
                 else
-                    historyService.profileSendHistory[context.playerName].timestamp = context.now
+                    historyService:RecordSend(context.playerName, context.now)
                 end
             end
             
@@ -81,18 +81,11 @@ function AlertFastPathStage:Process(context)
                     }
                 })
             end
-        elseif context.settings.notifyOnAllow and notificationService then
-             -- Notification for successful allowed checks (delayed)
-             notificationService:Notify(context.playerName, {
-                type = "allow",
-                addon = context.addon,
-                reason = "location_ok",
-                isWhisper = context.isWhisper,
-                settings = context.settings,
-                cacheInfo = cacheInfo,
-                checkDetails = checkDetails
-            })
         end
+        -- N13: No delayed-allow notification. Alert-only mode is opt-in-quiet-on-success.
+        -- A "Profile sent" toast 1-2s after the actual send is detached from the action that
+        -- triggered it and looks like a stuck/duplicate event. If users want delayed allow
+        -- notifications, that should be a separate explicit setting.
         
         -- Process burst allows
         TRP3FW:ProcessBurstAllows(context.playerName)

@@ -18,9 +18,10 @@ function BurstStage:Process(context)
         
         -- Check suppression state for queued request
         local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
-        local history = historyService and historyService.profileSendHistory[context.playerName]
-        local isFirstTime = not history or (context.now - history.timestamp) > context.settings.suppressionTime
-        local suppressedCount = history and history.suppressedCount or 0
+        local isFirstTime, suppressedCount = true, 0
+        if historyService then
+            isFirstTime, suppressedCount = historyService:IsFirstSend(context.playerName, context.now, context.settings.suppressionTime)
+        end
 
         table.insert(TRP3FW.pendingLocationChecks[context.playerName].queuedRequests, {
             sendId = context.sendId,

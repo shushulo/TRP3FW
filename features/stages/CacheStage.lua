@@ -11,23 +11,27 @@ function CacheStage:Process(context)
     if not CI then return {handled = false} end
 
     -- 1. Phase Check Cache
+    -- Cache shape (written by location/phase.lua): { inPhase = bool, mapID, timestamp, method }.
+    -- Earlier code here read `isSamePhase`, a field that does not exist — so the same-phase
+    -- branch never fired and (post-N5) the different-phase fast-fail blocked every cached
+    -- entry, including ones cached just after a successful "IN PHASE" check.
     if TRP3FW:IsPhaseCheckEnabled() then
-        local phaseResult, reason = CI:Get("phaseCheck", context.playerName)
-        if phaseResult then
-            if phaseResult.isSamePhase then
+        local phaseResult = CI:Get("phaseCheck", context.playerName)
+        if phaseResult and phaseResult.inPhase ~= nil then
+            if phaseResult.inPhase then
                 TRP3FW:Debug("Phase cache hit: "..context.playerName.." is in same phase", "send")
                 -- If map check is disabled, we can allow immediately
                 if not TRP3FW:IsMapCheckEnabled() then
                     TRP3FW:TrackAddonRequest(context.addon, context.sendId)
-                    
+
                     local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
                     if historyService then
                         historyService:IncrementStat("cacheStats", "phaseCacheHits")
                         historyService:RecordHistory(context.playerName, context.addon, false, false)
                     end
-                    
+
                     TRP3FW:AllowSender(context.playerName, "phase_cache")
-                    
+
                     -- Notify
                     local notificationService = TRP3FW.ServiceContainer:Get("NotificationService")
                     if notificationService then
@@ -40,7 +44,7 @@ function CacheStage:Process(context)
                             cacheInfo = {phaseCache = "hit"}
                         })
                     end
-                    
+
                     if context.originalFunc then
                         pcall(context.originalFunc, unpack(context.originalArgs))
                     end
@@ -48,11 +52,39 @@ function CacheStage:Process(context)
                 end
                 -- If map check is enabled, we continue to map cache check
             else
-                -- Cached as DIFFERENT phase - this is a block/alert condition
-                -- We can't handle it fully here because we need to run the full decision logic
-                -- But we can skip the async check
-                -- For now, let's return handled=false to let LocationStage handle the full check logic
-                -- OR we could implement a "Fast Fail" here.
+                -- N5: Cached as DIFFERENT phase. Fast-fail by synthesizing a failed
+                -- locationResult and dispatching the decision stage directly. Saves a full
+                -- CheckLocationCascading round-trip (phase query + map scan) on every
+                -- subsequent request from a known out-of-phase sender — exactly the case
+                -- where caching matters most (incoming spam from one player).
+                TRP3FW:Debug("Phase cache hit: "..context.playerName.." is in DIFFERENT phase, fast-fail", "send")
+
+                local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
+                if historyService then
+                    historyService:IncrementStat("cacheStats", "phaseCacheHits")
+                end
+
+                local locationResult = {
+                    locationOK = false,
+                    alertType = "phase",
+                    source = "phase_cache",
+                    mapCacheAge = 0,
+                    theirZone = "Unknown",  -- phaseCheck cache stores mapID, not zone text
+                    myZone = TRP3FW.currentZoneName or "Unknown",
+                    cacheInfo = { phaseCache = "hit" },
+                    recentTransition = false,
+                    timeSinceTransition = 0,
+                    checkDetails = {
+                        phase = {
+                            result = false,
+                            source = "cached",
+                            method = phaseResult.method or "cached",
+                            theirMapID = phaseResult.mapID,
+                        }
+                    }
+                }
+                TRP3FW:Pipeline_DecisionStage(context, locationResult)
+                return {handled = true, allowed = false, reason = "phase_cache_fail"}
             end
         end
     end
@@ -105,7 +137,7 @@ function CacheStage:Process(context)
 
             local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
             if historyService then
-                historyService:IncrementStat("cacheStats", "spvpCacheHits")
+                historyService:IncrementStat("cacheStats", "spvpVerifiedCacheHits")
                 historyService:RecordHistory(context.playerName, context.addon, false, false)
             end
 

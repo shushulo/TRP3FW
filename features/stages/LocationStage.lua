@@ -30,17 +30,21 @@ function LocationStage:Process(context)
         return {handled = true, allowed = true, reason = "no_checks"}
     end
 
-    -- Start new check
+    -- Start new check (with staleness snapshots for BurstStage / IsBurstRequestStale)
     TRP3FW.pendingLocationChecks[context.playerName] = {
         timestamp = context.now,
+        zoneSnapshot = TRP3FW.lastZoneChangeTime,
+        phaseSnapshot = TRP3FW.lastPhaseChangeTime,
+        settingsFingerprint = TRP3FW.GetBurstSettingsFingerprint and TRP3FW:GetBurstSettingsFingerprint() or nil,
         queuedRequests = {}
     }
 
     -- Store pending send
     local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
-    local history = historyService and historyService.profileSendHistory[context.playerName]
-    local isFirstTime = not history or (context.now - history.timestamp) > context.settings.suppressionTime
-    local suppressedCount = history and history.suppressedCount or 0
+    local isFirstTime, suppressedCount = true, 0
+    if historyService then
+        isFirstTime, suppressedCount = historyService:IsFirstSend(context.playerName, context.now, context.settings.suppressionTime)
+    end
 
     -- Propagate suppression context so the decision stage can notify correctly.
     context.isFirstTime = isFirstTime
@@ -58,11 +62,24 @@ function LocationStage:Process(context)
     }
 
     -- Timeout
+    -- N8: Also clear hook-layer burst queues. Without this, a hung location check leaves
+    -- pendingChompSends/pendingTRP3Sends/pendingMSPReplies populated until their own 30s
+    -- timers (started at different times) or the 60s CacheService backstop. A new request
+    -- arriving in that gap would queue into the abandoned old burst.
     C_Timer.After(30, function()
         if TRP3FW.pendingSends[context.sendId] then
             TRP3FW.pendingSends[context.sendId] = nil
             if TRP3FW.pendingLocationChecks and TRP3FW.pendingLocationChecks[context.playerName] then
                  TRP3FW.pendingLocationChecks[context.playerName] = nil
+            end
+            if TRP3FW.pendingChompSends then
+                TRP3FW.pendingChompSends[context.playerName] = nil
+            end
+            if TRP3FW.pendingTRP3Sends then
+                TRP3FW.pendingTRP3Sends[context.playerName] = nil
+            end
+            if TRP3FW.pendingMSPReplies then
+                TRP3FW.pendingMSPReplies[context.playerName] = nil
             end
         end
     end)
@@ -99,7 +116,7 @@ function LocationStage:Process(context)
              TRP3FW.pendingLocationChecks[context.playerName] = nil
         end
         
-        return {handled = true, async = false, reason = "start_phase_block"}
+        return {handled = true, async = false, allowed = false, reason = "start_phase_block"}
     end
 
     -- Perform Check

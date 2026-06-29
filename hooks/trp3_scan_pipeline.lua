@@ -110,14 +110,61 @@ local function PerformLocationCheck(self, playerName, callback, options)
     local sendId = sendIdObj and sendIdObj.id or 0
 
     -- Merge default options with provided options
-    -- Map scan replies have a tight window; use WHO in name-only mode (no fresh zone query) to avoid delays.
-    -- If the global SPVP mode is 'preferred', we force it to 'optional' (parallel) for scans to avoid the 
-    -- 5-second sequential handshake delay. If it is 'required', we respect that setting.
+    -- Intelligent WHO query selection for scan replies (3-second TRP3 window):
+    -- 1. Check whoZone cache - if fresh and complete, use it
+    -- 2. If stale or truncated, prefer whozone query (faster, more data)
+    -- 3. Only fall back to whoname if zone is truncated or map scan active
     local currentSPVPMode = TRP3FW.Prefs.spvpMode or "off"
     local effectiveSPVPMode = (currentSPVPMode == "required") and "required" or "optional"
-    
-    local checkOptions = { 
-        whoNameOnly = true,
+
+    -- Intelligent WHO query mode selection
+    local whoNameOnly = false  -- Default: allow whozone queries
+    local now = self:GetCurrentTime()
+    local whoService = self.ServiceContainer:Get("WhoService")
+
+    if whoService then
+        local zoneAge = now - (whoService.lastZoneQueryTime or 0)
+        local zoneTTL = 60  -- Same as zone completeness check
+        local wasNotTruncated = (not whoService.lastZoneResultCount or whoService.lastZoneResultCount < 50)
+        local lastMapScanAge = now - (self.lastMapScanAt or 0)
+        local recentMapScan = lastMapScanAge < 5  -- Map scan in last 5 seconds
+
+        -- Decide query type based on zone cache state and map scan activity
+        if zoneAge < zoneTTL and wasNotTruncated then
+            -- Zone cache is fresh and complete - zone completeness optimization will handle it
+            -- UNLESS a map scan is actively running (need specific location for scan window)
+            if recentMapScan then
+                whoNameOnly = true  -- Do whoname to get their specific location fast
+                self:Debug("[Scan Reply] WHO zone cache fresh but map scan active, using whoname query", "hooks")
+            else
+                whoNameOnly = true  -- Zone completeness check will handle it
+                self:Debug("[Scan Reply] WHO zone cache fresh and complete, using zone completeness check", "hooks")
+            end
+        elseif not wasNotTruncated then
+            -- Zone was truncated - MUST use whoname to find specific player
+            whoNameOnly = true
+            self:Debug("[Scan Reply] WHO zone truncated (>=50 results), forcing whoname query", "hooks")
+        elseif zoneAge >= zoneTTL then
+            -- Zone cache is stale - prefer whozone refresh (better data for multiple scanners)
+            -- UNLESS a map scan is active (tight 3s window needs fast whoname)
+            if recentMapScan then
+                whoNameOnly = true
+                self:Debug("[Scan Reply] Map scan active, using fast whoname query", "hooks")
+            else
+                whoNameOnly = false
+                self:Debug("[Scan Reply] WHO zone cache stale, allowing whozone refresh", "hooks")
+            end
+        else
+            -- Default: allow whozone if it's beneficial
+            whoNameOnly = false
+        end
+    else
+        -- No WhoService, fall back to name queries
+        whoNameOnly = true
+    end
+
+    local checkOptions = {
+        whoNameOnly = whoNameOnly,
         spvpMode = effectiveSPVPMode,
         priority = "HIGH"
     }
@@ -296,22 +343,11 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
         -- Stage 5: Make Decision
         local decision = MakeDecision(locationOK, alertType, source, cacheInfo, theirZone, myZone)
 
-        -- Update session metrics and record history via HistoryService
+        -- Record history via HistoryService. All session-stat increments are handled
+        -- inside RecordHistory; do NOT IncrementStat them here (was double-counting).
         local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
         if historyService then
             historyService:RecordHistory(cleanName, contextLabel or "TRP3", decision.shouldAlert, decision.shouldBlock, false, decision.alertType)
-            
-            if decision.shouldAlert then historyService:IncrementStat("alerts") end
-            if decision.shouldBlock then historyService:IncrementStat("blocks") end
-            
-            if decision.alertType then
-                if decision.alertType:find("phase") then
-                    historyService:IncrementStat("phaseAlerts")
-                end
-                if decision.alertType:find("map") then
-                    historyService:IncrementStat("mapAlerts")
-                end
-            end
         end
 
         -- Execute decision

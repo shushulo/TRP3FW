@@ -47,12 +47,6 @@ function TRP3FW:ChompPipeline_GuardChecks_V2(prefix, text, chatType, target, pri
         return {shouldContinue = false, reason = "replay_guard"}
     end
 
-    -- Check if addon is enabled
-    if not TRP3FW.Prefs.enabled then -- Assumes global enabled setting exists, otherwise check specific modules
-        -- For now, just continue as there isn't a global 'enabled' toggle in defaultSettings
-    end
-
-    -- Check if TRP3 is available (implied by Chomp hook existence, but safe to check)
     if not AddOn_Chomp then
         return {shouldContinue = false, reason = "chomp_not_available"}
     end
@@ -143,33 +137,6 @@ function TRP3FW:ChompPipeline_PhaseInDelay_V2(playerName, prefix, text, chatType
     return {shouldContinue = true, queued = false}
 end
 
-function TRP3FW:ChompPipeline_MutualExchange_V2(playerName)
-    --[[
-        Stage 3: Detect mutual exchanges (both players sending profiles)
-
-        Returns: {shouldContinue=bool, isMutual=bool}
-    ]]
-
-    -- Check if this is a user-initiated exchange
-    local isUserInitiated = self:IsUserInitiatedExchange(playerName)
-
-    -- Check if this is a pending automatic MSP reply (non-time-based detection)
-    -- This part requires access to pendingMSPAutoReplies which is in hooks/trp3.lua
-    -- Since we are inside TRP3FW, we can access self.pendingMSPAutoReplies
-
-    -- Logic for TRP3 auto-replies is inferred: if NOT user-initiated, it's likely auto
-    -- But we can't be 100% sure without inspecting message content deeper, which we do in main loop
-
-    -- For the pipeline, we just return the status. The decision to "allow without location check"
-    -- happens in the main hook logic or can be moved here.
-    -- In the original code, IsUserInitiatedExchange checks are scattered.
-
-    -- If it is a user initiated exchange, we might want to suppress notifications but still check blocks.
-    -- However, the original code says: "Check if this is a user-initiated exchange... determine if this is a REQUEST or REPLY"
-
-    return {shouldContinue = true, isMutual = isUserInitiated}
-end
-
 function TRP3FW:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatType, target, priority, queue, callback, callbackArg)
     --[[
         Stage 4: Check if we should block due to start phase
@@ -215,7 +182,8 @@ function TRP3FW:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatT
                 if TRP3FW.Prefs.notifyOnStartPhaseBlock and cleanTarget then
                     self:ShowStartPhaseBlockNotification(cleanTarget, "MSP (ghost)")
                 end
-                self.sessionStats.ghostSends = self.sessionStats.ghostSends + 1
+                local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
+                if historyService then historyService:IncrementStat("ghostSends") end
                 return {shouldContinue = false, blocked = false, ghost = true} -- Allow original call
             else
                 -- TRP3 GHOST MODE: Enable ghost flag
@@ -227,7 +195,8 @@ function TRP3FW:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatT
                     if TRP3FW.Prefs.notifyOnStartPhaseBlock and cleanTarget then
                         self:ShowStartPhaseBlockNotification(cleanTarget, "TRP3 (ghost)")
                     end
-                    self.sessionStats.ghostSends = self.sessionStats.ghostSends + 1
+                    local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
+                if historyService then historyService:IncrementStat("ghostSends") end
                     return {shouldContinue = false, blocked = false, ghost = true} -- Allow original call
                 else
                     self:Debug("[Chomp Hook] Failed to enable ghost flag, blocking send", "ghost")

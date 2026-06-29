@@ -46,6 +46,67 @@ if not TRP3FW.IsBurstRequestStale then
     end
 end
 
+-- Shallow-copy `locationResult` (and inner `cacheInfo`/`checkDetails`) so per-queued-request
+-- mutations in ApplyLocationDecision don't leak across burst siblings.
+local function CloneLocationResult(src)
+    if not src then return nil end
+    local copy = {}
+    for k, v in pairs(src) do copy[k] = v end
+    if src.cacheInfo then
+        copy.cacheInfo = {}
+        for k, v in pairs(src.cacheInfo) do copy.cacheInfo[k] = v end
+    end
+    if src.checkDetails then
+        copy.checkDetails = {}
+        for k, v in pairs(src.checkDetails) do copy.checkDetails[k] = v end
+    end
+    return copy
+end
+
+-- Build a context for a queued burst request, inheriting `isUserInitiated` from the
+-- original burst (M8: avoid re-evaluating, since the userInitiatedQueries TTL may have
+-- expired between the original request and the queued replay).
+local function BuildQueuedContext(originalContext, req)
+    return {
+        now = req.timestamp,
+        settings = originalContext.settings,
+        playerName = originalContext.playerName,
+        addon = req.addon,
+        isWhisper = req.isWhisper,
+        sendId = req.sendId,
+        originalFunc = req.originalFunc,
+        originalArgs = req.originalArgs,
+        isFirstTime = req.isFirstTime,
+        suppressedCount = req.suppressedCount,
+        isUserInitiated = originalContext.isUserInitiated,
+        isMSPAutoReply = originalContext.isMSPAutoReply
+    }
+end
+
+-- N15: Replay queued burst requests with the same decision the original request resolved
+-- to. Consolidates three near-identical loops (SPVP-rescue verified, SPVP-rescue failed,
+-- no-rescue path). Each queued request gets its own locationResult clone so per-request
+-- mutations in ApplyLocationDecision don't leak across burst siblings.
+function TRP3FW:ReplayQueuedRequests(playerName, originalContext, locationResult, shouldBlock, shouldAlert, useGhost, label)
+    if not (self.pendingLocationChecks and self.pendingLocationChecks[playerName]) then return end
+    local queuedRequests = self.pendingLocationChecks[playerName].queuedRequests
+    self.pendingLocationChecks[playerName] = nil
+    if not queuedRequests or #queuedRequests == 0 then return end
+
+    label = label or "queued"
+    self:Debug("Batch processing "..#queuedRequests.." "..label.." requests for "..playerName, "send")
+
+    for _, req in ipairs(queuedRequests) do
+        local stale, reason = self:IsBurstRequestStale(req)
+        if stale then
+            self:Debug("Dropping stale "..label.." request for "..playerName.." ("..tostring(reason)..")", "send")
+        else
+            local queuedContext = BuildQueuedContext(originalContext, req)
+            self:ApplyLocationDecision(queuedContext, shouldBlock, shouldAlert, useGhost, CloneLocationResult(locationResult))
+        end
+    end
+end
+
 -- ===================== Profile Send Handling =====================
 
 function TRP3FW:TrackAddonRequest(addon, sendId)
@@ -410,32 +471,9 @@ function TRP3FW:ApplyLocationDecision(context, shouldBlock, shouldAlert, useGhos
         end
     end
 
+    -- All session-stat increments (alerts/blocks/ghostSends/phaseAlerts/mapAlerts/
+    -- startPhaseBlocks) happen inside RecordHistory. Do NOT IncrementStat them here.
     self:RecordHistory(context.playerName, context.addon, shouldAlert, shouldBlock, useGhostMode, alertType)
-
-    -- Update session metrics
-    local historyService = self.ServiceContainer:Get("HistoryService")
-    if historyService then
-        if shouldAlert then historyService:IncrementStat("alerts") end
-        if shouldBlock then 
-            if useGhostMode then
-                historyService:IncrementStat("ghostSends")
-            else
-                historyService:IncrementStat("blocks")
-            end
-        end
-        
-        if alertType then
-            if alertType == "start_phase_block" then
-                historyService:IncrementStat("startPhaseBlocks")
-            elseif alertType:find("phase") then
-                historyService:IncrementStat("phaseAlerts")
-            end
-            
-            if alertType:find("map") then
-                historyService:IncrementStat("mapAlerts")
-            end
-        end
-    end
 
     if shouldBlock then
         if useGhostMode then
@@ -527,35 +565,7 @@ function TRP3FW:ProcessLocationDecision(context, locationResult)
 
                         -- Allow the request (override shouldBlock)
                         self:ApplyLocationDecision(context, false, false, false, locationResult)
-
-                        -- Process queued burst requests with ALLOW
-                        if self.pendingLocationChecks and self.pendingLocationChecks[context.playerName] then
-                            local queuedRequests = self.pendingLocationChecks[context.playerName].queuedRequests
-                            self.pendingLocationChecks[context.playerName] = nil
-
-                            if queuedRequests and #queuedRequests > 0 then
-                                for _, req in ipairs(queuedRequests) do
-                                    local stale = self:IsBurstRequestStale(req)
-                                    if not stale then
-                                        local queuedContext = {
-                                            now = req.timestamp,
-                                            settings = context.settings,
-                                            playerName = context.playerName,
-                                            addon = req.addon,
-                                            isWhisper = req.isWhisper,
-                                            sendId = req.sendId,
-                                            originalFunc = req.originalFunc,
-                                            originalArgs = req.originalArgs,
-                                            isFirstTime = req.isFirstTime,
-                                            suppressedCount = req.suppressedCount,
-                                            isUserInitiated = self:IsUserInitiatedExchange(context.playerName),
-                                            isMSPAutoReply = context.isMSPAutoReply
-                                        }
-                                        self:ApplyLocationDecision(queuedContext, false, false, false, locationResult)
-                                    end
-                                end
-                            end
-                        end
+                        self:ReplayQueuedRequests(context.playerName, context, locationResult, false, false, false, "SPVP-rescue allow")
                     else
                         -- SPVP failed/timed out - proceed with block/ghost
                         self:Debug(string.format("SPVP rescue: %s FAILED (%s), blocking", context.playerName, reason or "unknown"), "spvp")
@@ -563,35 +573,7 @@ function TRP3FW:ProcessLocationDecision(context, locationResult)
 
                         -- Apply original block/ghost decision
                         self:ApplyLocationDecision(context, shouldBlock, shouldAlert, useGhostModeForThisSend, locationResult)
-
-                        -- Process queued burst requests with BLOCK/GHOST
-                        if self.pendingLocationChecks and self.pendingLocationChecks[context.playerName] then
-                            local queuedRequests = self.pendingLocationChecks[context.playerName].queuedRequests
-                            self.pendingLocationChecks[context.playerName] = nil
-
-                            if queuedRequests and #queuedRequests > 0 then
-                                for _, req in ipairs(queuedRequests) do
-                                    local stale = self:IsBurstRequestStale(req)
-                                    if not stale then
-                                        local queuedContext = {
-                                            now = req.timestamp,
-                                            settings = context.settings,
-                                            playerName = context.playerName,
-                                            addon = req.addon,
-                                            isWhisper = req.isWhisper,
-                                            sendId = req.sendId,
-                                            originalFunc = req.originalFunc,
-                                            originalArgs = req.originalArgs,
-                                            isFirstTime = req.isFirstTime,
-                                            suppressedCount = req.suppressedCount,
-                                            isUserInitiated = self:IsUserInitiatedExchange(context.playerName),
-                                            isMSPAutoReply = context.isMSPAutoReply
-                                        }
-                                        self:ApplyLocationDecision(queuedContext, shouldBlock, shouldAlert, useGhostModeForThisSend, locationResult)
-                                    end
-                                end
-                            end
-                        end
+                        self:ReplayQueuedRequests(context.playerName, context, locationResult, shouldBlock, shouldAlert, useGhostModeForThisSend, "SPVP-rescue block/ghost")
                     end
                 end)
 
@@ -603,46 +585,7 @@ function TRP3FW:ProcessLocationDecision(context, locationResult)
 
     -- No SPVP fallback - apply normal decision
     self:ApplyLocationDecision(context, shouldBlock, shouldAlert, useGhostModeForThisSend, locationResult)
-
-    -- Process queued requests efficiently
-    if self.pendingLocationChecks and self.pendingLocationChecks[context.playerName] then
-        local queuedRequests = self.pendingLocationChecks[context.playerName].queuedRequests
-        self.pendingLocationChecks[context.playerName] = nil -- Clear pending check
-
-        if queuedRequests and #queuedRequests > 0 then
-            self:Debug("Batch processing "..#queuedRequests.." queued requests for "..context.playerName, "send")
-            
-            for _, req in ipairs(queuedRequests) do
-                local stale, reason = self:IsBurstRequestStale(req)
-                if stale then
-                    self:Debug("Dropping stale queued request for "..context.playerName.." ("..tostring(reason)..")", "send")
-                else
-                    -- OPTIMIZATION: Instead of re-submitting to the pipeline (which triggers overhead and recursion),
-                    -- apply the SAME decision we just reached to all valid queued requests from this burst.
-                    -- They are from the same player, same time window, and same settings snapshot.
-                    
-                    local queuedContext = {
-                        now = req.timestamp,
-                        settings = context.settings, -- Safe because fingerprint matched
-                        playerName = context.playerName,
-                        addon = req.addon,
-                        isWhisper = req.isWhisper,
-                        sendId = req.sendId,
-                        originalFunc = req.originalFunc,
-                        originalArgs = req.originalArgs,
-                        isFirstTime = req.isFirstTime,
-                        suppressedCount = req.suppressedCount,
-                        -- Re-evaluate dynamic flags if needed, but for burst they are likely consistent
-                        isUserInitiated = self:IsUserInitiatedExchange(context.playerName),
-                        isMSPAutoReply = context.isMSPAutoReply
-                    }
-                    
-                    self:Debug("Applying batch decision to queued request (sendId: "..tostring(req.sendId)..")", "send")
-                    self:ApplyLocationDecision(queuedContext, shouldBlock, shouldAlert, useGhostModeForThisSend, locationResult)
-                end
-            end
-        end
-    end
+    self:ReplayQueuedRequests(context.playerName, context, locationResult, shouldBlock, shouldAlert, useGhostModeForThisSend, "burst")
 end
 
 -- Alias for LocationStage to call

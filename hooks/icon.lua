@@ -30,9 +30,9 @@ function TRP3FW:InstallIconHooks()
             end
 
             -- Strip icons from requested MSP fields
-            -- NA: Name, NT: Title, RC: Class, CU: Currently, CO: OOC, NI: Nickname, NH: House
+            -- NA: Name, NT: Title, RC: Class, RA: Race, FC: Character type, CU: Currently, CO: OOC, NI: Nickname, NH: House
             local fieldsToStrip = {
-                "NA", "NT", "RC", "CU", "CO", "NI", "NH"
+                "NA", "NT", "RC", "RA", "FC", "CU", "CO", "NI", "NH"
             }
 
             for _, field in pairs(fieldsToStrip) do
@@ -57,9 +57,9 @@ function TRP3FW:InstallIconHooks()
                 local wasModified = false
 
                 if structure then
-                    -- FN/LN: Name, TI/FT: Title, CL: Class
+                    -- FN/LN: Name, TI/FT: Title, CL: Class, RA: Race
                     local fieldsToStrip = {
-                        "FN", "LN", "TI", "FT", "CL"
+                        "FN", "LN", "TI", "FT", "CL", "RA"
                     }
 
                     for _, field in pairs(fieldsToStrip) do

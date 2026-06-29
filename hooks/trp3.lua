@@ -306,9 +306,6 @@ function TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queu
         end
     end
 
-    -- Stage 3: Mutual exchange detection (currently just informational)
-    local mutualResult = self:ChompPipeline_MutualExchange_V2(playerName)
-
     -- Stage 4: Start phase blocking/ghosting
     local startPhaseResult = self:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatType, target, priority, queue, callback, callbackArg)
     if not startPhaseResult.shouldContinue then
