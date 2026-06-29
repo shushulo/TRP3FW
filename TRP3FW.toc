@@ -83,6 +83,7 @@ ui\TabManager.lua
 ui\tabs\Status.lua
 ui\tabs\Notifications.lua
 ui\tabs\Alerts.lua
+ui\tabs\Security.lua
 ui\tabs\Filters.lua
 ui\tabs\Debug.lua
 ui\tabs\Profiles.lua

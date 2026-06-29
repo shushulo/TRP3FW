@@ -8,7 +8,7 @@ local function CreateFiltersTab(container)
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
     
-    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 650)
+    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 350)
     local uiElements = TabManager:GetUI()
     local y = -10
 
@@ -64,50 +64,9 @@ local function CreateFiltersTab(container)
     end)
     y = y - 60
 
-    TabManager:CreateSectionHeader(content, "Addon Monitoring", y)
-    y = y - 40
-    uiElements.monitorTRP3 = TabManager:CreateCheckbox(content, "Monitor Total RP 3", "Enable protections for TRP3.", "monitorTRP3")
-    uiElements.monitorTRP3:SetPoint("TOPLEFT", 20, y)
-    uiElements.monitorTRP3:SetScript("OnClick", function(self) TRP3FW.Prefs.monitorTRP3 = self:GetChecked() end)
-    y = y - 30
-    
-    uiElements.monitorMRP = TabManager:CreateCheckbox(content, "Monitor MyRolePlay", "Enable protections for MRP.", "monitorMRP")
-    uiElements.monitorMRP:SetPoint("TOPLEFT", 20, y)
-    uiElements.monitorMRP:SetScript("OnClick", function(self) TRP3FW.Prefs.monitorMRP = self:GetChecked() end)
-    y = y - 30
-    
-    uiElements.monitorXRP = TabManager:CreateCheckbox(content, "Monitor XRP", "Enable protections for XRP.", "monitorXRP")
-    uiElements.monitorXRP:SetPoint("TOPLEFT", 20, y)
-    uiElements.monitorXRP:SetScript("OnClick", function(self) TRP3FW.Prefs.monitorXRP = self:GetChecked() end)
-    y = y - 30
-    
-    uiElements.monitorMSP = TabManager:CreateCheckbox(content, "Monitor MSP/Other", "Monitor other compatible addons.", "monitorMSP")
-    uiElements.monitorMSP:SetPoint("TOPLEFT", 20, y)
-    uiElements.monitorMSP:SetScript("OnClick", function(self) TRP3FW.Prefs.monitorMSP = self:GetChecked() end)
-    y = y - 45
+    -- Addon Monitoring & Hook Safety moved to the Advanced tab (Phase 2 UX restructure)
 
-    TabManager:CreateSectionHeader(content, "Hook Safety", y)
-    y = y - 40
-    uiElements.strictHookMode = TabManager:CreateCheckbox(content, "Strict hook mode", "Refuse to install when another addon hooks core functions.", "strictHookMode")
-    uiElements.strictHookMode:SetPoint("TOPLEFT", 20, y)
-    uiElements.strictHookMode:SetScript("OnClick", function(self) TRP3FW.Prefs.strictHookMode = self:GetChecked() end)
-    y = y - 30
-    
-    uiElements.logHookConflicts = TabManager:CreateCheckbox(content, "Log hook conflicts", "Warn when hooks are already wrapped.", "logHookConflicts")
-    uiElements.logHookConflicts:SetPoint("TOPLEFT", 20, y)
-    uiElements.logHookConflicts:SetScript("OnClick", function(self) TRP3FW.Prefs.logHookConflicts = self:GetChecked() end)
-    y = y - 30
-    
-    uiElements.abortOnMultipleRPAddons = TabManager:CreateCheckbox(content, "Abort on multiple RP addons", "Disable TRP3FW if multiple RP addons detected.", "abortOnMultipleRPAddons")
-    uiElements.abortOnMultipleRPAddons:SetPoint("TOPLEFT", 20, y)
-    uiElements.abortOnMultipleRPAddons:SetScript("OnClick", function(self) TRP3FW.Prefs.abortOnMultipleRPAddons = self:GetChecked() end)
-    y = y - 30
-    
-    uiElements.disableMapScanOnTRP3 = TabManager:CreateCheckbox(content, "Disable map scan when TRP3 + RPMapScan", "Skip map-scan hooks in this specific combo.", "disableMapScanOnTRP3")
-    uiElements.disableMapScanOnTRP3:SetPoint("TOPLEFT", 20, y)
-    uiElements.disableMapScanOnTRP3:SetScript("OnClick", function(self) TRP3FW.Prefs.disableMapScanOnTRP3 = self:GetChecked() end)
-    
     return scrollFrame
 end
 
-TabManager:RegisterTab("filters", "Filters", "Filters & Addons", CreateFiltersTab, function() TRP3FW:RefreshUI() end)
+TabManager:RegisterTab("filters", "Appearance", "Appearance & Filters", CreateFiltersTab, function() TRP3FW:RefreshUI() end)

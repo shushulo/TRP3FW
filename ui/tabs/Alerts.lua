@@ -8,7 +8,7 @@ local function CreateAlertsTab(container)
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
     
-    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 1500)
+    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 1150)
     local uiElements = TabManager:GetUI()
     local epsilonControls = TabManager:GetEpsilonControls()
     local y = -10
@@ -116,13 +116,24 @@ local function CreateAlertsTab(container)
     end
 
     y = y - 40
+
+    -- Current mode summary (moved here from Notifications tab — Phase 1 UX restructure)
+    local summaryLabel = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    summaryLabel:SetPoint("TOPLEFT", 20, y); summaryLabel:SetText("Current Modes Summary:")
+    y = y - 25
+    uiElements.notificationModeSummaryNotify = content:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    uiElements.notificationModeSummaryNotify:SetPoint("TOPLEFT", 30, y)
+    uiElements.notificationModeSummaryNotify:SetWidth(520)
+    uiElements.notificationModeSummaryNotify:SetJustifyH("LEFT")
+    y = y - 50
+
     TabManager:CreateSectionHeader(content, "Location Checking", y)
     y = y - 45
 
     local pcm, pcl = TabManager:CreateDropdown(content, "Phase Check Mode", "How should TRP3FW respond when someone from a different phase requests your profile? Default: Alert.", 200, "phaseCheckMode")
     pcm:SetPoint("TOPLEFT", 20, y); uiElements.phaseCheckModeDropdown = pcm
     UIDropDownMenu_Initialize(pcm, function(self, level)
-        local l = { {t="Off", v="off"}, {t="Statistics Only", v="statistics"}, {t="Alert", v="alert"}, {t="Block", v="block"}, {t="Ghost (Blank Profile)", v="ghost"}, {t="Alert + Block", v="alert_block"}, {t="Alert + Ghost", v="alert_ghost"} }
+        local l = { {t="Off", v="off"}, {t="Statistics only", v="statistics"}, {t="Notify only", v="alert"}, {t="Block (silent)", v="block"}, {t="Send blank profile", v="ghost"}, {t="Block (with notification)", v="alert_block"}, {t="Send blank profile (with notification)", v="alert_ghost"} }
         for _, it in ipairs(l) do
             local info = UIDropDownMenu_CreateInfo(); info.text=it.t; info.func=function() 
                 local prev = TRP3FW.Prefs.phaseCheckMode; TRP3FW.Prefs.phaseCheckMode=it.v; UIDropDownMenu_SetText(pcm, it.t)
@@ -136,7 +147,7 @@ local function CreateAlertsTab(container)
     local mcm, mcl = TabManager:CreateDropdown(content, "Map Check Mode", "How should TRP3FW respond when someone from a different map requests your profile? Default: Alert.", 200, "mapCheckMode")
     mcm:SetPoint("TOPLEFT", 300, y); uiElements.mapCheckModeDropdown = mcm
     UIDropDownMenu_Initialize(mcm, function(self, level)
-        local l = { {t="Off", v="off"}, {t="Statistics Only", v="statistics"}, {t="Alert", v="alert"}, {t="Block", v="block"}, {t="Ghost (Blank Profile)", v="ghost"}, {t="Alert + Block", v="alert_block"}, {t="Alert + Ghost", v="alert_ghost"} }
+        local l = { {t="Off", v="off"}, {t="Statistics only", v="statistics"}, {t="Notify only", v="alert"}, {t="Block (silent)", v="block"}, {t="Send blank profile", v="ghost"}, {t="Block (with notification)", v="alert_block"}, {t="Send blank profile (with notification)", v="alert_ghost"} }
         for _, it in ipairs(l) do
             local info = UIDropDownMenu_CreateInfo(); info.text=it.t; info.func=function() 
                 local prev = TRP3FW.Prefs.mapCheckMode; TRP3FW.Prefs.mapCheckMode=it.v; UIDropDownMenu_SetText(mcm, it.t)
@@ -151,9 +162,15 @@ local function CreateAlertsTab(container)
     uiElements.allowGroupPhaseBypass = TabManager:CreateCheckbox(content, "Allow Party/Raid Auto-Allow", "Party/raid members skip checks.", "allowGroupPhaseBypass")
     uiElements.allowGroupPhaseBypass:SetPoint("TOPLEFT", 20, y)
     uiElements.allowGroupPhaseBypass:SetScript("OnClick", function(self) TRP3FW.Prefs.allowGroupPhaseBypass = self:GetChecked() end)
+    y = y - 30
+
+    uiElements.useWhoQuery = TabManager:CreateCheckbox(content, "Use WHO Query", "Use WHO queries as a secondary location check (Epsilon only).", "useWhoQuery")
+    uiElements.useWhoQuery:SetPoint("TOPLEFT", 20, y)
+    uiElements.useWhoQuery:SetScript("OnClick", function(self) TRP3FW.Prefs.useWhoQuery = self:GetChecked() end)
+    if epsilonControls then table.insert(epsilonControls, uiElements.useWhoQuery) end
     y = y - 45
 
-    TabManager:CreateSectionHeader(content, "Other Options", y)
+    TabManager:CreateSectionHeader(content, "Ghost Mode", y)
     y = y - 50
 
     local gpd, gpl = TabManager:CreateDropdown(content, "Ghost Profile", "Choose which profile to send in ghost mode.", 300, "ghostProfileName")
@@ -180,11 +197,7 @@ local function CreateAlertsTab(container)
     uiElements.epsilonWarning = content:CreateFontString(nil, "OVERLAY", "GameFontNormal"); uiElements.epsilonWarning:SetPoint("TOPLEFT", 20, y); uiElements.epsilonWarning:SetText("|cffff6600Epsilon-only options hidden (API unavailable)|r"); uiElements.epsilonWarning:Hide()
     y = y - 25
 
-    uiElements.suppressAllWhoOutput = TabManager:CreateCheckbox(content, "Suppress WHO Output", "Hide all WHO results in chat.", "suppressAllWhoOutput")
-    uiElements.suppressAllWhoOutput:SetPoint("TOPLEFT", 20, y)
-    uiElements.suppressAllWhoOutput:SetScript("OnClick", function(self) TRP3FW.Prefs.suppressAllWhoOutput = self:GetChecked() end)
-    if epsilonControls then table.insert(epsilonControls, uiElements.suppressAllWhoOutput) end
-    y = y - 30
+    -- (Suppress WHO Output moved to Notifications tab — Phase 2 UX restructure)
 
     uiElements.blockStartPhase = TabManager:CreateCheckbox(content, "Block in Start Phase", "Block transmissions in phase 169.", "blockStartPhase")
     uiElements.blockStartPhase:SetPoint("TOPLEFT", 20, y)
@@ -237,89 +250,26 @@ local function CreateAlertsTab(container)
     if epsilonControls then table.insert(epsilonControls, wle); table.insert(epsilonControls, wls); table.insert(epsilonControls, wlbg) end
     y = y - 120
 
-    TabManager:CreateSectionHeader(content, "SPVP (Cryptographic Phase Verification)", y)
-    y = y - 35
-    
-    local spvpInfoBox = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    spvpInfoBox:SetPoint("TOPLEFT", 20, y)
-    spvpInfoBox:SetWidth(560)
-    spvpInfoBox:SetJustifyH("LEFT")
-    spvpInfoBox:SetText("|cff00ccffℹ SPVP Info:|r SPVP uses cryptographic phase verification as a fallback when normal location checks fail. Requires phase owners to set a security key (salt). Players in the same phase can prove it cryptographically without physical proximity checks.")
-    y = y - 60
-    
-    local smd, sml = TabManager:CreateDropdown(content, "SPVP Mode", "Control SPVP usage.", 220, "spvpMode")
-    smd:SetPoint("TOPLEFT", 20, y); uiElements.spvpModeDropdown = smd
-    UIDropDownMenu_Initialize(smd, function(self, level)
-        local l = { {t="Off", v="off"}, {t="Optional (Post-Check)", v="optional"}, {t="Preferred (Pre-Check)", v="preferred"}, {t="Required (Strict)", v="required"} }
-        for _, it in ipairs(l) do local info = UIDropDownMenu_CreateInfo(); info.text=it.t; info.func=function() TRP3FW.Prefs.spvpMode=it.v; TRP3FW.Prefs.spvpEnabled=(it.v~="off"); UIDropDownMenu_SetText(smd, it.t); TRP3FW:RefreshUI() end; UIDropDownMenu_AddButton(info) end
-    end)
-    if epsilonControls then table.insert(epsilonControls, smd) end
-    y = y - 50
-
-    uiElements.spvpAutoInitialize = TabManager:CreateCheckbox(content, "Auto-Initialize Salts", "Auto-generate keys for owned phases.", "spvpAutoInitialize")
-    uiElements.spvpAutoInitialize:SetPoint("TOPLEFT", 40, y)
-    uiElements.spvpAutoInitialize:SetScript("OnClick", function(self) TRP3FW.Prefs.spvpAutoInitialize = self:GetChecked() end)
-    if epsilonControls then table.insert(epsilonControls, uiElements.spvpAutoInitialize) end
-    y = y - 35
-
-    local sbd = CreateFrame("Slider", "TRP3FW_SPVPBlockSlider", content, "OptionsSliderTemplate"); sbd:SetPoint("TOPLEFT", 40, y); sbd:SetWidth(300); sbd:SetMinMaxValues(10, 600); sbd:SetValueStep(10); sbd:SetObeyStepOnDrag(true)
-    uiElements.spvpBlockDurationSlider = sbd
-    local low, high, text = sbd.Low or getglobal(sbd:GetName().."Low"), sbd.High or getglobal(sbd:GetName().."High"), sbd.Text or getglobal(sbd:GetName().."Text")
-    if low then low:SetText("10s") end; if high then high:SetText("10m") end
-    sbd:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value/10)*10; TRP3FW.Prefs.spvpBlockDuration = value
-        local t = self.Text or getglobal(self:GetName().."Text")
-        if t then t:SetText("Block Duration: "..value.."s") end
-    end)
-    if epsilonControls then table.insert(epsilonControls, sbd) end
-    y = y - 60
-
-    local scd = CreateFrame("Slider", "TRP3FW_SPVPSaltCacheSlider", content, "OptionsSliderTemplate"); scd:SetPoint("TOPLEFT", 40, y); scd:SetWidth(300); scd:SetMinMaxValues(300, 43200); scd:SetValueStep(300); scd:SetObeyStepOnDrag(true)
-    uiElements.spvpSaltCacheDurationSlider = scd
-    local clow, chigh, ctext = scd.Low or getglobal(scd:GetName().."Low"), scd.High or getglobal(scd:GetName().."High"), scd.Text or getglobal(scd:GetName().."Text")
-    if clow then clow:SetText("5m") end; if chigh then chigh:SetText("12h") end
-    scd:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value/300)*300; TRP3FW.Prefs.spvpSaltCacheDuration = value
-        local t = self.Text or getglobal(self:GetName().."Text")
-        if t then t:SetText("Salt Cache: "..math.floor(value/60).."m") end
-    end)
-    if epsilonControls then table.insert(epsilonControls, scd) end
-    y = y - 60
-
-    uiElements.spvpSaltStatus = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); uiElements.spvpSaltStatus:SetPoint("TOPLEFT", 40, y); uiElements.spvpSaltStatus:SetText("Loading phase status...")
-    if epsilonControls then table.insert(epsilonControls, uiElements.spvpSaltStatus) end
-    y = y - 30
-
-    uiElements.spvpSecureButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate"); uiElements.spvpSecureButton:SetSize(200, 24); uiElements.spvpSecureButton:SetPoint("TOPLEFT", 40, y); uiElements.spvpSecureButton:SetText("Secure This Phase")
-    uiElements.spvpSecureButton:SetScript("OnClick", function()
-        if not C_Epsilon or not (C_Epsilon.IsOwner() or C_Epsilon.IsOfficer()) then
-            TRP3FW:Error("You must be a phase owner or officer to secure phases.")
-            return
-        end
-
-        local phaseID = TRP3FW:GetCurrentPhaseID()
-        local existingSalt = TRP3FW:GetPhaseSalt(phaseID, false)
-        if existingSalt and existingSalt ~= "" then
-            StaticPopup_Show("TRP3FW_SPVP_ROTATE_CONFIRM")
-        else
-            if TRP3FW.SecureCurrentPhase then TRP3FW:SecureCurrentPhase(); TRP3FW:RefreshUI() end
-        end
-    end)
-    if epsilonControls then table.insert(epsilonControls, uiElements.spvpSecureButton) end
-    y = y - 40
+    -- (SPVP section moved to Security tab — Phase 3 UX restructure)
 
     TabManager:CreateSectionHeader(content, "Overrides", y)
     y = y - 35
     
     uiElements.profileOverrides = {}
     TRP3FW.Prefs.ghostProfileOverrides = TRP3FW.Prefs.ghostProfileOverrides or {}
-    for i = 1, 20 do
+
+    local MAX_ROWS = 20
+    local INITIAL_ROWS = 5
+    local renderedRows = 0
+    local addRowBtn
+
+    local function RenderOverrideRow(i)
         TRP3FW.Prefs.ghostProfileOverrides[i] = TRP3FW.Prefs.ghostProfileOverrides[i] or {}
         local entry = TRP3FW.Prefs.ghostProfileOverrides[i]
         local l = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); l:SetPoint("TOPLEFT", 40, y); l:SetText(string.format("#%02d", i))
         local cb = CreateFrame("EditBox", nil, content, "InputBoxTemplate"); cb:SetSize(140, 20); cb:SetAutoFocus(false); cb:SetPoint("TOPLEFT", 80, y-2); cb:SetText(entry.match or "")
         cb:SetScript("OnTextChanged", function(self) entry.match = self:GetText() end)
-        
+
         local od = CreateFrame("Frame", nil, content, "UIDropDownMenuTemplate"); od:SetPoint("TOPLEFT", 232, y-2); UIDropDownMenu_SetWidth(od, 170)
         UIDropDownMenu_Initialize(od, function(self, level)
             local info = UIDropDownMenu_CreateInfo(); info.text="(Use global)"; info.func=function() entry.profileID=nil; UIDropDownMenu_SetText(od, "(Use global)") end; UIDropDownMenu_AddButton(info)
@@ -333,7 +283,35 @@ local function CreateAlertsTab(container)
         y = y - 34
     end
 
+    -- Auto-expand to last populated row beyond the initial set, so saved data is not hidden
+    local lastPopulated = 0
+    for i = 1, MAX_ROWS do
+        local e = TRP3FW.Prefs.ghostProfileOverrides[i]
+        if e and ((e.match and e.match ~= "") or e.profileID) then lastPopulated = i end
+    end
+    local startCount = math.max(INITIAL_ROWS, lastPopulated)
+    if startCount > MAX_ROWS then startCount = MAX_ROWS end
+
+    for i = 1, startCount do
+        RenderOverrideRow(i)
+        renderedRows = i
+    end
+
+    addRowBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    addRowBtn:SetSize(100, 22); addRowBtn:SetPoint("TOPLEFT", 40, y); addRowBtn:SetText("+ Add Row")
+    addRowBtn:SetScript("OnClick", function()
+        if renderedRows < MAX_ROWS then
+            renderedRows = renderedRows + 1
+            -- Move the button down before rendering so the new row uses its slot
+            RenderOverrideRow(renderedRows)
+            addRowBtn:ClearAllPoints(); addRowBtn:SetPoint("TOPLEFT", 40, y)
+            if renderedRows >= MAX_ROWS then addRowBtn:Disable() end
+        end
+    end)
+    if renderedRows >= MAX_ROWS then addRowBtn:Disable() end
+    y = y - 34
+
     return scrollFrame
 end
 
-TabManager:RegisterTab("alerts", "Alerts", "Alerts & Blocking", CreateAlertsTab, function() TRP3FW:RefreshUI() end)
+TabManager:RegisterTab("alerts", "Protection", "Protection & Blocking", CreateAlertsTab, function() TRP3FW:RefreshUI() end)

@@ -8,7 +8,7 @@ local function CreateDebugTab(container)
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
     
-    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 3200) 
+    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 3550)
     local uiElements = TabManager:GetUI()
     local y = -15
 
@@ -87,7 +87,7 @@ local function CreateDebugTab(container)
     y = y - 45
     uiElements.phaseCheckBatchMode = TabManager:CreateCheckbox(content, "Enable Phase Batching", "Bundle checks into single actions.", "phaseCheckBatchMode"); uiElements.phaseCheckBatchMode:SetPoint("TOPLEFT", 20, y)
     uiElements.phaseCheckBatchMode:SetScript("OnClick", function(self) TRP3FW.Prefs.phaseCheckBatchMode = self:GetChecked() end)
-    y = y - 50
+    y = y - 70
 
             local function setupSlider(slider, key, minVal, maxVal, step, formatStr)
                 slider:SetMinMaxValues(minVal, maxVal); slider:SetValueStep(step); slider:SetObeyStepOnDrag(true); slider:SetValue(TRP3FW.Prefs[key] or minVal)
@@ -102,7 +102,9 @@ local function CreateDebugTab(container)
                     if t then t:SetText(string.format(formatStr, displayVal)) end
                 end)
                 TabManager:AddComplexityWidget(slider, key)
-            end    local batchSize = CreateFrame("Slider", "TRP3FW_BatchSizeSlider", content, "OptionsSliderTemplate"); batchSize:SetPoint("TOPLEFT", 40, y); batchSize:SetWidth(200); setupSlider(batchSize, "phaseCheckBatchSize", 2, 10, 1, "Batch Size: %d"); uiElements.phaseCheckBatchSizeSlider = batchSize
+            end
+
+    local batchSize = CreateFrame("Slider", "TRP3FW_BatchSizeSlider", content, "OptionsSliderTemplate"); batchSize:SetPoint("TOPLEFT", 40, y); batchSize:SetWidth(200); setupSlider(batchSize, "phaseCheckBatchSize", 2, 10, 1, "Batch Size: %d"); uiElements.phaseCheckBatchSizeSlider = batchSize
     local batchDelay = CreateFrame("Slider", "TRP3FW_BatchDelaySlider", content, "OptionsSliderTemplate"); batchDelay:SetPoint("TOPLEFT", 280, y); batchDelay:SetWidth(200); setupSlider(batchDelay, "phaseCheckBatchDelay", 0.1, 2.0, 0.1, "Batch Delay: %.1fs"); uiElements.phaseCheckBatchDelaySlider = batchDelay
     y = y - 65
     local minBatch = CreateFrame("Slider", "TRP3FW_MinBatchSlider", content, "OptionsSliderTemplate"); minBatch:SetPoint("TOPLEFT", 40, y); minBatch:SetWidth(200); setupSlider(minBatch, "phaseCheckBatchMinSize", 2, 10, 1, "Min Batch Size: %d"); uiElements.phaseCheckBatchMinSizeSlider = minBatch
@@ -203,12 +205,56 @@ local function CreateDebugTab(container)
 
     local dCats = { "debugChannel", "debugWhisper", "debugWho", "debugPhase", "debugCleanName", "debugLocation", "debugDecision", "debugHooks", "debugCache", "debugSend", "debugUI", "debugUtils", "debugSecurity", "debugGhost", "debugSPVP" }
     local dLabels = { "Channel", "Whisper", "WHO", "Phase", "Names", "Location", "Decision", "Hooks", "Cache", "Send", "UI", "Utils", "Security", "Ghost", "SPVP" }
-    for i, k in ipairs(dCats) do 
+    for i, k in ipairs(dCats) do
         uiElements[k] = TabManager:CreateCheckbox(content, dLabels[i].." Verbosity", "Toggle logs.", k); uiElements[k]:SetPoint("TOPLEFT", 20, y); y = y - 30; uiElements[k]:SetScript("OnClick", function(self) TRP3FW.Prefs[k] = self:GetChecked() end)
         if i % 3 == 0 then y = y - 10 end
     end
-    
+
+    y = y - 15
+    TabManager:CreateSectionHeader(content, "Addon Monitoring", y)
+    y = y - 40
+    uiElements.monitorTRP3 = TabManager:CreateCheckbox(content, "Monitor Total RP 3", "Enable protections for TRP3.", "monitorTRP3")
+    uiElements.monitorTRP3:SetPoint("TOPLEFT", 20, y)
+    uiElements.monitorTRP3:SetScript("OnClick", function(self) TRP3FW.Prefs.monitorTRP3 = self:GetChecked() end)
+    y = y - 30
+
+    uiElements.monitorMRP = TabManager:CreateCheckbox(content, "Monitor MyRolePlay", "Enable protections for MRP.", "monitorMRP")
+    uiElements.monitorMRP:SetPoint("TOPLEFT", 20, y)
+    uiElements.monitorMRP:SetScript("OnClick", function(self) TRP3FW.Prefs.monitorMRP = self:GetChecked() end)
+    y = y - 30
+
+    uiElements.monitorXRP = TabManager:CreateCheckbox(content, "Monitor XRP", "Enable protections for XRP.", "monitorXRP")
+    uiElements.monitorXRP:SetPoint("TOPLEFT", 20, y)
+    uiElements.monitorXRP:SetScript("OnClick", function(self) TRP3FW.Prefs.monitorXRP = self:GetChecked() end)
+    y = y - 30
+
+    uiElements.monitorMSP = TabManager:CreateCheckbox(content, "Monitor MSP/Other", "Monitor other compatible addons.", "monitorMSP")
+    uiElements.monitorMSP:SetPoint("TOPLEFT", 20, y)
+    uiElements.monitorMSP:SetScript("OnClick", function(self) TRP3FW.Prefs.monitorMSP = self:GetChecked() end)
+    y = y - 45
+
+    TabManager:CreateSectionHeader(content, "Hook Safety", y)
+    y = y - 40
+    uiElements.strictHookMode = TabManager:CreateCheckbox(content, "Strict hook mode", "Refuse to install when another addon hooks core functions.", "strictHookMode")
+    uiElements.strictHookMode:SetPoint("TOPLEFT", 20, y)
+    uiElements.strictHookMode:SetScript("OnClick", function(self) TRP3FW.Prefs.strictHookMode = self:GetChecked() end)
+    y = y - 30
+
+    uiElements.logHookConflicts = TabManager:CreateCheckbox(content, "Log hook conflicts", "Warn when hooks are already wrapped.", "logHookConflicts")
+    uiElements.logHookConflicts:SetPoint("TOPLEFT", 20, y)
+    uiElements.logHookConflicts:SetScript("OnClick", function(self) TRP3FW.Prefs.logHookConflicts = self:GetChecked() end)
+    y = y - 30
+
+    uiElements.abortOnMultipleRPAddons = TabManager:CreateCheckbox(content, "Abort on multiple RP addons", "Disable TRP3FW if multiple RP addons detected.", "abortOnMultipleRPAddons")
+    uiElements.abortOnMultipleRPAddons:SetPoint("TOPLEFT", 20, y)
+    uiElements.abortOnMultipleRPAddons:SetScript("OnClick", function(self) TRP3FW.Prefs.abortOnMultipleRPAddons = self:GetChecked() end)
+    y = y - 30
+
+    uiElements.disableMapScanOnTRP3 = TabManager:CreateCheckbox(content, "Disable map scan when TRP3 + RPMapScan", "Skip map-scan hooks in this specific combo.", "disableMapScanOnTRP3")
+    uiElements.disableMapScanOnTRP3:SetPoint("TOPLEFT", 20, y)
+    uiElements.disableMapScanOnTRP3:SetScript("OnClick", function(self) TRP3FW.Prefs.disableMapScanOnTRP3 = self:GetChecked() end)
+
     return scrollFrame
 end
 
-TabManager:RegisterTab("debug", "Debug", "Cache & Debug Settings", CreateDebugTab, function() TRP3FW:RefreshUI() end)
+TabManager:RegisterTab("debug", "Advanced", "Advanced Settings", CreateDebugTab, function() TRP3FW:RefreshUI() end)

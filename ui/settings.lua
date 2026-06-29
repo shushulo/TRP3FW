@@ -51,10 +51,36 @@ local CUSTOM_LOGIC_KEYS = {
 }
 
 local SETTING_LEVELS = {
-    notifyEnabled = 1, showInChat = 1, showOnScreen = 1, playSound = 1, suppressionTime = 1, phaseCheckMode = 1, mapCheckMode = 1, whitelistEnabled = 1, whitelistEntries = 1,
-    notifyOnAllow = 2, notifyOnStartPhaseBlock = 2, notifyOnWhisper = 2, notifyOnBroadcast = 2, showGhostNotifications = 2, showAddonSource = 2, showCacheInfo = 2, allowGroupPhaseBypass = 2, useWhoQuery = 2, blockStartPhase = 2, ghostOnStartPhase = 2, ghostProfileSwitch = 2, ghostProfileName = 2, filterGradients = 2, filterIcons = 2, filterMinimumFontSize = 2, minimumFontSizeLevel = 2, trackHistory = 2,
-    refreshSuppression = 3, notifyOnScanResponse = 3, notifyOnScanAllow = 3, showCheckResults = 3, ghostProfileWhitelistEnabled = 3, ghostProfileWhitelist = 3, ghostProfileOverrides = 3, suppressAllWhoOutput = 3, monitorTRP3 = 3, monitorMRP = 3, monitorXRP = 3, monitorMSP = 3, abortOnMultipleRPAddons = 3, disableMapScanOnTRP3 = 3, performanceHistoryEnabled = 3, phaseInDelay = 3, transitionGracePeriod = 3, redactLocations = 3, redactNetwork = 3, redactSPVP = 3, cacheSizeLimit = 3, mapScanMinInterval = 3, whoZoneQueryCooldown = 3, whoZoneCacheDuration = 3, whoNameCacheDuration = 3, whoCacheRefreshThreshold = 3, phaseCheckBatchMode = 3, phaseCheckBatchSize = 3, phaseCheckBatchDelay = 3, phaseCheckBatchMinSize = 3, phaseCheckBatchInterDelay = 3, spvpMode = 3, spvpAutoInitialize = 3, spvpBlockDuration = 3, spvpSaltCacheDuration = 3, spvpVerifiedCacheDuration = 3, spvpVerifiedRefreshRate = 3,
-    spvpPhaseSaltRefreshRate = 4, phaseCheckRefundOnNoChange = 4, privilegedReservedTokens = 4, privilegedLowPriorityThreshold = 4
+    -- Level 1 (Basic): Core toggles a new user immediately needs
+    notifyEnabled = 1, showInChat = 1, showOnScreen = 1, playSound = 1, suppressionTime = 1,
+    phaseCheckMode = 1, mapCheckMode = 1, whitelistEnabled = 1, whitelistEntries = 1,
+    blockStartPhase = 1, ghostOnStartPhase = 1, ghostProfileSwitch = 1,
+    allowGroupPhaseBypass = 1, useWhoQuery = 1,
+    filterGradients = 1, filterIcons = 1, trackHistory = 1,
+    -- Level 2 (Intermediate): Tunable behavior most regular users will eventually touch
+    notifyOnAllow = 2, notifyOnStartPhaseBlock = 2, notifyOnWhisper = 2, showGhostNotifications = 2,
+    ghostProfileName = 2, filterMinimumFontSize = 2, minimumFontSizeLevel = 2,
+    refreshSuppression = 2, suppressAllWhoOutput = 2, spvpMode = 2,
+    scanResponsePhaseMode = 2, scanResponseMapMode = 2, notifyOnScanResponse = 2,
+    scanResponseAllowGroupBypass = 2, mapScanMinInterval = 2, disableMapScanOnTRP3 = 2,
+    -- Level 3 (Advanced): Power-user tuning, cache durations, batching, security details
+    notifyOnBroadcast = 3, showAddonSource = 3, notifyOnScanAllow = 3,
+    scanResponseAllowCacheBypass = 3, scanResponseCacheEnabled = 3,
+    scanResponseRequireNonce = 3, scanResponseWhitelistEnabled = 3,
+    ghostProfileWhitelistEnabled = 3, ghostProfileWhitelist = 3, ghostProfileOverrides = 3,
+    monitorTRP3 = 3, monitorMRP = 3, monitorXRP = 3, monitorMSP = 3, abortOnMultipleRPAddons = 3,
+    phaseInDelay = 3, transitionGracePeriod = 3,
+    redactLocations = 3, redactNetwork = 3, redactSPVP = 3, cacheSizeLimit = 3,
+    scanCacheDuration = 3, scanCacheFailureDuration = 3,
+    whoZoneQueryCooldown = 3, whoZoneCacheDuration = 3, whoNameCacheDuration = 3, whoCacheRefreshThreshold = 3,
+    phaseCheckBatchMode = 3, phaseCheckBatchSize = 3, phaseCheckBatchDelay = 3,
+    phaseCheckBatchMinSize = 3, phaseCheckBatchInterDelay = 3,
+    spvpAutoInitialize = 3, spvpBlockDuration = 3, spvpSaltCacheDuration = 3,
+    spvpVerifiedCacheDuration = 3, spvpVerifiedRefreshRate = 3,
+    -- Level 4 (Everything): Developer/diagnostic
+    showCacheInfo = 4, showCheckResults = 4, performanceHistoryEnabled = 4,
+    spvpPhaseSaltRefreshRate = 4, phaseCheckRefundOnNoChange = 4,
+    privilegedReservedTokens = 4, privilegedLowPriorityThreshold = 4,
 }
 TRP3FW.SETTING_LEVELS = SETTING_LEVELS
 
@@ -640,12 +666,12 @@ function TRP3FW:RefreshUI()
     
     local dropdownConfig = {
         phaseCheckMode = {
-            ["off"] = "Off", ["statistics"] = "Statistics Only", ["alert"] = "Alert", ["block"] = "Block",
-            ["ghost"] = "Ghost (Blank Profile)", ["alert_block"] = "Alert + Block", ["alert_ghost"] = "Alert + Ghost"
+            ["off"] = "Off", ["statistics"] = "Statistics only", ["alert"] = "Notify only", ["block"] = "Block (silent)",
+            ["ghost"] = "Send blank profile", ["alert_block"] = "Block (with notification)", ["alert_ghost"] = "Send blank profile (with notification)"
         },
         mapCheckMode = {
-            ["off"] = "Off", ["statistics"] = "Statistics Only", ["alert"] = "Alert", ["block"] = "Block",
-            ["ghost"] = "Ghost (Blank Profile)", ["alert_block"] = "Alert + Block", ["alert_ghost"] = "Alert + Ghost"
+            ["off"] = "Off", ["statistics"] = "Statistics only", ["alert"] = "Notify only", ["block"] = "Block (silent)",
+            ["ghost"] = "Send blank profile", ["alert_block"] = "Block (with notification)", ["alert_ghost"] = "Send blank profile (with notification)"
         },
         spvpMode = {
             ["off"] = "Off", ["optional"] = "Optional (Post-Check)", ["preferred"] = "Preferred (Pre-Check)", ["required"] = "Required (Strict)"
@@ -860,7 +886,7 @@ function TRP3FW:InitializeUI()
     TRP3FW.TabManager:LinkUI(uiElements, complexityWidgets, epsilonControls)
     TRP3FW:InitializeSettings(); InitializeMinimapSettings()
     settingsFrame = CreateFrame("Frame", "TRP3FW_PrefsFrame", UIParent, "BasicFrameTemplateWithInset")
-    settingsFrame:SetSize(600, 550); settingsFrame:SetPoint("CENTER"); settingsFrame:SetMovable(true); settingsFrame:EnableMouse(true); settingsFrame:RegisterForDrag("LeftButton")
+    settingsFrame:SetSize(700, 550); settingsFrame:SetPoint("CENTER"); settingsFrame:SetMovable(true); settingsFrame:EnableMouse(true); settingsFrame:RegisterForDrag("LeftButton")
     settingsFrame:SetScript("OnDragStart", settingsFrame.StartMoving); settingsFrame:SetScript("OnDragStop", settingsFrame.StopMovingOrSizing); settingsFrame:Hide()
     self:CreateMinimapButton(); settingsFrame.title = settingsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge"); settingsFrame.title:SetPoint("TOP", 0, -5); settingsFrame.title:SetText("TRP3 Firewall Settings v"..TRP3FW.VERSION)
     TRP3FW.TabManager:Initialize(settingsFrame); local tabs = {}
@@ -872,6 +898,19 @@ function TRP3FW:InitializeUI()
         tabs[i] = b
     end
     if #tabs > 0 then tabs[1]:GetScript("OnClick")(tabs[1]) end
+
+    settingsFrame:HookScript("OnShow", function()
+        local activeId = TRP3FW.TabManager.activeTab and TRP3FW.TabManager.activeTab.id
+        for i, tabInfo in ipairs(TRP3FW.TabManager.orderedTabs) do
+            local t = tabs[i]
+            if t then
+                local isActive = (tabInfo.id == activeId)
+                t.bg:SetColorTexture(isActive and 0.3 or 0.2, isActive and 0.3 or 0.2, isActive and 0.3 or 0.2, isActive and 1.0 or 0.8)
+                t.text:SetTextColor(isActive and 1 or 0.7, isActive and 1 or 0.7, isActive and 1 or 0.7)
+            end
+        end
+        TRP3FW:RefreshUI()
+    end)
 
     -- Bottom Buttons
     local closeButton = CreateFrame("Button", nil, settingsFrame, "GameMenuButtonTemplate")
@@ -905,6 +944,17 @@ function TRP3FW:ShowWelcomeWizard()
     local levels = { {1, "Basic"}, {2, "Intermediate"}, {3, "Advanced"}, {4, "Everything"} }
     for i, l in ipairs(levels) do
         local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); b:SetSize(300, 40); b:SetPoint("TOP", 0, -100 - (i-1)*50); b:SetText(l[2])
-        b:SetScript("OnClick", function() TRP3FW.Prefs.uiComplexityLevel = l[1]; TRP3FW.Prefs.complexitySetupDone = true; TRP3FW:EnforceComplexityDefaults(l[1]); TRP3FW:RefreshUI(); f:Hide() end)
+        b:SetScript("OnClick", function()
+            TRP3FW.Prefs.uiComplexityLevel = l[1]
+            TRP3FW.Prefs.complexitySetupDone = true
+            TRP3FW:EnforceComplexityDefaults(l[1])
+            if settingsFrame then TRP3FW:RefreshUI() end
+            f:Hide()
+            -- Auto-open settings so the user knows where to configure (Phase 1 UX restructure 6.1)
+            if settingsFrame then settingsFrame:Show() end
+        end)
     end
+    local skipBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    skipBtn:SetSize(200, 30); skipBtn:SetPoint("BOTTOM", 0, 15); skipBtn:SetText("Skip (Use Defaults)")
+    skipBtn:SetScript("OnClick", function() TRP3FW.Prefs.complexitySetupDone = true; f:Hide() end)
 end
