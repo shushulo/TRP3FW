@@ -9,6 +9,14 @@ function TRP3FW:InstallGradientHooks()
         return
     end
 
+    -- Idempotency guard: InstallHooks re-runs on /trp3fw reloadhooks. Without this, each
+    -- reload inserts another copy into msp.callback.received and re-wraps the TRP3 sanitizers
+    -- (nesting our wrapper around itself), leaking hooks and multiplying per-receipt work.
+    -- Mirrors the guard fontsize.lua already has.
+    if self.gradientHookInstalled then
+        return
+    end
+
     local hooksApplied = {}
 
     -- Hook MSP callback to strip incoming profile data
@@ -232,6 +240,7 @@ function TRP3FW:InstallGradientHooks()
     end
 
     if #hooksApplied > 0 then
+        self.gradientHookInstalled = true
         self:Info("Gradient filter enabled - hooked: " .. table.concat(hooksApplied, ", "))
     end
 end

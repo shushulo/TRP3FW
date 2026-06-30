@@ -20,7 +20,11 @@ local function countChar(str, char)
 end
 
 -- Constants
-local SANITIZE_NAME_PATTERN = "^([%a_%s_%'\128-%255]+%-?[%a_%s_%'\128-%255]*)$"
+-- High-byte range must be written \128-\255 (decimal escapes). The previous form
+-- "\128-%255" was malformed: %2 is not a valid range endpoint, so the intended
+-- 128-255 accented-character range was broken AND digits 2/5 leaked into the class
+-- (letting names like "Bob2" pass). Mirrors the correct SANITIZE_ZONE_PATTERN below.
+local SANITIZE_NAME_PATTERN = "^([%a_%s%'\128-\255]+%-?[%a_%s%'\128-\255]*)$"
 local SANITIZE_ZONE_PATTERN = "^([%w%s'%-\128-\255]+)$"
 local CONTROL_CHAR_PATTERN = "%z"
 local CONTROL_CLASS_PATTERN = "%c"

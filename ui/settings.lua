@@ -936,6 +936,26 @@ end
 
 function TRP3FW:ToggleMinimapButton() if not TRP3FW.minimapButton then self:CreateMinimapButton() end; TRP3FW_MinimapSettings.hide = not TRP3FW_MinimapSettings.hide; if TRP3FW_MinimapSettings.hide then TRP3FW.minimapButton:Hide() else TRP3FW.minimapButton:Show() end end
 
+-- Restore the minimap button to its default position/visibility.
+-- Implements the function /trp3fw minimapreset expected but that was never defined
+-- (the command always reported "not available"). Defaults match CreateMinimapButton's
+-- first-run values (minimapPos 225, radius 80, shown).
+function TRP3FW:ResetMinimapButton()
+    if not TRP3FW_MinimapSettings then TRP3FW_MinimapSettings = {} end
+    TRP3FW_MinimapSettings.minimapPos = 225
+    TRP3FW_MinimapSettings.radius = 80
+    TRP3FW_MinimapSettings.hide = false
+
+    if not TRP3FW.minimapButton then self:CreateMinimapButton() end
+    local b = TRP3FW.minimapButton
+    if b then
+        local r, d = TRP3FW_MinimapSettings.radius, TRP3FW_MinimapSettings.minimapPos
+        b:SetPoint("CENTER", Minimap, "CENTER", math.cos(math.rad(d)) * r, math.sin(math.rad(d)) * r)
+        b:Show()
+    end
+    self:Info("Minimap button reset to default position")
+end
+
 function TRP3FW:ShowWelcomeWizard()
     if TRP3FW.Prefs.complexitySetupDone then return end
     local f = CreateFrame("Frame", nil, UIParent, "BasicFrameTemplateWithInset"); f:SetSize(450, 420); f:SetPoint("CENTER"); f:SetFrameStrata("DIALOG")

@@ -87,9 +87,24 @@ function TRP3FW:CheckPlayerViaWho(playerName, sendId, callback, trackStats, forc
         return
     end
 
+    -- Technical WHO failures worth a map-scan rescue. These are the actual source strings
+    -- WhoService:CheckPlayer / RunPrivilegedSafe emit. The previous list checked for "error"
+    -- and "full", which never matched the real values ("execution_error", "queue_full"),
+    -- so those failures silently skipped the fallback. Bad-input failures (invalid_name,
+    -- code_too_long) and legitimate negatives (cached_zone_complete, queue_timeout) are
+    -- intentionally excluded — retrying via map scan won't help and would add noise.
+    local WHO_FALLBACK_SOURCES = {
+        timeout = true,
+        rate_limit = true,
+        execution_error = true,
+        queue_full = true,
+        api_error = true,
+        api_unavailable = true,
+    }
+
     service:CheckPlayer(playerName, sendId, function(found, source, age, zone, mapID)
         -- Handle Map Fallback for certain technical errors
-        if not found and (source == "timeout" or source == "rate_limit" or source == "error" or source == "full") then
+        if not found and source and WHO_FALLBACK_SOURCES[source] then
             if TryMapFallbackForWho(playerName, sendId, callback, source) then
                 return
             end

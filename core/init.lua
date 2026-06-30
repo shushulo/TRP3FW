@@ -686,6 +686,12 @@ function TRP3FW:InitializeCaches()
         maxSize = 500
     })
 
+    -- SPVP Session Cache (replay-attack protection; short-lived)
+    CI:Register("spvpSessions", {
+        ttl = 60,
+        maxSize = 1000
+    })
+
     -- Name Normalization Caches (Utility)
     CI:Register("cleanName", {
         maxSize = TRP3FW.Prefs.cleanNameCacheSize or 500

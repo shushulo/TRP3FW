@@ -26,8 +26,18 @@ spvpFrame:SetScript("OnEvent", function(self, event, prefix, message, channel, s
 
     if prefix ~= "TRP3FW_SPVP" then return end
 
+    -- This is our network attack surface: messages arrive from arbitrary players.
+    -- CHAT_MSG_ADDON can deliver a nil/empty body, and CleanPlayerName can reject a
+    -- malformed sender. Guard both before any :match/concatenation to avoid a nil-index
+    -- crash in the OnEvent handler.
+    if type(message) ~= "string" or message == "" then return end
+
     -- Clean sender name
     local cleanSender = TRP3FW:CleanPlayerName(sender)
+    if not cleanSender then
+        TRP3FW:Debug("[SPVP] Dropping packet from unparseable sender: "..tostring(sender), "spvp")
+        return
+    end
 
     -- Determine packet type
     if message:match("^INIT:") then

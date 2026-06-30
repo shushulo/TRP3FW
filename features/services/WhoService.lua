@@ -458,6 +458,11 @@ function WhoService:OnWhoListUpdate()
                     cachedCount = cachedCount + 1
                 end
 
+                -- Collect names for zone scans (scanMode consumers iterate this list)
+                if pending.scanMode and name ~= myName then
+                    playerList[#playerList + 1] = name
+                end
+
                 if name == pending.playerName then
                     found = true
                     zone = info.area

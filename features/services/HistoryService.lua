@@ -17,6 +17,14 @@ function HistoryService:Initialize()
         phaseAlerts = 0,
         mapAlerts = 0,
         startPhaseBlocks = 0,
+        -- Per-type block/ghost breakdown (consumed by /trp3fw stats). Previously the
+        -- status display read these fields but nothing ever populated them, so the
+        -- breakdown always showed 0 despite blocks/ghosts occurring.
+        phaseBlocks = 0,
+        mapBlocks = 0,
+        phaseGhost = 0,
+        mapGhost = 0,
+        startPhaseGhost = 0,
         requestsByAddon = {TRP3=0, MRP=0, XRP=0, MSP=0},
         cacheStats = {
             allowedSendersCacheHits = 0,
@@ -272,9 +280,24 @@ function HistoryService:RecordHistory(playerName, addon, wasAlert, wasBlocked, w
     if alertType then
         if alertType == "start_phase_block" then
             self.sessionStats.startPhaseBlocks = self.sessionStats.startPhaseBlocks + 1
+            if wasGhost then
+                self.sessionStats.startPhaseGhost = self.sessionStats.startPhaseGhost + 1
+            end
         else
             if alertType:find("phase") then self.sessionStats.phaseAlerts = self.sessionStats.phaseAlerts + 1 end
             if alertType:find("map")   then self.sessionStats.mapAlerts   = self.sessionStats.mapAlerts + 1 end
+
+            -- Per-type block/ghost breakdown for /trp3fw stats. A combined "phase+map"
+            -- alertType bumps both, mirroring the alert counters above.
+            if wasBlocked then
+                if wasGhost then
+                    if alertType:find("phase") then self.sessionStats.phaseGhost = self.sessionStats.phaseGhost + 1 end
+                    if alertType:find("map")   then self.sessionStats.mapGhost   = self.sessionStats.mapGhost + 1 end
+                else
+                    if alertType:find("phase") then self.sessionStats.phaseBlocks = self.sessionStats.phaseBlocks + 1 end
+                    if alertType:find("map")   then self.sessionStats.mapBlocks   = self.sessionStats.mapBlocks + 1 end
+                end
+            end
         end
     end
 

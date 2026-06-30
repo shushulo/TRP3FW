@@ -20,8 +20,15 @@ end
 --- @param context table - Pipeline context
 --- @return table - {handled = boolean, allowed = boolean (optional)}
 function TRP3FW.SPVPStage:Process(context)
-    -- Master toggle
-    local spvpEnabled = (context.settings and context.settings.spvpEnabled ~= nil) and context.settings.spvpEnabled or TRP3FW.Prefs.spvpEnabled
+    -- Master toggle. Prefer the TOCTOU snapshot; fall back to the live pref only when the
+    -- snapshot didn't capture it. Avoid the `a and b or c` idiom here: when the snapshot value
+    -- is `false` it would wrongly fall through to the live pref (false is not nil).
+    local spvpEnabled
+    if context.settings and context.settings.spvpEnabled ~= nil then
+        spvpEnabled = context.settings.spvpEnabled
+    else
+        spvpEnabled = TRP3FW.Prefs.spvpEnabled
+    end
 
     if not spvpEnabled then
         TRP3FW:Debug("SPVP skipped: Master toggle (spvpEnabled) is disabled in settings", "spvp")

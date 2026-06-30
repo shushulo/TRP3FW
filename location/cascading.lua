@@ -215,7 +215,7 @@ local function RunMapCheck(results, priority)
             TRP3FW:MapScan(playerName, sendId, function(f, s, a)
                 if s:find("cached") then results.cacheInfo.mapCache = "hit" end
                 HandleMapResult(results, f, s, a)
-            end)
+            end, priority)
         else
             -- No scanner, fail map check
             HandleMapResult(results, false, "no_scanner")

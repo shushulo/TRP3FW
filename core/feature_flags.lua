@@ -150,4 +150,4 @@ end
 
 SLASH_TRP3FWFLAGS1 = "/trp3fwflags"
 
-print("TRP3FW Feature Flags loaded. Use /trp3fwflags for commands")
+TRP3FW:Debug("Feature Flags loaded. Use /trp3fwflags for commands", "init")

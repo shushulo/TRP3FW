@@ -21,9 +21,6 @@ local SPVP_VERSION = 2
 local SPVP_TIMEOUT_SECONDS = 5
 local SPVP_MAX_RETRIES = 2
 
--- WHO result limit (for detecting truncation)
-local WHO_RESULT_LIMIT = 50
-
 -- ===================================================================
 -- UTILITIES
 -- ===================================================================
@@ -599,7 +596,8 @@ end
 local function StartSPVPHandshakeWithRetry(playerName, sendId, callback, attempt)
     if attempt >= SPVP_MAX_RETRIES then
         TRP3FW:Debug(string.format("SPVP timeout: %s (retries exhausted)", playerName), "spvp")
-        callback(nil, "timeout")  -- nil = unknown (fallback to normal checks)
+        -- callback may be nil for background refreshes (aging-cache path) — guard it.
+        if callback then callback(nil, "timeout") end  -- nil = unknown (fallback to normal checks)
         return
     end
 

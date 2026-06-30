@@ -94,7 +94,11 @@ function TRP3FW:SchedulePhaseCheckProcessing(customDelay)
     -- Use custom delay if provided (e.g. for refill waiting), otherwise default to setting
     local delay = customDelay or TRP3FW.Prefs.phaseCheckBatchDelay or 1.0
 
-    self.phaseCheckBatchTimer = C_Timer.After(delay, function()
+    -- Must be C_Timer.NewTimer (cancelable object), not C_Timer.After (returns nil).
+    -- Other code stores this field expecting to :Cancel() it (QueuePhaseCheck) and to
+    -- detect a pending batch via the guard above; an `After` handle would be nil, breaking
+    -- both and allowing overlapping batch timers to stack.
+    self.phaseCheckBatchTimer = C_Timer.NewTimer(delay, function()
         self.phaseCheckBatchTimer = nil
 
         local queueSize = #self.pendingPhaseChecks
@@ -740,7 +744,11 @@ function TRP3FW:ExecutePhaseCheck(check)
             C_Timer.After(waitTime, function()
                 self:QueuePhaseCheck(playerName, check.sendId, callback, priority)
                 if not self.phaseCheckBatchTimer then
-                     self.phaseCheckBatchTimer = C_Timer.After(0.1, function() self:ProcessPhaseCheckBatch() end)
+                     -- NewTimer (cancelable), not After (nil) — keep the field a real timer object.
+                     self.phaseCheckBatchTimer = C_Timer.NewTimer(0.1, function()
+                         self.phaseCheckBatchTimer = nil
+                         self:ProcessPhaseCheckBatch()
+                     end)
                 end
             end)
         else

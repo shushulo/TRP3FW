@@ -63,7 +63,15 @@ local DEBUG_CATEGORIES = {
     utils = "debugUtils",
     security = "debugSecurity",  -- Security-related messages (sanitization, cache limits, queue limits)
     ghost = "debugGhost",  -- Ghost mode execution flow and exchange hook calls
-    spvp = "debugSPVP"  -- SPVP (Secure Phase Verification Protocol) handshake and verification
+    spvp = "debugSPVP",  -- SPVP (Secure Phase Verification Protocol) handshake and verification
+    cleanname = "debugCleanName",  -- Player name normalization (toggle was previously orphaned)
+    -- Core infrastructure categories. Previously unmapped, so they bypassed the filter and
+    -- printed unconditionally; route them through debugUtils so debugfilter can silence them.
+    init = "debugUtils",
+    core = "debugUtils",
+    pipeline = "debugUtils",
+    queue = "debugUtils",
+    refactor = "debugUtils"
 }
 
 -- SECURITY: Redact sensitive information from debug messages
@@ -787,10 +795,3 @@ function TRP3FW:CountTableEntries(tbl)
     return count
 end
 
--- Helper to create WHO cache entries (replaces removed pool)
-function TRP3FW:AcquireWhoResult()
-    return {}
-end
-
--- DEPRECATED: EnforceCacheLimit removed - all caches now use CacheInterface with O(1) LRU
--- CacheInterface automatically enforces size limits with O(1) eviction (no sorting overhead)

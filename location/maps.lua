@@ -328,7 +328,11 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
     if hs then hs:RecordPerformance(debugprofilestop() - start, "Map Scan Response") end
 end)
 
-function TRP3FW:MapScan(name, sendId, callback)
+function TRP3FW:MapScan(name, sendId, callback, priority)
+    -- `priority == "HIGH"` tightens the scan rate limit (5s) and timeout (2.5s) for
+    -- latency-sensitive scan replies. Previously this was (incorrectly) keyed off `sendId`
+    -- being the string "HIGH", which no caller ever passed, so the fast-path was dead.
+    local isHighPriority = (priority == "HIGH")
     if not self:IsMapCheckEnabled() then
         self:Debug("Map scan skipped: disabled by user setting", "channel")
         if callback then callback(false, "disabled") end
@@ -506,7 +510,7 @@ function TRP3FW:MapScan(name, sendId, callback)
     -- DYNAMIC RATE LIMITING:
     -- For HIGH priority requests (scan replies), we allow a much tighter interval (5s)
     -- to ensure we can always respond to new scanners if they aren't in cache.
-    if sendId == "HIGH" or (type(sendId) == "table" and sendId.priority == "HIGH") then
+    if isHighPriority then
         minInterval = 5 -- Allow fresh scans every 5s for scan replies
     end
 
@@ -549,7 +553,7 @@ function TRP3FW:MapScan(name, sendId, callback)
 
     -- Use 5 second timeout for this specific player (shorter for HIGH priority)
     local timeoutDuration = 5
-    if sendId == "HIGH" or (type(sendId) == "table" and sendId.priority == "HIGH") then
+    if isHighPriority then
         timeoutDuration = 2.5
     end
 

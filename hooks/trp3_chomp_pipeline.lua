@@ -294,4 +294,4 @@ function TRP3FW:ChompPipeline_LocationGating_V2(playerName, addon, sendId, origi
     return {result = result}
 end
 
-print("TRP3FW Chomp Pipeline (V2) loaded")
+TRP3FW:Debug("Chomp Pipeline (V2) loaded", "hooks")

@@ -298,6 +298,26 @@ function TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queu
     local sendIdObj = self:CreateVerifiedSendId()
     local sendId = sendIdObj and sendIdObj.id or 0
 
+    -- Stage 1b: MSP ghost-payload replacement.
+    -- The ghost decision is made asynchronously (ApplyLocationDecision -> EnableGhostForNextSend),
+    -- which then re-invokes originalFunc; that re-send lands back here with the ghost flag set.
+    -- TRP3 data sends are ghosted in the sendObject hook (pre-serialization), but MSP sends are
+    -- raw payloads that only pass through Chomp, so we must replace the payload here. Previously
+    -- this keyed off `locationResult.shouldGhost` (never set by the gating stage) so it never ran.
+    -- Detect an MSP data send (contains field/CRC markers; '?' requests are harmless and skipped).
+    local isMSPData = prefix and tostring(prefix):find("MSP") and type(text) == "string" and text:find("[:!]")
+    if isMSPData and self:ShouldGhostSendTo(playerName) then
+        local ghostPayload = self:GenerateMSPGhostPayload(playerName)
+        if ghostPayload and ghostPayload ~= "" then
+            self:Debug("[Chomp Hook] Ghost mode: replacing MSP payload for "..tostring(playerName).." and sending", "ghost")
+            self:ClearGhostFlag(playerName)
+            return originalFunc(prefix, ghostPayload, chatType, target, priority, queue, callback, callbackArg)
+        else
+            self:Warn("[Chomp Hook] Ghost mode enabled but failed to generate MSP payload for "..tostring(playerName)..", blocking send")
+            return -- fail closed: never leak the real profile when ghosting was intended
+        end
+    end
+
     -- Stage 2: Phase-in delay (skipped for replays)
     if not skipPhaseIn then
         local phaseResult = self:ChompPipeline_PhaseInDelay_V2(playerName, prefix, text, chatType, target, priority, queue, callback, callbackArg)
@@ -341,32 +361,12 @@ function TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queu
             return originalFunc(unpack(args))
         end,
         args,
-        { isMutual = mutualResult and mutualResult.isMutual or false }
+        -- `context` is currently unused by ChompPipeline_LocationGating_V2. This previously
+        -- referenced an undefined `mutualResult` upvalue (always nil → isMutual always false),
+        -- a leftover from a removed mutual-exchange computation. Pass nil until/unless the
+        -- gating stage actually consumes a context.
+        nil
     )
-
-    if locationResult and locationResult.shouldGhost then
-        -- If ghost mode is active, we might need to substitute the payload
-        -- For TRP3, this was handled by sendObject hook (pre-serialization)
-        -- For MSP (or raw MSP2 sends), we must replace it here
-        if addon == "MSP" and type(text) == "string" and text:find("[:!]") then
-            -- Only replace payload if it looks like data fields (contains : or !)
-            -- Requests (?) are harmless and shouldn't be ghosted
-            -- Tooltip requests (?TT) or partials (?) are also harmless queries
-
-            -- Generate ghost payload for this target
-            local ghostPayload = self:GenerateMSPGhostPayload(playerName)
-            if ghostPayload and ghostPayload ~= "" then
-                self:Debug("[Chomp Hook] Ghost mode: Replacing MSP payload for "..tostring(playerName), "ghost")
-                -- Update args with new payload
-                args[2] = ghostPayload
-                -- We don't need to update locationResult.result because that's just the return value
-                -- But we need to ensure the callback (originalFunc) uses the new args
-                -- The callback closure above captured 'args', so updating the table works!
-            else
-                self:Warn("[Chomp Hook] Ghost mode enabled but failed to generate payload for "..tostring(playerName))
-            end
-        end
-    end
 
     return locationResult and locationResult.result
 end
