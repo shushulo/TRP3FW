@@ -229,9 +229,6 @@ TRP3FW.defaultSettings = {
 
     -- Scan reply whitelist (one player per line)
     scanResponseWhitelist = "",
-
-    -- Ghosting via Chomp (TRP3/MSP payloads serialized through Chomp)
-    enableChompGhost = true,
 }
 
 -- Fallback for early access
@@ -531,11 +528,10 @@ TRP3FW.PHASE_CACHE_TTL = 1  -- Cache phase ID for 1 second (balance between fres
 -- Cache persists for session (profiles rarely change during play session)
 TRP3FW.mspConversionCache = {}  -- [profileID] = {mspFields, timestamp}
 
--- Ghost mode state (REFACTORED: Single active ghost flag to eliminate target ambiguity)
--- BEFORE: ghostNextSend = {["PlayerA"] = {expires, addon}, ["PlayerB"] = {...}}
--- AFTER:  ghostNextSend = {target = "PlayerA", expires = time, profileID = nil}
--- This ensures GetCurrentGhostTarget() always knows the correct recipient
-TRP3FW.ghostNextSend = nil  -- Single ghost flag: {target, expires, addon, timestamp, profileID}
+-- Ghost mode state: single active ghost flag to eliminate target ambiguity.
+-- Shape: { target = "PlayerA", expires = time, addon, timestamp, profileID }
+-- Consumed by ShouldGhostSendTo / EnableGhostForNextSend (features/ghostmode_trp3.lua).
+TRP3FW.ghostNextSend = nil
 TRP3FW.ghostCleanupTimer = nil  -- Timer for auto-cleanup (cancelled when new ghost flag is set)
 
 -- Whitelist cache
