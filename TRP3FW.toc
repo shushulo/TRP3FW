@@ -94,3 +94,6 @@ commands.lua
 
 # Main initialization (load last)
 TRP3FW.lua
+
+# Integration tests (in-game, run via /trp3fwtest)
+tests\integration_tests.lua
