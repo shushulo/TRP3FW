@@ -75,11 +75,6 @@ end
 
 -- ===================== Public API Wrapper =====================
 
--- DEPRECATED: Moved to WhoService
-function TRP3FW:InitializeWhoSuppression()
-    -- Logic now handled by WhoService:InitializeSuppression() during service init
-end
-
 function TRP3FW:CheckPlayerViaWho(playerName, sendId, callback, trackStats, forceNameQuery, priority)
     local service = self.ServiceContainer:Get("WhoService")
     if not service then

@@ -24,30 +24,12 @@ mainFrame:SetScript("OnEvent", function(self, event, arg1)
         self:UnregisterEvent("ADDON_LOADED")
 
     elseif event == "PLAYER_LOGIN" then
-        -- Initialize WHO suppression
-        TRP3FW:InitializeWhoSuppression()
-
-        -- Initialize cache cleanup
-        -- TRP3FW:InitializeCacheCleanup() -- Moved to CacheService
-
-        -- Initialize zone cache clearing
-        -- TRP3FW:InitializeZoneCacheClearing() -- Moved to CacheService
-
-        -- Initialize Services
+        -- Initialize Services (WHO suppression, cache cleanup, and zone-cache
+        -- clearing are all set up by their respective services here).
         TRP3FW.ServiceContainer:InitializeAll()
 
         -- Initialize Pipeline
         TRP3FW:InitializeDecisionPipeline()
-
-        -- PERFORMANCE FIX: Defer interaction tracking to avoid load screen freeze
-        -- In high-density areas (100+ players), synchronous events during login can cause blocking
-        -- Delay by 5 seconds to let initial load complete
-        C_Timer.After(5, function()
-            -- Initialize interaction tracking (mouseover and target)
-            -- TRP3FW:InitializeInteractionTracking() -- Moved to CacheService
-
-            TRP3FW:Debug("[Init] Interaction tracking initialized (deferred to avoid login freeze)", "init")
-        end)
 
         -- Install hooks (delay to ensure other addons are loaded)
         C_Timer.After(1, function()

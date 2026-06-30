@@ -583,13 +583,6 @@ function TRP3FW:InstallSendObjectHook()
     return true
 end
 
--- Install TRP3 communication hooks
-function TRP3FW:InstallTRP3Hooks()
-    -- DEPRECATED: TRP3_API.Ellyb.AddonCommunication no longer exists in modern TRP3.
-    -- Logic has been moved to InstallSendObjectHook (for ghost mode) and Chomp hooks (for blocking).
-    self:Debug("InstallTRP3Hooks is deprecated and has been removed.", "hooks")
-end
-
 -- Install TRP3 map scan response notification
 function TRP3FW:InstallTRP3ScanNotification()
     -- Only install if a scanner is present (TRP3 or RPMapScan)
