@@ -4,7 +4,7 @@
 ## Author: Community
 ## Version: 2.9.2-hotfix
 ## SavedVariables: TRP3FW_DB, TRP3FW_Settings, TRP3FW_MinimapSettings, TRP3FW_ValidatedNames
-## OptionalDeps: TotalRP3, MyRolePlay, XRP
+## OptionalDeps: TotalRP3, MyRolePlay, XRP, WoWUnit
 
 # Core systems (load first)
 core\utils.lua
@@ -97,3 +97,9 @@ TRP3FW.lua
 
 # Integration tests (in-game, run via /trp3fwtest)
 tests\integration_tests.lua
+
+# WoWUnit tests (in-game, auto-run at login; results in the WoWUnit panel).
+# WoWUnit is the vendored test addon in tests\WoWUnit (OptionalDep). Both files
+# no-op if WoWUnit isn't loaded, so this stays safe even without the framework.
+tests\ingame_wowunit\TRP3FW_Smoke.lua
+tests\ingame_wowunit\TRP3FW_Mocked.lua

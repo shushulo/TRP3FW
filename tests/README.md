@@ -87,3 +87,55 @@ Use `H.mock.setClock(t)` / `H.mock.advance(s)` to control time, and
 Output goes to chat. Tests are read-only / self-cleaning and never send addon
 messages to other players. Covers service wiring, the decision pipeline,
 cache registration, the ghost-flag lifecycle, minimap reset, and stat fields.
+
+## In-game tests under WoWUnit
+
+The same in-game coverage, plus deterministic mocking, runs under
+[WoWUnit](https://github.com/Jaliborc/WoWUnit). WoWUnit's value over the
+hand-rolled `/trp3fwtest` harness is `Replace()` — it temporarily fakes a global
+or a table field for the duration of one test and auto-reverts afterward — which
+lets us drive the *live* Epsilon/decision paths deterministically without a real
+phase or a real `C_Epsilon`.
+
+### Installing WoWUnit
+
+WoWUnit is **vendored** at `tests/WoWUnit/` (pinned to upstream tag `9.0.1`, the
+latest Shadowlands-era release — there is no `9.2` tag; its `.toc` Interface was
+bumped to `90207` so it loads on a 9.2.7 client). WoW loads addons as siblings
+under `Interface/AddOns/`, so the vendored copy must be made available there —
+e.g. a directory junction (run once, from an elevated shell):
+
+```cmd
+mklink /J "<WoW>\Interface\AddOns\WoWUnit" "<repo>\TRP3FW\tests\WoWUnit"
+```
+
+TRP3FW lists `WoWUnit` in its `## OptionalDeps`, so when it's present WoWUnit
+loads first and the test files register their groups. When it's absent, both
+test files no-op (`if not _G.WoWUnit then return end`) and the firewall loads
+normally — so missing WoWUnit is never an error.
+
+### Running
+
+Tests auto-run at `PLAYER_LOGIN` (and re-run when their registered events fire).
+Open the results panel with WoWUnit's minimap-adjacent toggle button (its colour
+reflects pass/fail; click a failing test to see the error log).
+
+### What's covered (`tests/ingame_wowunit/`)
+
+- `TRP3FW_Smoke.lua` — the `/trp3fwtest` cases ported to WoWUnit (no mocking):
+  service wiring, pipeline-has-stages, cache registration, the `spvpSessions`
+  round-trip, ghost-flag lifecycle, live name sanitization, minimap reset,
+  per-type stat fields, and the whitelist round-trip.
+- `TRP3FW_Mocked.lua` — the mocking layer (the reason for the dependency):
+  - **Decision logic** — `ProcessLocationDecision` mapping of
+    `phaseCheckMode`/`mapCheckMode` (block / ghost / alert / alert_block /
+    alert_ghost) and `start_phase_block` to the `shouldBlock/shouldAlert/useGhost`
+    args, captured by spying on `ApplyLocationDecision`. Drives the real
+    `ShouldAlertOnPhase`/`ShouldBlockOnMap`/… predicates via mocked `Prefs`.
+  - **Epsilon phase API** — `GetCachedPhaseID` against a mocked `C_Epsilon`
+    (returns the mocked id; returns nil when `hasEpsilonAPI` is false).
+  - **Privileged gating** — `RunPrivilegedSafe` returning `api_unavailable`
+    without the Epsilon API and `invalid_code` for non-string code.
+
+The `/trp3fwtest` command and the headless suite still work independently;
+WoWUnit is an additional layer, not a replacement.

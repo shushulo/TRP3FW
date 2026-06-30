@@ -1,0 +1,21 @@
+## Interface: 90207
+## Title: |cffE5E5E5WoWUnit|r
+## Notes: Unit testing toolset for World of Warcraft
+## Author: Jaliborc (João Cardoso)
+
+## X-License: GNU General Public License Version 3
+## X-Category: Developer Tools
+## SavedVariables: WoWUnit_SV
+## Version: 9.0.1
+
+# Vendored from https://github.com/Jaliborc/WoWUnit @ tag 9.0.1 (latest Shadowlands-era release).
+# Interface bumped 20501 -> 90207 to load without "out of date" on the 9.2.7 client.
+# Test-branch only (v1.5-tests); never shipped to v1.5/GitHub.
+
+Interface\Frames.xml
+Interface\Panel.lua
+
+Classes\Group.lua
+Classes\Test.lua
+
+WoWUnit.lua
