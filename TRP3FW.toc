@@ -14,7 +14,6 @@ core\ServiceContainer.lua
 core\EventService.lua
 core\Context.lua
 core\Pipeline.lua
-core\types.lua
 core\cache_interface.lua
 core\feature_flags.lua
 
@@ -33,7 +32,6 @@ location\maps.lua
 location\phase.lua
 location\who.lua
 location\cascading.lua
-location\check_interface.lua
 
 # Hook systems
 hooks\gradient.lua
@@ -69,7 +67,6 @@ features\pipelines\DecisionPipeline.lua
 # Features
 features\ghostmode.lua
 features\ghostmode_trp3.lua
-features\ghost_provider.lua
 features\profileswitch.lua
 features\notifications.lua
 features\decision.lua

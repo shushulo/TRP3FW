@@ -7,19 +7,8 @@ local addonName, TRP3FW = ...
 -- ===================== Feature Flag Registry =====================
 
 TRP3FW.FeatureFlags = {
-    -- Phase 2: Code deduplication
-    useUnifiedFormatLocation = false,
-    useUnifiedBurstProcessor = false,
-    useUnifiedNotificationSuppressor = false,
-    useCachedMapNames = false,
-
-    -- Phase 4: Abstraction layers
-    useCacheInterface = false,
-    useNotificationService = false,
-    useLocationCheckInterface = false,
-    useGhostProvider = false,
-
-    -- Debug: Extra logging during refactoring
+    -- Debug: Extra logging during refactoring (the only flag still consumed;
+    -- the Phase 2/4 rollout flags were removed once those refactors landed).
     enableRefactorLogging = false,
 }
 
