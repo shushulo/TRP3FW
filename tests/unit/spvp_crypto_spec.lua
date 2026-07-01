@@ -159,4 +159,38 @@ T.describe("IsWellFormedSalt (ticket vs salt discriminator)", function()
     end)
 end)
 
+T.describe("GetPhaseSalt negative-cache signal", function()
+    -- GetPhaseSalt must return "" (confirmed no salt), not nil (still loading), on a
+    -- negative-cache hit. Downstream SPVP callers treat "" as "no salt, skip" and nil as
+    -- "wait" — conflating them kept SPVP engaged for up to an hour on no-salt phases.
+    local function withStubCache()
+        local fw = H.newNamespace()
+        fw.Prefs = { spvpSaltCacheDuration = 10800, spvpPhaseSaltRefreshRate = 50 }
+        fw.spvpSessions, fw.spvpIncomingSessions = {}, {}
+        fw.spvpFailedAttempts, fw.pendingSaltTickets, fw.pendingSPVPInits = {}, {}, {}
+        local store = {}
+        fw.CacheInterface = {
+            Get = function(_, _, key) return store[key] end,
+            Set = function(_, _, key, val) store[key] = val end,
+            Remove = function(_, _, key) store[key] = nil end,
+            GetSize = function() return 0 end,
+        }
+        H.loadModule("features/encryption/spvp.lua", fw)
+        return fw, store
+    end
+
+    T.it("returns \"\" for a fresh negative-cache entry", function()
+        local fw, store = withStubCache()
+        store[42] = { noSalt = true, timestamp = fw:GetCurrentTime() }
+        T.eq(fw:GetPhaseSalt(42, false), "", "negative cache within TTL -> confirmed no salt")
+    end)
+
+    T.it("returns a real salt when one is cached", function()
+        local fw, store = withStubCache()
+        local salt = string.rep("ab", 32)..":1704844800"
+        store[42] = { salt = salt, timestamp = fw:GetCurrentTime() }
+        T.eq(fw:GetPhaseSalt(42, false), salt)
+    end)
+end)
+
 return T

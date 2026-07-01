@@ -378,7 +378,13 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
                 if age < 3600 then
                     self:Debug(string.format("Phase salt NEGATIVE cache hit for phase %d (age: %.0fs)",
                         phaseID, age), "spvp")
-                    return nil
+                    -- Return "" (confirmed no salt), NOT nil (which means "still loading").
+                    -- Callers already treat "" as "no salt configured" (salt ~= "" guards
+                    -- everywhere; SPVPStage/PrepopulatePhaseSaltCache/HandleSPVPInit each
+                    -- have an explicit "" branch). Returning nil here made SPVPStage log
+                    -- "SPVP pending: Phase salt loading..." on every send in a phase we
+                    -- already KNOW has no salt, keeping SPVP engaged for up to an hour.
+                    return ""
                 end
                 -- Expired negative cache - retry
             elseif cached.salt then
