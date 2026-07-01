@@ -41,6 +41,15 @@ T.describe("SanitizeZoneName whitelist", function()
         T.is_nil(TRP3FW:SanitizeZoneName("a=b"))
     end)
 
+    T.it("rejects the ]]-breakout payload used against the WHO zone query", function()
+        -- WhoService builds z-"<zone>" inside a RunPrivileged [[...]] long-string. A zone
+        -- name containing ]] would terminate the literal and inject code. The zone branch
+        -- of WhoService:CheckPlayer now routes through SanitizeZoneName, which must reject
+        -- brackets (they're outside the [%w%s'-] whitelist) so the fallback name query runs.
+        T.is_nil(TRP3FW:SanitizeZoneName(']] print("pwned") --'))
+        T.is_nil(TRP3FW:SanitizeZoneName('Zone]])'))
+    end)
+
     T.it("rejects control characters", function()
         T.is_nil(TRP3FW:SanitizeZoneName("Zone\nName"))
         T.is_nil(TRP3FW:SanitizeZoneName("Zone\0"))

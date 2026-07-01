@@ -327,8 +327,29 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
     -- Construction
     -- Use obfuscated call from Epsilon diagnostics manual to bypass potential string-matching filters
     -- Standard Blizzard WHO query format (z- for zone, n- for name)
-    local whoQuery = useZoneQuery and ('z-"'..zoneName..'"') or ('n-"'..sanitizedName..'"')
-    local category = priority or (useZoneQuery and "who_zone_query" or "who_name_query")
+    -- SECURITY: The zone-query branch interpolates the zone name into a RunPrivileged
+    -- long-string ([[...]]), so it must be sanitized exactly like the name branch.
+    -- currentZoneName is set raw from GetRealZoneText(); on Epsilon phase owners can
+    -- rename zones, and a name containing ]] would break out of the literal into
+    -- executable code. If the zone can't be sanitized, fall back to the (already
+    -- sanitized) name query rather than sending a raw zone. ScanZoneForPlayers does
+    -- the same via SanitizeZoneName.
+    local whoQuery
+    local category
+    if useZoneQuery then
+        local sanitizedZone = TRP3FW:SanitizeZoneName(zoneName)
+        if sanitizedZone then
+            whoQuery = 'z-"'..sanitizedZone..'"'
+            category = priority or "who_zone_query"
+        else
+            TRP3FW:Debug("[WhoService] Zone sanitization failed, falling back to name query for "..playerName, "security")
+            useZoneQuery = false
+        end
+    end
+    if not useZoneQuery then
+        whoQuery = 'n-"'..sanitizedName..'"'
+        category = priority or "who_name_query"
+    end
 
     -- Execute SetWhoToUi and SendWho as separate statements with semicolon separator
     local privilegedCode = 'C_FriendList.SetWhoToUi(false); C_FriendList.SendWho([['..whoQuery..']])'

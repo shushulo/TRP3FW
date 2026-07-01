@@ -526,7 +526,10 @@ function TRP3FW:RunPrivilegedSafe(code, category)
     local success, result = pcall(C_Epsilon.RunPrivileged, code)
 
     if not success then
-        self:Debug(function() return "[SECURITY] RunPrivileged FAILED for category '"..category.."': "..tostring(result).." | Code: "..code end, "security")
+        -- SECURITY: Do NOT log `code` here — it contains interpolated player/zone names
+        -- (TargetUnit("Name"), z-"Zone") that the redaction layer does not scrub, partially
+        -- defeating debug redaction. The category + error is enough to diagnose failures.
+        self:Debug(function() return "[SECURITY] RunPrivileged FAILED for category '"..category.."': "..tostring(result) end, "security")
         self.privilegedCallStats.errors = self.privilegedCallStats.errors + 1
         return false, "execution_error"
     end
