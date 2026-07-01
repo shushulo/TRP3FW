@@ -169,7 +169,7 @@ end
 
 -- ===================== Core Engine =====================
 
-function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceNameOnly, priority)
+function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceNameOnly, priority, bypassCache)
     if not TRP3FW.hasEpsilonAPI then
         if callback then callback(false, "unavailable") end
         return
@@ -187,8 +187,12 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
     local now = TRP3FW:GetCurrentTime()
 
     -- 1. Check caches first (Delegated to a helper similar to who.lua)
+    -- bypassCache skips this block entirely: it's set by the deferred background refresh
+    -- below, which must go straight to executing a fresh query. Without the bypass the
+    -- refresh would re-read the same aged entry, take the cache-hit branch, and reschedule
+    -- itself forever (the entry isn't updated until the WHO round-trip completes).
     local CI = TRP3FW.CacheInterface
-    local cached = CI and CI:Get("whoName", playerName)
+    local cached = (not bypassCache) and CI and CI:Get("whoName", playerName)
 
     if cached then
         local age = now - cached.timestamp
@@ -196,9 +200,29 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
         local ttl = TRP3FW.Prefs.whoNameCacheDuration or 180
         local refreshThreshold = TRP3FW.Prefs.whoCacheRefreshThreshold or 50
 
+        -- Background refresh when the entry is aging. This MUST be deferred and guarded:
+        -- calling CheckPlayer synchronously here re-reads this same (still-aged) cache entry
+        -- and recurses until stack overflow, because nothing updates the entry until the
+        -- WHO_LIST_UPDATE round-trip completes much later. Defer to the next frame, only
+        -- fire when no query is already in flight, and set a per-player in-progress flag so
+        -- repeated aged hits can't stack multiple refreshes.
         if age > (ttl * (refreshThreshold / 100)) then
-             TRP3FW:Debug("[WhoService] Cache entry aging - triggering background refresh for "..playerName, "who")
-             self:CheckPlayer(playerName, nil, nil, false, true, "who_refresh_low")
+            self.refreshInProgress = self.refreshInProgress or {}
+            if not self.refreshInProgress[playerName] and not self.pendingQuery and not self.cooldownActive then
+                self.refreshInProgress[playerName] = true
+                TRP3FW:Debug("[WhoService] Cache entry aging - scheduling background refresh for "..playerName, "who")
+                C_Timer.After(0, function()
+                    self.refreshInProgress[playerName] = nil
+                    -- Re-check freshness at fire time; another query may have refreshed it.
+                    local fresh = CI and CI:Get("whoName", playerName)
+                    if fresh and (TRP3FW:GetCurrentTime() - fresh.timestamp) <= (ttl * (refreshThreshold / 100)) then
+                        return
+                    end
+                    -- bypassCache=true: go straight to a fresh query instead of re-reading
+                    -- the aged entry (which would reschedule this refresh indefinitely).
+                    self:CheckPlayer(playerName, nil, nil, false, true, "who_refresh_low", true)
+                end)
+            end
         end
 
         -- Track cache hit stats (deduplicate by sendId)
