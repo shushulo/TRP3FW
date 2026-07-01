@@ -124,4 +124,39 @@ T.describe("SPVP.GenerateSessionID", function()
     end)
 end)
 
+T.describe("IsWellFormedSalt (ticket vs salt discriminator)", function()
+    local isSalt = TRP3FW.SPVP_IsWellFormedSalt
+
+    T.it("accepts a real salt (64 hex + : + timestamp)", function()
+        local salt = string.rep("A1B2", 16)..":1704844800"  -- 64 hex + timestamp
+        T.truthy(isSalt(salt))
+    end)
+
+    T.it("accepts a legacy salt (bare hex, no timestamp)", function()
+        T.truthy(isSalt(string.rep("deadbeef", 8)))  -- 64 hex, no ":"
+    end)
+
+    T.it("rejects the async tickets observed on Epsilon", function()
+        -- Real 15-char tickets captured in-game; they contain non-hex letters.
+        T.falsy(isSalt("ITOSj3iH7JTRsbY"))
+        T.falsy(isSalt("H133TyWLIB4G3sv"))
+        T.falsy(isSalt("KjxRrJBdT3hVOfo"))
+    end)
+
+    T.it("still accepts bare all-hex strings (legacy salts, no timestamp)", function()
+        -- The discriminator's guarantee is that async TICKETS are rejected. It relies on
+        -- Epsilon tickets containing non-hex chars (verified above). A bare 32+ hex string
+        -- is accepted as a legacy salt by design; if Epsilon ever emits an all-hex ticket
+        -- of >=32 chars this branch would misclassify it, but no such ticket has been seen.
+        T.truthy(isSalt(string.rep("ab", 20)))  -- 40 hex -> treated as legacy salt
+    end)
+
+    T.it("rejects nil, empty, and too-short input", function()
+        T.falsy(isSalt(nil))
+        T.falsy(isSalt(""))
+        T.falsy(isSalt("short"))
+        T.falsy(isSalt(12345))
+    end)
+end)
+
 return T

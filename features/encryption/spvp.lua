@@ -25,6 +25,24 @@ local SPVP_MAX_RETRIES = 2
 -- UTILITIES
 -- ===================================================================
 
+--- Distinguish an inline phase salt from an async request ticket.
+--- GetPhaseAddonData returns EITHER the salt data (our generator emits exactly
+--- 64 hex chars + ":" + a UTC timestamp) OR a short async ticket handle. On Epsilon
+--- these tickets are ~15 mixed-case alphanumeric chars (e.g. "ITOSj3iH7JTRsbY") that
+--- contain non-hex letters, so an anchored hex-shape match separates them cleanly.
+--- Previously the check was `#result >= 32 and match("^[0-9a-fA-F:]+$")`, which is
+--- fine for today's 15-char tickets but would misclassify any future longer ticket
+--- that happened to be hex-only. Anchoring to the exact salt shape is stricter.
+--- Accepts both the current form (hex:timestamp) and legacy salts with no timestamp.
+--- @param s string|nil
+--- @return boolean - true if s looks like a real salt (not a ticket / not empty)
+local function IsWellFormedSalt(s)
+    if type(s) ~= "string" or #s < 32 then return false end
+    -- Current form: 64 hex + ":" + digits. Legacy form: bare hex (>=32), no timestamp.
+    return s:match("^%x+:%d+$") ~= nil or s:match("^%x+$") ~= nil
+end
+TRP3FW.SPVP_IsWellFormedSalt = IsWellFormedSalt  -- exported for tests
+
 --- FNV-1a hash function (32-bit)
 --- @param data string - Input data to hash
 --- @return number - 32-bit hash value
@@ -377,7 +395,7 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
                     -- Trigger API fetch (HandleSaltResponse will update cache)
                     if C_Epsilon and C_Epsilon.GetPhaseAddonData then
                         local result = C_Epsilon.GetPhaseAddonData("TRP3FW_SPVP_KEY")
-                        if result and #result < 32 then -- Result is a ticket
+                        if result and result ~= "" and not IsWellFormedSalt(result) then -- Result is a ticket
                             self.pendingSaltTickets[result] = phaseID
                         end
                     end
@@ -421,7 +439,7 @@ function TRP3FW:GetPhaseSalt(phaseID, forceRefresh)
     if result then
         -- Check if result is the data itself (Synchronous hit)
         -- If the client already has the data, it might return it directly
-        if #result >= 32 and result:match("^[0-9a-fA-F:]+$") then
+        if IsWellFormedSalt(result) then
             self:Debug("Synchronous phase salt fetch successful for phase "..phaseID, "spvp")
 
             -- Cache it immediately
@@ -474,6 +492,14 @@ function TRP3FW:PrepopulatePhaseSaltCache()
 
     local phaseID = self:GetCurrentPhaseID()
     if not phaseID then return end
+
+    -- Phase 169 (Start Phase) never participates in SPVP — the stage, the cascading
+    -- check, and the decision rescue all hard-exclude it. Requesting a salt here just
+    -- burns an async ticket that always resolves to "no salt". Skip to match those paths.
+    if phaseID == 169 then
+        self:Debug("Phase salt prepopulation skipped: Start Phase (169) exclusion", "spvp")
+        return
+    end
 
     -- Fetch and cache the salt
     local salt = self:GetPhaseSalt(phaseID, false)
@@ -538,7 +564,7 @@ function TRP3FW:HandleSaltResponse(ticket, salt)
     self.pendingSaltTickets[ticket] = nil
 
     -- Validate salt
-    if not salt or salt == "" or #salt < 32 or not salt:match("^[0-9a-fA-F:]+$") then
+    if not IsWellFormedSalt(salt) then
         self:Debug("Async salt missing/invalid for phase "..phaseID..", caching negative result (1h)", "spvp")
         local CI = self.CacheInterface
         if CI then
