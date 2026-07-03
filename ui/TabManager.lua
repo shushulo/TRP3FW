@@ -574,15 +574,18 @@ function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, min
     label:SetTextColor(Theme:Color("TEXT_PRIMARY"))
     row.label = label
 
+    -- Fixed-width readout so the value never gets clipped, with clearance from
+    -- the slider so the thumb at max value can't overlap the text.
     local readout = row:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
     readout:SetPoint("RIGHT", 0, 0)
+    readout:SetWidth(52)
     readout:SetJustifyH("RIGHT")
     readout:SetTextColor(Theme:Color("GOLD_TEXT"))
     row.readout = readout
 
     local slider = CreateFrame("Slider", nil, row)
     slider:SetPoint("LEFT", label, "RIGHT", 12, 0)
-    slider:SetPoint("RIGHT", readout, "LEFT", -12, 0)
+    slider:SetPoint("RIGHT", readout, "LEFT", -14, 0)
     slider:SetHeight(14)
     slider:SetOrientation("HORIZONTAL")
     slider:SetMinMaxValues(minV, maxV)
@@ -595,13 +598,6 @@ function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, min
     track:SetTexture(WHITE8X8)
     track:SetColorTexture(Theme:Color("INSET"))
 
-    local fill = slider:CreateTexture(nil, "ARTWORK")
-    fill:SetPoint("LEFT", track, "LEFT")
-    fill:SetHeight(4)
-    fill:SetTexture(WHITE8X8)
-    fill:SetColorTexture(Theme:Color("GOLD"))
-    row.fill = fill
-
     local thumb = slider:CreateTexture(nil, "OVERLAY")
     thumb:SetTexture(WHITE8X8)
     thumb:SetSize(14, 14)
@@ -613,16 +609,21 @@ function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, min
     thumbMask:SetAllPoints(thumb)
     thumb:AddMaskTexture(thumbMask)
 
-    local function updateFill(self, value)
-        local lo, hi = self:GetMinMaxValues()
-        local pct = (hi > lo) and ((value - lo) / (hi - lo)) or 0
-        local w = self:GetWidth() * pct
-        fill:SetWidth(math.max(1, w))
-        readout:SetText(string.format(valueFormat, value))
-    end
+    -- Fill: anchor its RIGHT edge to the THUMB rather than computing a width from
+    -- the slider's size. WoW positions the thumb correctly for the current value
+    -- regardless of layout timing, so the fill tracks it automatically -- this
+    -- avoids the "bar overshoots until you drag it" bug caused by GetWidth()
+    -- returning a stale/zero value during the first RefreshUI pass.
+    local fill = slider:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("LEFT", track, "LEFT")
+    fill:SetPoint("RIGHT", thumb, "CENTER")
+    fill:SetHeight(4)
+    fill:SetTexture(WHITE8X8)
+    fill:SetColorTexture(Theme:Color("GOLD"))
+    row.fill = fill
 
     slider:SetScript("OnValueChanged", function(self, value)
-        updateFill(self, value)
+        readout:SetText(string.format(valueFormat, value))
         if row._onChange then row._onChange(value) end
     end)
 
