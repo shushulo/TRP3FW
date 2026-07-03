@@ -331,6 +331,292 @@ function TabManager:CreateScrollFrame(parent, contentHeight)
     return scrollFrame, scrollChild
 end
 
+-- ===========================================================================
+-- Skinned widget kit (TRP3-style slate/gold theme)
+--
+-- These constructors are ADDED ALONGSIDE the classic Create* helpers above;
+-- the old ones keep working so tabs can migrate one at a time. New widgets
+-- expose the same :SetChecked()/:GetChecked() surface as UICheckButtonTemplate
+-- so RefreshUI's existing loops drive them unchanged.
+--
+-- Requires TRP3FW.Theme (ui/Theme.lua, loaded before this file).
+-- ===========================================================================
+
+local WHITE8X8 = "Interface\\Buttons\\WHITE8X8"
+
+-- Register a widget with the complexity system + attach standard tooltip.
+-- Mirrors the bookkeeping the classic CreateCheckbox does.
+function TabManager:_registerSkinned(widget, labelText, tooltipText, settingKey)
+    local level = TRP3FW.SETTING_LEVELS and TRP3FW.SETTING_LEVELS[settingKey] or 4
+    widget.complexityLevel = level
+    widget.settingKey = settingKey
+    table.insert(self.complexityWidgets, widget)
+
+    if labelText and (tooltipText or level > 1) then
+        local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
+        widget:HookScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(labelText, 1, 1, 1)
+            GameTooltip:AddLine(tip, nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        widget:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+    return widget
+end
+
+-- A grouped setting card: dark slate panel with a gold-caps section caption.
+-- Returns the card frame. Card exposes :NextY() as a simple vertical layout
+-- cursor so callers can stack rows without hand-tracking offsets.
+function TabManager:CreateCard(parent, captionText, width)
+    local Theme = TRP3FW.Theme
+    local card = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    card:SetSize(width or 600, 60)
+    card:SetBackdrop(Theme.BACKDROP_CARD)
+    card:SetBackdropColor(Theme:Color("CARD"))
+    card:SetBackdropBorderColor(Theme:Color("BORDER"))
+
+    local topPad = 10
+    if captionText then
+        local cap = card:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
+        cap:SetPoint("TOPLEFT", 12, -9)
+        cap:SetText(captionText:upper())
+        cap:SetTextColor(Theme:Color("GOLD"))
+        card.caption = cap
+        topPad = 26
+    end
+
+    card._cursorY = -topPad
+    function card:NextY(step)
+        local y = self._cursorY
+        self._cursorY = self._cursorY - (step or TRP3FW.Theme.metrics.ROW)
+        return y
+    end
+    -- Resize the card to fit its content after rows are added.
+    function card:FitHeight(bottomPad)
+        self:SetHeight(math.abs(self._cursorY) + (bottomPad or 10))
+    end
+
+    return card
+end
+
+-- A pill toggle switch built from a CheckButton + custom textures. Behaves like
+-- a checkbox (click, keyboard, :SetChecked/:GetChecked) but renders as a
+-- sliding pill. subLabel is optional muted hint text shown after the label.
+function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, subLabel)
+    local Theme = TRP3FW.Theme
+    local W, H = 34, 18
+
+    local toggle = CreateFrame("CheckButton", nil, parent)
+    toggle:SetSize(W, H)
+    toggle:SetHitRectInsets(-4, -4, -4, -4)
+
+    -- Track (pill background)
+    local track = toggle:CreateTexture(nil, "BACKGROUND")
+    track:SetAllPoints()
+    track:SetTexture(WHITE8X8)
+    toggle.track = track
+
+    -- Knob
+    local knob = toggle:CreateTexture(nil, "ARTWORK")
+    knob:SetTexture(WHITE8X8)
+    knob:SetSize(H - 4, H - 4)
+    toggle.knob = knob
+
+    -- Label (to the LEFT of the pill so the pill sits on the right edge of a row)
+    local label = toggle:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
+    label:SetText(labelText)
+    label:SetTextColor(Theme:Color("TEXT_PRIMARY"))
+    toggle.label = label
+
+    if subLabel then
+        local sub = toggle:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
+        sub:SetPoint("LEFT", label, "RIGHT", 4, 0)
+        sub:SetText(subLabel)
+        sub:SetTextColor(Theme:Color("TEXT_MUTED"))
+        toggle.sub = sub
+    end
+
+    local function applyVisual(self)
+        local on = self:GetChecked()
+        if not self:IsEnabled() then
+            track:SetColorTexture(Theme:Color("BORDER"))
+            knob:SetColorTexture(Theme:Color("TEXT_MUTED"))
+        elseif on then
+            track:SetColorTexture(Theme:Color("SUCCESS", 0.55))
+            knob:SetColorTexture(Theme:Color("GOLD_TEXT"))
+        else
+            track:SetColorTexture(Theme:Color("BORDER"))
+            knob:SetColorTexture(Theme:Color("TEXT_SECONDARY"))
+        end
+        knob:ClearAllPoints()
+        if on then
+            knob:SetPoint("RIGHT", track, "RIGHT", -2, 0)
+        else
+            knob:SetPoint("LEFT", track, "LEFT", 2, 0)
+        end
+    end
+    toggle._applyVisual = applyVisual
+
+    -- Keep visuals in sync with programmatic and user state changes.
+    hooksecurefunc(toggle, "SetChecked", function(self) applyVisual(self) end)
+    toggle:SetScript("OnClick", function(self)
+        applyVisual(self)
+        if self._onToggle then self._onToggle(self:GetChecked()) end
+    end)
+    toggle:HookScript("OnEnable", applyVisual)
+    toggle:HookScript("OnDisable", applyVisual)
+    applyVisual(toggle)
+
+    -- Convenience: register a change handler that also writes the pref.
+    function toggle:SetOnToggle(fn) self._onToggle = fn end
+
+    self:_registerSkinned(toggle, labelText, tooltipText, settingKey)
+    return toggle
+end
+
+-- A compact on/off chip for boolean appearance flags. Shows a check when on and
+-- a plus when off, recoloring accordingly. Same checkbox behavior underneath.
+function TabManager:CreateChip(parent, labelText, tooltipText, settingKey)
+    local Theme = TRP3FW.Theme
+
+    local chip = CreateFrame("CheckButton", nil, parent, "BackdropTemplate")
+    chip:SetBackdrop(Theme.BACKDROP_WELL)
+    chip:SetHeight(24)
+
+    local icon = chip:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
+    icon:SetPoint("LEFT", 8, 0)
+    chip.iconFS = icon
+
+    local text = chip:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
+    text:SetPoint("LEFT", icon, "RIGHT", 5, 0)
+    text:SetText(labelText)
+    chip.label = text
+
+    -- Size chip to its text.
+    chip:SetWidth(text:GetStringWidth() + 40)
+
+    local function applyVisual(self)
+        local on = self:GetChecked()
+        if on then
+            self:SetBackdropColor(Theme:Color("CARD_HOVER"))
+            self:SetBackdropBorderColor(Theme:Color("BORDER_STRONG"))
+            icon:SetText("|cff7fc07f\226\156\147|r") -- check, success green
+            text:SetTextColor(Theme:Color("TEXT_PRIMARY"))
+        else
+            self:SetBackdropColor(Theme:Color("INSET"))
+            self:SetBackdropBorderColor(Theme:Color("BORDER"))
+            icon:SetText("|cff707790+|r")
+            text:SetTextColor(Theme:Color("TEXT_MUTED"))
+        end
+    end
+    chip._applyVisual = applyVisual
+
+    hooksecurefunc(chip, "SetChecked", function(self) applyVisual(self) end)
+    chip:SetScript("OnClick", function(self)
+        applyVisual(self)
+        if self._onToggle then self._onToggle(self:GetChecked()) end
+    end)
+    applyVisual(chip)
+
+    function chip:SetOnToggle(fn) self._onToggle = fn end
+
+    self:_registerSkinned(chip, labelText, tooltipText, settingKey)
+    return chip
+end
+
+-- A gold-fill slider with an inline value readout. Replaces raw numeric edit
+-- boxes for ranged tunables. valueFormat is a string.format pattern for the
+-- readout (e.g. "%d s"). Exposes :SetValue/:GetValue like a Slider.
+function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, minV, maxV, step, valueFormat)
+    local Theme = TRP3FW.Theme
+    valueFormat = valueFormat or "%d"
+
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetSize(560, 22)
+
+    local label = row:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
+    label:SetPoint("LEFT", 0, 0)
+    label:SetText(labelText)
+    label:SetTextColor(Theme:Color("TEXT_PRIMARY"))
+    row.label = label
+
+    local readout = row:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
+    readout:SetPoint("RIGHT", 0, 0)
+    readout:SetJustifyH("RIGHT")
+    readout:SetTextColor(Theme:Color("GOLD_TEXT"))
+    row.readout = readout
+
+    local slider = CreateFrame("Slider", nil, row)
+    slider:SetPoint("LEFT", label, "RIGHT", 12, 0)
+    slider:SetPoint("RIGHT", readout, "LEFT", -12, 0)
+    slider:SetHeight(14)
+    slider:SetOrientation("HORIZONTAL")
+    slider:SetMinMaxValues(minV, maxV)
+    slider:SetValueStep(step or 1)
+    slider:SetObeyStepOnDrag(true)
+
+    local track = slider:CreateTexture(nil, "BACKGROUND")
+    track:SetPoint("LEFT"); track:SetPoint("RIGHT")
+    track:SetHeight(4)
+    track:SetTexture(WHITE8X8)
+    track:SetColorTexture(Theme:Color("INSET"))
+
+    local fill = slider:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("LEFT", track, "LEFT")
+    fill:SetHeight(4)
+    fill:SetTexture(WHITE8X8)
+    fill:SetColorTexture(Theme:Color("GOLD"))
+    row.fill = fill
+
+    local thumb = slider:CreateTexture(nil, "OVERLAY")
+    thumb:SetTexture(WHITE8X8)
+    thumb:SetSize(14, 14)
+    thumb:SetColorTexture(Theme:Color("GOLD_TEXT"))
+    slider:SetThumbTexture(thumb)
+
+    local function updateFill(self, value)
+        local lo, hi = self:GetMinMaxValues()
+        local pct = (hi > lo) and ((value - lo) / (hi - lo)) or 0
+        local w = self:GetWidth() * pct
+        fill:SetWidth(math.max(1, w))
+        readout:SetText(string.format(valueFormat, value))
+    end
+
+    slider:SetScript("OnValueChanged", function(self, value)
+        updateFill(self, value)
+        if row._onChange then row._onChange(value) end
+    end)
+
+    -- Proxy the row so RefreshUI can treat it like a slider via row:SetValue().
+    function row:SetValue(v) slider:SetValue(v) end
+    function row:GetValue() return slider:GetValue() end
+    function row:SetOnChange(fn) self._onChange = fn end
+    row.slider = slider
+
+    self:_registerSkinned(slider, labelText, tooltipText, settingKey)
+    return row
+end
+
+-- Reskinned section header: gold caps + slate hairline (replaces the cyan
+-- header used by the classic CreateSectionHeader). Kept as a separate name so
+-- existing tabs are unaffected until they migrate.
+function TabManager:CreateSkinnedHeader(parent, text, yOffset)
+    local Theme = TRP3FW.Theme
+    local header = parent:CreateFontString(nil, "ARTWORK", Theme.fonts.SUB)
+    header:SetPoint("TOPLEFT", 12, yOffset)
+    header:SetText(text:upper())
+    header:SetTextColor(Theme:Color("GOLD_TEXT"))
+
+    local line = parent:CreateTexture(nil, "ARTWORK")
+    line:SetHeight(1)
+    line:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -5)
+    line:SetPoint("RIGHT", parent, -12, 0)
+    line:SetColorTexture(Theme:Color("BORDER"))
+
+    return header
+end
+
 function TabManager:SwitchToTab(id)
     if not self.tabs[id] then return end
 

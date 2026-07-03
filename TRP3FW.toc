@@ -76,6 +76,7 @@ features\encryption\spvp_handlers.lua
 features\encryption\spvp_auto_init.lua
 
 # UI
+ui\Theme.lua
 ui\TabManager.lua
 ui\tabs\Status.lua
 ui\tabs\Notifications.lua
