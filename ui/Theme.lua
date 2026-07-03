@@ -129,6 +129,11 @@ Theme.BACKDROP_CARD = {
     insets   = { left = 4, right = 4, top = 4, bottom = 4 },
 }
 
+-- Circular alpha mask for rounding square WHITE8X8 textures (toggle knobs, pill
+-- end caps, slider thumbs). Same hard-edged circle asset Total RP 3 uses.
+-- Applied via texture:AddMaskTexture(mask) where mask:SetTexture(this, clamp, clamp).
+Theme.ROUND_MASK = "Interface\\Common\\common-iconmask"
+
 -- Sunken well (sidebar, slider track background): border only, no bg fill so we
 -- can color the interior with a flat texture for maximum contrast control.
 Theme.BACKDROP_WELL = {

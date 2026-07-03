@@ -25,9 +25,11 @@ local function stackCard(content, card, prev, width)
     return card
 end
 
--- Wire a toggle to write its pref on change (mirrors the classic OnClick pattern).
+-- Wire a toggle to write its pref on change (mirrors the classic OnClick pattern)
+-- and stretch its row to the card's right edge so the pill hugs the right side.
 local function bindToggle(toggle, key)
     toggle:SetOnToggle(function(checked) TRP3FW.Prefs[key] = checked end)
+    toggle:SetPoint("RIGHT", toggle:GetParent(), "RIGHT", -14, 0)
     return toggle
 end
 

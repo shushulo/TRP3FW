@@ -400,65 +400,103 @@ function TabManager:CreateCard(parent, captionText, width)
     return card
 end
 
--- A pill toggle switch built from a CheckButton + custom textures. Behaves like
--- a checkbox (click, keyboard, :SetChecked/:GetChecked) but renders as a
--- sliding pill. subLabel is optional muted hint text shown after the label.
+-- A pill toggle switch built from a CheckButton + custom textures. The widget
+-- is a full-width ROW: a label on the left and a sliding pill on the right.
+-- Behaves like a checkbox (click, keyboard, :SetChecked/:GetChecked). The knob
+-- is a circle (round mask) and the track uses rounded end-cap textures so it
+-- reads as a switch, not a raw square. subLabel is optional muted hint text.
+--
+-- The whole row is clickable; :SetChecked drives the visual via a secure hook.
 function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, subLabel)
     local Theme = TRP3FW.Theme
-    local W, H = 34, 18
+    local ROUND_MASK = Theme.ROUND_MASK
+    local PILL_W, PILL_H, KNOB = 36, 18, 14
 
+    -- Full-width row acts as the CheckButton so the whole line is clickable.
     local toggle = CreateFrame("CheckButton", nil, parent)
-    toggle:SetSize(W, H)
-    toggle:SetHitRectInsets(-4, -4, -4, -4)
+    toggle:SetHeight(22)
+    toggle:SetWidth(560)
 
-    -- Track (pill background)
-    local track = toggle:CreateTexture(nil, "BACKGROUND")
-    track:SetAllPoints()
-    track:SetTexture(WHITE8X8)
-    toggle.track = track
-
-    -- Knob
-    local knob = toggle:CreateTexture(nil, "ARTWORK")
-    knob:SetTexture(WHITE8X8)
-    knob:SetSize(H - 4, H - 4)
-    toggle.knob = knob
-
-    -- Label (to the LEFT of the pill so the pill sits on the right edge of a row)
+    -- Label (left)
     local label = toggle:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
+    label:SetPoint("LEFT", toggle, "LEFT", 0, 0)
     label:SetText(labelText)
     label:SetTextColor(Theme:Color("TEXT_PRIMARY"))
     toggle.label = label
 
     if subLabel then
-        local sub = toggle:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
-        sub:SetPoint("LEFT", label, "RIGHT", 4, 0)
+        local sub = toggle:CreateFontString(nil, "ARTWORK", Theme.fonts.SUB)
+        sub:SetPoint("LEFT", label, "RIGHT", 5, 0)
         sub:SetText(subLabel)
         sub:SetTextColor(Theme:Color("TEXT_MUTED"))
         toggle.sub = sub
     end
 
+    -- Pill container (right). Anchor a fixed-size holder so the track/knob
+    -- geometry is independent of the row width.
+    local pill = CreateFrame("Frame", nil, toggle)
+    pill:SetSize(PILL_W, PILL_H)
+    pill:SetPoint("RIGHT", toggle, "RIGHT", 0, 0)
+    toggle.pill = pill
+
+    -- Track: center rect + two round end caps (masked circles) = stadium shape.
+    local track = pill:CreateTexture(nil, "BACKGROUND")
+    track:SetTexture(WHITE8X8)
+    track:SetPoint("LEFT", pill, "LEFT", PILL_H / 2, 0)
+    track:SetPoint("RIGHT", pill, "RIGHT", -PILL_H / 2, 0)
+    track:SetHeight(PILL_H)
+    toggle.track = track
+
+    local function endCap(anchor)
+        local cap = pill:CreateTexture(nil, "BACKGROUND")
+        cap:SetTexture(WHITE8X8)
+        cap:SetSize(PILL_H, PILL_H)
+        cap:SetPoint(anchor, pill, anchor, 0, 0)
+        local mask = pill:CreateMaskTexture()
+        mask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        mask:SetAllPoints(cap)
+        cap:AddMaskTexture(mask)
+        return cap
+    end
+    local capL = endCap("LEFT")
+    local capR = endCap("RIGHT")
+    toggle.caps = { capL, capR }
+
+    -- Knob: round-masked circle that slides.
+    local knob = pill:CreateTexture(nil, "ARTWORK")
+    knob:SetTexture(WHITE8X8)
+    knob:SetSize(KNOB, KNOB)
+    local knobMask = pill:CreateMaskTexture()
+    knobMask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    knobMask:SetAllPoints(knob)
+    knob:AddMaskTexture(knobMask)
+    toggle.knob = knob
+
+    local function setTrackColor(r, g, b, a)
+        track:SetColorTexture(r, g, b, a); capL:SetColorTexture(r, g, b, a); capR:SetColorTexture(r, g, b, a)
+    end
+
     local function applyVisual(self)
         local on = self:GetChecked()
         if not self:IsEnabled() then
-            track:SetColorTexture(Theme:Color("BORDER"))
+            setTrackColor(Theme:Color("BORDER"))
             knob:SetColorTexture(Theme:Color("TEXT_MUTED"))
         elseif on then
-            track:SetColorTexture(Theme:Color("SUCCESS", 0.55))
+            setTrackColor(Theme:Color("SUCCESS", 0.85))
             knob:SetColorTexture(Theme:Color("GOLD_TEXT"))
         else
-            track:SetColorTexture(Theme:Color("BORDER"))
+            setTrackColor(Theme:Color("INSET"))
             knob:SetColorTexture(Theme:Color("TEXT_SECONDARY"))
         end
         knob:ClearAllPoints()
         if on then
-            knob:SetPoint("RIGHT", track, "RIGHT", -2, 0)
+            knob:SetPoint("RIGHT", pill, "RIGHT", -2, 0)
         else
-            knob:SetPoint("LEFT", track, "LEFT", 2, 0)
+            knob:SetPoint("LEFT", pill, "LEFT", 2, 0)
         end
     end
     toggle._applyVisual = applyVisual
 
-    -- Keep visuals in sync with programmatic and user state changes.
     hooksecurefunc(toggle, "SetChecked", function(self) applyVisual(self) end)
     toggle:SetScript("OnClick", function(self)
         applyVisual(self)
@@ -475,8 +513,9 @@ function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, sub
     return toggle
 end
 
--- A compact on/off chip for boolean appearance flags. Shows a check when on and
--- a plus when off, recoloring accordingly. Same checkbox behavior underneath.
+-- A compact on/off chip for boolean appearance flags. Shows a checkmark
+-- texture when on (no icon when off) and recolors its background/border.
+-- Same checkbox behavior underneath.
 function TabManager:CreateChip(parent, labelText, tooltipText, settingKey)
     local Theme = TRP3FW.Theme
 
@@ -484,29 +523,32 @@ function TabManager:CreateChip(parent, labelText, tooltipText, settingKey)
     chip:SetBackdrop(Theme.BACKDROP_WELL)
     chip:SetHeight(24)
 
-    local icon = chip:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-    icon:SetPoint("LEFT", 8, 0)
-    chip.iconFS = icon
+    -- Check icon: Blizzard's checkmark texture (font-safe, no tofu glyphs).
+    local icon = chip:CreateTexture(nil, "OVERLAY")
+    icon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    icon:SetSize(16, 16)
+    icon:SetPoint("LEFT", 6, 0)
+    chip.icon = icon
 
     local text = chip:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-    text:SetPoint("LEFT", icon, "RIGHT", 5, 0)
+    text:SetPoint("LEFT", icon, "RIGHT", 3, 0)
     text:SetText(labelText)
     chip.label = text
 
-    -- Size chip to its text.
-    chip:SetWidth(text:GetStringWidth() + 40)
+    -- Size chip to its text (icon + gaps + text + right padding).
+    chip:SetWidth(text:GetStringWidth() + 34)
 
     local function applyVisual(self)
         local on = self:GetChecked()
         if on then
             self:SetBackdropColor(Theme:Color("CARD_HOVER"))
             self:SetBackdropBorderColor(Theme:Color("BORDER_STRONG"))
-            icon:SetText("|cff7fc07f\226\156\147|r") -- check, success green
+            icon:Show()
             text:SetTextColor(Theme:Color("TEXT_PRIMARY"))
         else
             self:SetBackdropColor(Theme:Color("INSET"))
             self:SetBackdropBorderColor(Theme:Color("BORDER"))
-            icon:SetText("|cff707790+|r")
+            icon:Hide()
             text:SetTextColor(Theme:Color("TEXT_MUTED"))
         end
     end
@@ -574,6 +616,11 @@ function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, min
     thumb:SetSize(14, 14)
     thumb:SetColorTexture(Theme:Color("GOLD_TEXT"))
     slider:SetThumbTexture(thumb)
+    -- Round the thumb with a circular mask (WHITE8X8 is otherwise a square).
+    local thumbMask = slider:CreateMaskTexture()
+    thumbMask:SetTexture(Theme.ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    thumbMask:SetAllPoints(thumb)
+    thumb:AddMaskTexture(thumbMask)
 
     local function updateFill(self, value)
         local lo, hi = self:GetMinMaxValues()
