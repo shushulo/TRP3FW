@@ -432,39 +432,24 @@ function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, sub
         toggle.sub = sub
     end
 
-    -- Pill container (right). Anchor a fixed-size holder so the track/knob
-    -- geometry is independent of the row width.
-    local pill = CreateFrame("Frame", nil, toggle)
+    -- Pill container (right) is a BackdropTemplate frame: the track fill + border
+    -- come from the backdrop, which colors reliably via SetBackdropColor (no mask
+    -- involved, so no SetColorTexture-vs-mask conflict). Flat rounded-rect look.
+    local pill = CreateFrame("Frame", nil, toggle, "BackdropTemplate")
     pill:SetSize(PILL_W, PILL_H)
     pill:SetPoint("RIGHT", toggle, "RIGHT", 0, 0)
+    pill:SetBackdrop({
+        bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 10,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
     toggle.pill = pill
 
-    -- Track: ONE texture spanning the whole pill, rounded by a single mask sized
-    -- to the pill. Half-height circular mask on a wide rect gives a stadium.
-    local track = pill:CreateTexture(nil, "BACKGROUND")
-    track:SetTexture(WHITE8X8)
-    track:SetAllPoints(pill)
-    local trackMask = pill:CreateMaskTexture()
-    trackMask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    trackMask:SetAllPoints(pill)
-    track:AddMaskTexture(trackMask)
-    toggle.track = track
-
-    -- Thin border ring around the pill so it reads as a control even when the
-    -- track color is dark (off/disabled). Also masked to match the stadium.
-    local ring = pill:CreateTexture(nil, "BORDER")
-    ring:SetTexture(WHITE8X8)
-    ring:SetPoint("TOPLEFT", pill, "TOPLEFT", -1, 1)
-    ring:SetPoint("BOTTOMRIGHT", pill, "BOTTOMRIGHT", 1, -1)
-    local ringMask = pill:CreateMaskTexture()
-    ringMask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    ringMask:SetAllPoints(ring)
-    ring:AddMaskTexture(ringMask)
-    ring:SetColorTexture(Theme:Color("BORDER_STRONG"))
-    toggle.ring = ring
-
-    -- Knob: round-masked circle that slides. ARTWORK sits above the track.
-    local knob = pill:CreateTexture(nil, "ARTWORK")
+    -- Knob: round-masked circle that slides. The knob mask alone works fine
+    -- (a circle mask on a square texture is a true circle). OVERLAY so it sits
+    -- above the pill backdrop.
+    local knob = pill:CreateTexture(nil, "OVERLAY")
     knob:SetTexture(WHITE8X8)
     knob:SetSize(KNOB, KNOB)
     local knobMask = pill:CreateMaskTexture()
@@ -474,19 +459,22 @@ function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, sub
     toggle.knob = knob
 
     local function setTrackColor(r, g, b, a)
-        track:SetColorTexture(r, g, b, a)
+        pill:SetBackdropColor(r, g, b, a)
     end
 
     local function applyVisual(self)
         local on = self:GetChecked()
         if not self:IsEnabled() then
             setTrackColor(Theme:Color("BORDER"))
+            pill:SetBackdropBorderColor(Theme:Color("BORDER"))
             knob:SetColorTexture(Theme:Color("TEXT_MUTED"))
         elseif on then
             setTrackColor(Theme:Color("SUCCESS"))
+            pill:SetBackdropBorderColor(Theme:Color("GOLD"))
             knob:SetColorTexture(Theme:Color("GOLD_TEXT"))
         else
             setTrackColor(Theme:Color("INSET"))
+            pill:SetBackdropBorderColor(Theme:Color("BORDER_STRONG"))
             knob:SetColorTexture(Theme:Color("TEXT_SECONDARY"))
         end
         knob:ClearAllPoints()
