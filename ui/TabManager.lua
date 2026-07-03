@@ -592,6 +592,10 @@ function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, min
     function row:SetValue(v) slider:SetValue(v) end
     function row:GetValue() return slider:GetValue() end
     function row:SetOnChange(fn) self._onChange = fn end
+    -- Compatibility shim: RefreshUI's numeric-edit loop calls :SetText(tostring(v))
+    -- on uiElements[key]. Accept that here so a slider can transparently replace an
+    -- edit box without changing the shared refresh path.
+    function row:SetText(v) local n = tonumber(v); if n then slider:SetValue(n) end end
     row.slider = slider
 
     self:_registerSkinned(slider, labelText, tooltipText, settingKey)

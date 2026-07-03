@@ -1,149 +1,134 @@
 -- ui/tabs/Notifications.lua
--- Notifications settings tab for TRP3FW
+-- Notifications settings tab for TRP3FW (redesigned with the skinned widget kit)
+--
+-- First tab migrated to the TRP3-style card layout. The flat checkbox wall is
+-- reorganized into grouped cards: a master toggle, a "what to notify on" group
+-- of pill toggles, an appearance chip row, and a suppression group with a
+-- slider. Uses TabManager:CreateCard/CreateToggle/CreateChip/CreateSlider
+-- (added alongside the classic helpers) so RefreshUI drives every widget
+-- unchanged via its existing settingKey loops.
 
 local addonName, TRP3FW = ...
 local TabManager = TRP3FW.TabManager
+
+-- Small helper: place a card at the top of the content, or below the previous
+-- card, with the standard gap. Returns the card so callers can chain.
+local function stackCard(content, card, prev, width)
+    card:SetWidth(width)
+    if prev then
+        card:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
+        card:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
+    else
+        card:SetPoint("TOPLEFT", content, "TOPLEFT", 12, -10)
+        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -20, -10)
+    end
+    return card
+end
+
+-- Wire a toggle to write its pref on change (mirrors the classic OnClick pattern).
+local function bindToggle(toggle, key)
+    toggle:SetOnToggle(function(checked) TRP3FW.Prefs[key] = checked end)
+    return toggle
+end
 
 local function CreateNotificationsTab(container)
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
 
-    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 600)
+    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 640)
     local uiElements = TabManager:GetUI()
-    local y = -10
+    local CARD_W = 600
+    local M = TRP3FW.Theme.metrics
 
-    TabManager:CreateSectionHeader(content, "Notification Settings", y)
-    y = y - 40
+    -- ---- Card 1: master toggle --------------------------------------------
+    local masterCard = stackCard(content, TabManager:CreateCard(content, nil, CARD_W), nil, CARD_W)
+    uiElements.notifyEnabled = TabManager:CreateToggle(masterCard,
+        "Enable notifications", "Master toggle for all firewall alerts", "notifyEnabled")
+    uiElements.notifyEnabled:SetPoint("TOPLEFT", 12, masterCard:NextY(M.ROW_TALL))
+    bindToggle(uiElements.notifyEnabled, "notifyEnabled")
+    masterCard:FitHeight()
 
-    uiElements.notifyEnabled = TabManager:CreateCheckbox(content, "Enable Notifications", "Master toggle for all notifications", "notifyEnabled")
-    uiElements.notifyEnabled:SetPoint("TOPLEFT", 20, y)
-    uiElements.notifyEnabled:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.notifyEnabled = self:GetChecked()
-    end)
-    y = y - 40
+    -- ---- Card 2: what to notify on ----------------------------------------
+    local notifyCard = stackCard(content, TabManager:CreateCard(content, "What to notify on", CARD_W), masterCard, CARD_W)
 
-    -- Granular notification type controls
-    uiElements.notifyOnAllow = TabManager:CreateCheckbox(content, "Notify on Allow", "Show notifications when profiles are sent normally (allowed)", "notifyOnAllow")
-    uiElements.notifyOnAllow:SetPoint("TOPLEFT", 20, y)
-    uiElements.notifyOnAllow:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.notifyOnAllow = self:GetChecked()
-    end)
-    y = y - 30
+    uiElements.notifyOnAllow = TabManager:CreateToggle(notifyCard,
+        "On allow (profile sent normally)", "Show notifications when profiles are sent normally (allowed)", "notifyOnAllow")
+    uiElements.notifyOnAllow:SetPoint("TOPLEFT", 12, notifyCard:NextY())
+    bindToggle(uiElements.notifyOnAllow, "notifyOnAllow")
 
-    uiElements.notifyOnStartPhaseBlock = TabManager:CreateCheckbox(content, "Notify on Start Phase Block", "Show notifications when blocking in start phase (169)", "notifyOnStartPhaseBlock")
-    uiElements.notifyOnStartPhaseBlock:SetPoint("TOPLEFT", 20, y)
-    uiElements.notifyOnStartPhaseBlock:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.notifyOnStartPhaseBlock = self:GetChecked()
-    end)
-    y = y - 30
+    uiElements.notifyOnStartPhaseBlock = TabManager:CreateToggle(notifyCard,
+        "On start-phase block", "Show notifications when blocking in start phase (169)", "notifyOnStartPhaseBlock", "(phase 169)")
+    uiElements.notifyOnStartPhaseBlock:SetPoint("TOPLEFT", 12, notifyCard:NextY())
+    bindToggle(uiElements.notifyOnStartPhaseBlock, "notifyOnStartPhaseBlock")
 
-    y = y - 10
-    local notifyHelpText = content:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    notifyHelpText:SetPoint("TOPLEFT", 20, y)
-    notifyHelpText:SetText("|cffaaaaaa(Broadcast/Whisper toggles only affect 'Allow' notifications)|r")
-    y = y - 25
+    uiElements.notifyOnBroadcast = TabManager:CreateToggle(notifyCard,
+        "On broadcast", "Show notifications for map scan broadcasts (only affects Allow notifications)", "notifyOnBroadcast", "(affects allow only)")
+    uiElements.notifyOnBroadcast:SetPoint("TOPLEFT", 12, notifyCard:NextY())
+    bindToggle(uiElements.notifyOnBroadcast, "notifyOnBroadcast")
 
-    uiElements.notifyOnBroadcast = TabManager:CreateCheckbox(content, "Notify on Broadcast", "Show notifications for map scan broadcasts (only affects Allow notifications)", "notifyOnBroadcast")
-    uiElements.notifyOnBroadcast:SetPoint("TOPLEFT", 20, y)
-    uiElements.notifyOnBroadcast:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.notifyOnBroadcast = self:GetChecked()
-    end)
-    y = y - 30
+    uiElements.notifyOnWhisper = TabManager:CreateToggle(notifyCard,
+        "On whisper", "Show notifications for whisper exchanges (only affects Allow notifications)", "notifyOnWhisper", "(affects allow only)")
+    uiElements.notifyOnWhisper:SetPoint("TOPLEFT", 12, notifyCard:NextY())
+    bindToggle(uiElements.notifyOnWhisper, "notifyOnWhisper")
+    notifyCard:FitHeight()
 
-    uiElements.notifyOnWhisper = TabManager:CreateCheckbox(content, "Notify on Whisper", "Show notifications for whisper exchanges (only affects Allow notifications)", "notifyOnWhisper")
-    uiElements.notifyOnWhisper:SetPoint("TOPLEFT", 20, y)
-    uiElements.notifyOnWhisper:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.notifyOnWhisper = self:GetChecked()
-    end)
-    y = y - 40
+    -- ---- Card 3: appearance (chip row) ------------------------------------
+    local apprCard = stackCard(content, TabManager:CreateCard(content, "Appearance", CARD_W), notifyCard, CARD_W)
 
-    -- (Scan Reply Controls moved to Security tab — Phase 3 UX restructure)
-    -- (Mode summary moved to Protection tab — Phase 1 UX restructure)
-
-    TabManager:CreateSectionHeader(content, "Notification Appearance", y)
-    y = y - 40
-
-    uiElements.showInChat = TabManager:CreateCheckbox(content, "Show in Chat", "Display firewall alerts in the main chat window", "showInChat")
-    uiElements.showInChat:SetPoint("TOPLEFT", 20, y)
-    uiElements.showInChat:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.showInChat = self:GetChecked()
-    end)
-    y = y - 30
-
-    uiElements.showGhostNotifications = TabManager:CreateCheckbox(content, "Show Ghosting Alerts", "Display chat messages when a blank profile is sent via Ghost mode", "showGhostNotifications")
-    uiElements.showGhostNotifications:SetPoint("TOPLEFT", 20, y)
-    uiElements.showGhostNotifications:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.showGhostNotifications = self:GetChecked()
-    end)
-    y = y - 30
-
-    uiElements.showOnScreen = TabManager:CreateCheckbox(content, "Show On Screen", "Display firewall alerts as floating text on the screen", "showOnScreen")
-    uiElements.showOnScreen:SetPoint("TOPLEFT", 20, y)
-    uiElements.showOnScreen:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.showOnScreen = self:GetChecked()
-    end)
-    y = y - 30
-
-    uiElements.playSound = TabManager:CreateCheckbox(content, "Play Sound", "Play a subtle sound when a firewall alert occurs", "playSound")
-    uiElements.playSound:SetPoint("TOPLEFT", 20, y)
-    uiElements.playSound:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.playSound = self:GetChecked()
-    end)
-    y = y - 30
-
-    uiElements.showAddonSource = TabManager:CreateCheckbox(content, "Show Addon Source", "Include the name of the requesting addon (TRP3, MRP, XRP) in notifications", "showAddonSource")
-    uiElements.showAddonSource:SetPoint("TOPLEFT", 20, y)
-    uiElements.showAddonSource:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.showAddonSource = self:GetChecked()
-    end)
-    y = y - 30
-
-    uiElements.showCacheInfo = TabManager:CreateCheckbox(content, "Show Cache Hit/Miss Info", "Append cache status (HIT/MISS) to Allow notifications", "showCacheInfo")
-    uiElements.showCacheInfo:SetPoint("TOPLEFT", 20, y)
-    uiElements.showCacheInfo:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.showCacheInfo = self:GetChecked()
-    end)
-    y = y - 30
-
-    uiElements.showCheckResults = TabManager:CreateCheckbox(content, "Show Check Detail (Pass/Fail)", "Append phase and map check results/methods to notifications", "showCheckResults")
-    uiElements.showCheckResults:SetPoint("TOPLEFT", 20, y)
-    uiElements.showCheckResults:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.showCheckResults = self:GetChecked()
-    end)
-    y = y - 45
-
-    TabManager:CreateSectionHeader(content, "Suppression", y)
-    y = y - 45
-
-    uiElements.suppressionTime = TabManager:CreateEditBox(content, "Duration (s)", "How many seconds to suppress repeated notifications from the same player.", 80, "suppressionTime")
-    uiElements.suppressionTime:SetPoint("TOPLEFT", 20, y)
-
-    local function saveSuppressionTime(self)
-        local val = tonumber(self:GetText())
-        if val and val >= 0 then TRP3FW.Prefs.suppressionTime = val else self:SetText(TRP3FW.Prefs.suppressionTime or 30) end
+    local chipSpecs = {
+        { key = "showInChat",            label = "Show in chat",   tip = "Display firewall alerts in the main chat window" },
+        { key = "showOnScreen",          label = "On-screen",      tip = "Display firewall alerts as floating text on the screen" },
+        { key = "playSound",             label = "Play sound",     tip = "Play a subtle sound when a firewall alert occurs" },
+        { key = "showGhostNotifications",label = "Ghosting alerts",tip = "Display chat messages when a blank profile is sent via Ghost mode" },
+        { key = "showAddonSource",       label = "Addon source",   tip = "Include the name of the requesting addon (TRP3, MRP, XRP) in notifications" },
+        { key = "showCacheInfo",         label = "Cache hit/miss", tip = "Append cache status (HIT/MISS) to Allow notifications" },
+        { key = "showCheckResults",      label = "Check detail",   tip = "Append phase and map check results/methods to notifications" },
+    }
+    local chipY = apprCard:NextY(0)  -- take current cursor without advancing
+    local chipX = 12
+    local rowStartX = 12
+    local maxRight = CARD_W - 14
+    for _, spec in ipairs(chipSpecs) do
+        local chip = TabManager:CreateChip(apprCard, spec.label, spec.tip, spec.key)
+        -- Wrap to a new line when the chip would overflow the card width.
+        if chipX > rowStartX and (chipX + chip:GetWidth()) > maxRight then
+            chipX = rowStartX
+            chipY = chipY - 30
+        end
+        chip:SetPoint("TOPLEFT", chipX, chipY)
+        chip:SetOnToggle(function(checked) TRP3FW.Prefs[spec.key] = checked end)
+        uiElements[spec.key] = chip
+        chipX = chipX + chip:GetWidth() + 8
     end
+    -- Advance the card cursor past the chip rows and size the card.
+    apprCard._cursorY = chipY - 30
+    apprCard:FitHeight()
 
-    uiElements.suppressionTime:SetScript("OnEnterPressed", function(self) saveSuppressionTime(self); self:ClearFocus() end)
-    uiElements.suppressionTime:SetScript("OnEditFocusLost", saveSuppressionTime)
+    -- ---- Card 4: suppression ----------------------------------------------
+    local supprCard = stackCard(content, TabManager:CreateCard(content, "Suppression", CARD_W), apprCard, CARD_W)
 
-    y = y - 40
-    uiElements.refreshSuppression = TabManager:CreateCheckbox(content, "Extend on Activity", "Refresh the suppression window when new profile sends are detected from the same player (sliding window).", "refreshSuppression")
-    uiElements.refreshSuppression:SetPoint("TOPLEFT", 20, y)
-    uiElements.refreshSuppression:SetScript("OnClick", function(self)
-        TRP3FW.Prefs.refreshSuppression = self:GetChecked()
-    end)
-    y = y - 30
+    local suppr = TabManager:CreateSlider(supprCard,
+        "Duration", "How many seconds to suppress repeated notifications from the same player.",
+        "suppressionTime", 0, 600, 5, "%d s")
+    suppr:SetPoint("TOPLEFT", 12, supprCard:NextY(M.ROW_TALL))
+    suppr:SetPoint("RIGHT", supprCard, "RIGHT", -14, 0)
+    suppr:SetOnChange(function(v) TRP3FW.Prefs.suppressionTime = v end)
+    uiElements.suppressionTime = suppr
 
-    -- Suppress WHO Output (moved from Alerts tab — Phase 2 UX restructure)
-    uiElements.suppressAllWhoOutput = TabManager:CreateCheckbox(content, "Suppress WHO Output", "Hide all WHO results in chat.", "suppressAllWhoOutput")
-    uiElements.suppressAllWhoOutput:SetPoint("TOPLEFT", 20, y)
-    uiElements.suppressAllWhoOutput:SetScript("OnClick", function(self) TRP3FW.Prefs.suppressAllWhoOutput = self:GetChecked() end)
+    uiElements.refreshSuppression = TabManager:CreateToggle(supprCard,
+        "Extend on activity", "Refresh the suppression window when new profile sends are detected from the same player (sliding window).", "refreshSuppression", "(sliding window)")
+    uiElements.refreshSuppression:SetPoint("TOPLEFT", 12, supprCard:NextY())
+    bindToggle(uiElements.refreshSuppression, "refreshSuppression")
+
+    uiElements.suppressAllWhoOutput = TabManager:CreateToggle(supprCard,
+        "Suppress WHO output", "Hide all WHO results in chat.", "suppressAllWhoOutput")
+    uiElements.suppressAllWhoOutput:SetPoint("TOPLEFT", 12, supprCard:NextY())
+    bindToggle(uiElements.suppressAllWhoOutput, "suppressAllWhoOutput")
     do
         local ec = TabManager:GetEpsilonControls()
         if ec then table.insert(ec, uiElements.suppressAllWhoOutput) end
     end
-
-    -- (Whitelist Bypass moved to Security tab — Phase 3 UX restructure)
+    supprCard:FitHeight()
 
     return scrollFrame
 end
