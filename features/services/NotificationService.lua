@@ -418,6 +418,11 @@ function NotificationService:ShowChatNotification(playerName, addon, isFirstTime
 			tostring(TRP3FW.Prefs.showInChat), tostring(playerName), tostring(addon), tostring(isAlert), tostring(wasBlocked), tostring(isFirstTime))
 	end, "send")
 
+	if not TRP3FW.Prefs.notifyEnabled then
+		self:DebugNotificationSuppression("notifyEnabled=false", playerName, addon, nil, {notifyEnabled=false, isAlert=isAlert, wasBlocked=wasBlocked})
+		return
+	end
+
 	if not TRP3FW.Prefs.showInChat then
 		self:DebugNotificationSuppression("showInChat=false", playerName, addon, nil, {showInChat=false, isAlert=isAlert, wasBlocked=wasBlocked})
 		return

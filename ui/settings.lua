@@ -150,7 +150,7 @@ end
 function TRP3FW:CreateMinimapButton()
     if TRP3FW.minimapButton or not Minimap then return end
     local b = CreateFrame("Button", "TRP3FW_MinimapButton", Minimap)
-    b:SetSize(32, 32); b:SetFrameStrata("MEDIUM"); b:SetFrameLevel(20); b:RegisterForDrag("LeftButton"); b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    b:SetSize(32, 32); b:SetFrameStrata("MEDIUM"); b:SetFrameLevel(20); b:RegisterForDrag("LeftButton"); b:RegisterForClicks("LeftButtonUp", "RightButtonUp"); b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
     local icon = b:CreateTexture(nil, "BACKGROUND"); icon:SetSize(20, 20); icon:SetPoint("CENTER", 0, 1); icon:SetTexture("Interface\\Icons\\Ability_Rogue_FeignDeath"); b.icon = icon
     local overlay = b:CreateTexture(nil, "OVERLAY"); overlay:SetSize(52, 52); overlay:SetPoint("TOPLEFT"); overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
     b:SetScript("OnEnter", function(self) GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:SetText("TRP3 Firewall", 1, 1, 1); GameTooltip:AddLine("Left-click: Settings\nRight-click: Toggle Notifications", 0, 1, 0); GameTooltip:Show() end)
