@@ -144,6 +144,20 @@ Theme.BACKDROP_WELL = {
     insets   = { left = 3, right = 3, top = 3, bottom = 3 },
 }
 
+-- Chip backdrop: solid tileable fill + thin tooltip border. MUST have a bgFile
+-- so SetBackdropColor actually tints the interior (a border-only backdrop shows
+-- no fill and the chip appears to only fade). ChatFrameBackground is a flat
+-- white tile that takes color cleanly.
+Theme.BACKDROP_CHIP = {
+    bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile     = true,
+    tileEdge = true,
+    tileSize = 16,
+    edgeSize = 12,
+    insets   = { left = 3, right = 3, top = 3, bottom = 3 },
+}
+
 -- ---------------------------------------------------------------------------
 -- Layout metrics (named constants replacing ad-hoc -30 / -40 / -45 offsets)
 -- ---------------------------------------------------------------------------

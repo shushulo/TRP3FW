@@ -439,30 +439,31 @@ function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, sub
     pill:SetPoint("RIGHT", toggle, "RIGHT", 0, 0)
     toggle.pill = pill
 
-    -- Track: center rect + two round end caps (masked circles) = stadium shape.
+    -- Track: ONE texture spanning the whole pill, rounded by a single mask sized
+    -- to the pill. Half-height circular mask on a wide rect gives a stadium.
     local track = pill:CreateTexture(nil, "BACKGROUND")
     track:SetTexture(WHITE8X8)
-    track:SetPoint("LEFT", pill, "LEFT", PILL_H / 2, 0)
-    track:SetPoint("RIGHT", pill, "RIGHT", -PILL_H / 2, 0)
-    track:SetHeight(PILL_H)
+    track:SetAllPoints(pill)
+    local trackMask = pill:CreateMaskTexture()
+    trackMask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    trackMask:SetAllPoints(pill)
+    track:AddMaskTexture(trackMask)
     toggle.track = track
 
-    local function endCap(anchor)
-        local cap = pill:CreateTexture(nil, "BACKGROUND")
-        cap:SetTexture(WHITE8X8)
-        cap:SetSize(PILL_H, PILL_H)
-        cap:SetPoint(anchor, pill, anchor, 0, 0)
-        local mask = pill:CreateMaskTexture()
-        mask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        mask:SetAllPoints(cap)
-        cap:AddMaskTexture(mask)
-        return cap
-    end
-    local capL = endCap("LEFT")
-    local capR = endCap("RIGHT")
-    toggle.caps = { capL, capR }
+    -- Thin border ring around the pill so it reads as a control even when the
+    -- track color is dark (off/disabled). Also masked to match the stadium.
+    local ring = pill:CreateTexture(nil, "BORDER")
+    ring:SetTexture(WHITE8X8)
+    ring:SetPoint("TOPLEFT", pill, "TOPLEFT", -1, 1)
+    ring:SetPoint("BOTTOMRIGHT", pill, "BOTTOMRIGHT", 1, -1)
+    local ringMask = pill:CreateMaskTexture()
+    ringMask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    ringMask:SetAllPoints(ring)
+    ring:AddMaskTexture(ringMask)
+    ring:SetColorTexture(Theme:Color("BORDER_STRONG"))
+    toggle.ring = ring
 
-    -- Knob: round-masked circle that slides.
+    -- Knob: round-masked circle that slides. ARTWORK sits above the track.
     local knob = pill:CreateTexture(nil, "ARTWORK")
     knob:SetTexture(WHITE8X8)
     knob:SetSize(KNOB, KNOB)
@@ -473,7 +474,7 @@ function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, sub
     toggle.knob = knob
 
     local function setTrackColor(r, g, b, a)
-        track:SetColorTexture(r, g, b, a); capL:SetColorTexture(r, g, b, a); capR:SetColorTexture(r, g, b, a)
+        track:SetColorTexture(r, g, b, a)
     end
 
     local function applyVisual(self)
@@ -482,7 +483,7 @@ function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, sub
             setTrackColor(Theme:Color("BORDER"))
             knob:SetColorTexture(Theme:Color("TEXT_MUTED"))
         elseif on then
-            setTrackColor(Theme:Color("SUCCESS", 0.85))
+            setTrackColor(Theme:Color("SUCCESS"))
             knob:SetColorTexture(Theme:Color("GOLD_TEXT"))
         else
             setTrackColor(Theme:Color("INSET"))
@@ -520,7 +521,7 @@ function TabManager:CreateChip(parent, labelText, tooltipText, settingKey)
     local Theme = TRP3FW.Theme
 
     local chip = CreateFrame("CheckButton", nil, parent, "BackdropTemplate")
-    chip:SetBackdrop(Theme.BACKDROP_WELL)
+    chip:SetBackdrop(Theme.BACKDROP_CHIP)
     chip:SetHeight(24)
 
     -- Check icon: Blizzard's checkmark texture (font-safe, no tofu glyphs).
@@ -541,10 +542,12 @@ function TabManager:CreateChip(parent, labelText, tooltipText, settingKey)
     local function applyVisual(self)
         local on = self:GetChecked()
         if on then
+            -- Clear "on" tint: lifted slate fill + gold border so the active
+            -- state reads at a glance, not just from the checkmark.
             self:SetBackdropColor(Theme:Color("CARD_HOVER"))
-            self:SetBackdropBorderColor(Theme:Color("BORDER_STRONG"))
+            self:SetBackdropBorderColor(Theme:Color("GOLD"))
             icon:Show()
-            text:SetTextColor(Theme:Color("TEXT_PRIMARY"))
+            text:SetTextColor(Theme:Color("GOLD_TEXT"))
         else
             self:SetBackdropColor(Theme:Color("INSET"))
             self:SetBackdropBorderColor(Theme:Color("BORDER"))
