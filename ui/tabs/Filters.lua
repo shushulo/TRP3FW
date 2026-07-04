@@ -1,70 +1,96 @@
 -- ui/tabs/Filters.lua
--- Filters & Addons settings tab for TRP3FW
+-- Appearance & Filters settings tab for TRP3FW (migrated to the skinned kit)
 
 local addonName, TRP3FW = ...
 local TabManager = TRP3FW.TabManager
+
+local COMPLEXITY_NAMES = { [1] = "Basic", [2] = "Intermediate", [3] = "Advanced", [4] = "Everything" }
+
+-- Stack a card below the previous one (or at the top), full content width.
+local function stackCard(content, card, prev, width)
+    card:SetWidth(width)
+    if prev then
+        card:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
+        card:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
+    else
+        card:SetPoint("TOPLEFT", content, "TOPLEFT", 12, -10)
+        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -20, -10)
+    end
+    return card
+end
 
 local function CreateFiltersTab(container)
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
 
-    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 350)
+    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 380)
     local uiElements = TabManager:GetUI()
-    local y = -10
+    local M = TRP3FW.Theme.metrics
+    local CARD_W = 540
 
-    -- Complexity Level Header
-    local complexityLabel = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    complexityLabel:SetPoint("TOPLEFT", 20, y); complexityLabel:SetText("Settings Complexity Level")
-    y = y - 30
-
-    local complexityDropdown = CreateFrame("Frame", "TRP3FW_ComplexityDropdown", content, "UIDropDownMenuTemplate")
-    complexityDropdown:SetPoint("TOPLEFT", 20, y); UIDropDownMenu_SetWidth(complexityDropdown, 200)
-    uiElements.complexityDropdown = complexityDropdown
-
-    local COMPLEXITY_NAMES = { [1] = "Basic", [2] = "Intermediate", [3] = "Advanced", [4] = "Everything" }
-    UIDropDownMenu_Initialize(complexityDropdown, function(self, level)
+    -- ---- Card 1: complexity ------------------------------------------------
+    local cxCard = stackCard(content, TabManager:CreateCard(content, "Settings complexity", CARD_W), nil, CARD_W)
+    local cx = TabManager:CreateSkinnedDropdown(cxCard, "Level",
+        "How many settings to show. Higher levels reveal more advanced options.", 220, "uiComplexityLevel")
+    cx:SetPoint("TOPLEFT", 6, cxCard:NextY(46))
+    uiElements.complexityDropdown = cx
+    UIDropDownMenu_Initialize(cx, function(self, level)
         for i = 1, 4 do
             local info = UIDropDownMenu_CreateInfo()
-            info.text = COMPLEXITY_NAMES[i]; info.value = i; info.func = function()
-                TRP3FW.Prefs.uiComplexityLevel = i; UIDropDownMenu_SetText(complexityDropdown, COMPLEXITY_NAMES[i])
+            info.text = COMPLEXITY_NAMES[i]; info.value = i
+            info.func = function()
+                TRP3FW.Prefs.uiComplexityLevel = i
+                UIDropDownMenu_SetText(cx, COMPLEXITY_NAMES[i])
                 if TRP3FW.EnforceComplexityDefaults then TRP3FW:EnforceComplexityDefaults(i) end
+                if TRP3FW._refreshComplexityLabel then TRP3FW._refreshComplexityLabel() end
                 TRP3FW:RefreshUI()
             end
-            info.checked = (TRP3FW.Prefs.uiComplexityLevel == i); UIDropDownMenu_AddButton(info, level)
+            info.checked = (TRP3FW.Prefs.uiComplexityLevel == i)
+            UIDropDownMenu_AddButton(info, level)
         end
     end)
-    y = y - 50
+    cxCard:FitHeight(10)
 
-    TabManager:CreateSectionHeader(content, "Filter Settings", y)
-    y = y - 40
-    uiElements.filterGradients = TabManager:CreateCheckbox(content, "Strip Color Gradients", "Remove color gradients from incoming profiles.", "filterGradients")
-    uiElements.filterGradients:SetPoint("TOPLEFT", 20, y)
-    uiElements.filterGradients:SetScript("OnClick", function(self) TRP3FW.Prefs.filterGradients = self:GetChecked(); TRP3FW:Info("Filter change will take effect after /reload") end)
-    y = y - 35
+    -- ---- Card 2: profile filters -------------------------------------------
+    local fCard = stackCard(content, TabManager:CreateCard(content, "Profile filters", CARD_W), cxCard, CARD_W)
 
-    uiElements.filterIcons = TabManager:CreateCheckbox(content, "Strip Icons from Profiles", "Remove embedded icons from profile fields.", "filterIcons")
-    uiElements.filterIcons:SetPoint("TOPLEFT", 20, y)
-    uiElements.filterIcons:SetScript("OnClick", function(self) TRP3FW.Prefs.filterIcons = self:GetChecked(); TRP3FW:Info("Filter change will take effect after /reload") end)
-    y = y - 35
+    uiElements.filterGradients = TabManager:CreateToggle(fCard,
+        "Strip colour gradients", "Remove colour gradients from incoming profiles.", "filterGradients")
+    uiElements.filterGradients:SetPoint("TOPLEFT", 12, fCard:NextY())
+    uiElements.filterGradients:SetPoint("RIGHT", fCard, "RIGHT", -14, 0)
+    uiElements.filterGradients:SetOnToggle(function(c) TRP3FW.Prefs.filterGradients = c; TRP3FW:Info("Filter change will take effect after /reload") end)
 
-    uiElements.filterMinimumFontSize = TabManager:CreateCheckbox(content, "Minimum Font Size", "Inject minimum font size into incoming profiles.", "filterMinimumFontSize")
-    uiElements.filterMinimumFontSize:SetPoint("TOPLEFT", 20, y)
-    uiElements.filterMinimumFontSize:SetScript("OnClick", function(self) TRP3FW.Prefs.filterMinimumFontSize = self:GetChecked(); TRP3FW:RefreshUI() end)
-    y = y - 40
+    uiElements.filterIcons = TabManager:CreateToggle(fCard,
+        "Strip icons from profiles", "Remove embedded icons from profile fields.", "filterIcons")
+    uiElements.filterIcons:SetPoint("TOPLEFT", 12, fCard:NextY())
+    uiElements.filterIcons:SetPoint("RIGHT", fCard, "RIGHT", -14, 0)
+    uiElements.filterIcons:SetOnToggle(function(c) TRP3FW.Prefs.filterIcons = c; TRP3FW:Info("Filter change will take effect after /reload") end)
 
-    local fsd, fsl = TabManager:CreateDropdown(content, "Font Size Level", "Minimum font size to inject.", 200, "minimumFontSizeLevel")
-    fsd:SetPoint("TOPLEFT", 40, y); uiElements.minimumFontSizeLevelDropdown = fsd
+    uiElements.filterMinimumFontSize = TabManager:CreateToggle(fCard,
+        "Minimum font size", "Inject a minimum font size into incoming profiles.", "filterMinimumFontSize")
+    uiElements.filterMinimumFontSize:SetPoint("TOPLEFT", 12, fCard:NextY(M.ROW_TALL))
+    uiElements.filterMinimumFontSize:SetPoint("RIGHT", fCard, "RIGHT", -14, 0)
+    uiElements.filterMinimumFontSize:SetOnToggle(function(c) TRP3FW.Prefs.filterMinimumFontSize = c; TRP3FW:RefreshUI() end)
+
+    local fsd = TabManager:CreateSkinnedDropdown(fCard, "Font size level",
+        "Minimum font size to inject.", 200, "minimumFontSizeLevel")
+    fsd:SetPoint("TOPLEFT", 6, fCard:NextY(48))
+    -- RefreshUI sets the text via "...LevelDropdown" (dropdownConfig loop) and
+    -- enables/disables via "...Dropdown"; point both at this widget so it both
+    -- shows the value and greys out when the toggle is off.
+    uiElements.minimumFontSizeLevelDropdown = fsd
+    uiElements.minimumFontSizeDropdown = fsd
     UIDropDownMenu_Initialize(fsd, function(self, level)
         local l = { {text="H1 (Largest)", val="h1"}, {text="H2 (Large)", val="h2"}, {text="H3 (Medium)", val="h3"}, {text="P (Normal)", val="p"} }
         for _, item in ipairs(l) do
             local info = UIDropDownMenu_CreateInfo()
-            info.text = item.text; info.func = function() TRP3FW.Prefs.minimumFontSizeLevel = item.val; UIDropDownMenu_SetText(fsd, item.text) end
-            info.checked = (TRP3FW.Prefs.minimumFontSizeLevel == item.val); UIDropDownMenu_AddButton(info)
+            info.text = item.text
+            info.func = function() TRP3FW.Prefs.minimumFontSizeLevel = item.val; UIDropDownMenu_SetText(fsd, item.text) end
+            info.checked = (TRP3FW.Prefs.minimumFontSizeLevel == item.val)
+            UIDropDownMenu_AddButton(info)
         end
     end)
-    y = y - 60
-
-    -- Addon Monitoring & Hook Safety moved to the Advanced tab (Phase 2 UX restructure)
+    fCard:FitHeight(12)
 
     return scrollFrame
 end

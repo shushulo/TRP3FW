@@ -671,6 +671,72 @@ function TabManager:CreateSkinnedHeader(parent, text, yOffset)
     return header
 end
 
+-- A skinned dropdown. Returns a real UIDropDownMenuTemplate frame (so all the
+-- existing UIDropDownMenu_Initialize / _SetText / Enable/DisableDropDown calls
+-- and RefreshUI's dropdown handling keep working unchanged) but hides the
+-- default Blizzard textures and overlays a slate backdrop + gold chevron so it
+-- matches the kit. Signature mirrors CreateDropdown: returns dropdown, label.
+function TabManager:CreateSkinnedDropdown(parent, labelText, tooltipText, width, settingKey)
+    local Theme = TRP3FW.Theme
+    width = width or 200
+
+    local label = parent:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
+    label:SetText(labelText)
+    label:SetTextColor(Theme:Color("TEXT_SECONDARY"))
+
+    local dropdown = CreateFrame("Frame", nil, parent, "UIDropDownMenuTemplate")
+    UIDropDownMenu_SetWidth(dropdown, width)
+    dropdown.label = label
+    label:SetPoint("BOTTOMLEFT", dropdown, "TOPLEFT", 16, 3)
+
+    -- Hide the default Blizzard dropdown art.
+    local dl = _G[dropdown:GetName() and (dropdown:GetName().."Left")]
+    local dm = _G[dropdown:GetName() and (dropdown:GetName().."Middle")]
+    local dr = _G[dropdown:GetName() and (dropdown:GetName().."Right")]
+    if dl then dl:SetAlpha(0) end
+    if dm then dm:SetAlpha(0) end
+    if dr then dr:SetAlpha(0) end
+
+    -- Slate backdrop over the dropdown's clickable area.
+    local skin = CreateFrame("Frame", nil, dropdown, "BackdropTemplate")
+    skin:SetPoint("TOPLEFT", 16, -2)
+    skin:SetPoint("BOTTOMRIGHT", -18, 6)
+    skin:SetBackdrop(Theme.BACKDROP_CHIP)
+    skin:SetBackdropColor(Theme:Color("CARD"))
+    skin:SetBackdropBorderColor(Theme:Color("BORDER_STRONG"))
+    skin:SetFrameLevel(dropdown:GetFrameLevel())  -- sit below the invisible button
+    dropdown.skin = skin
+
+    -- Recolor the visible text and chevron to match.
+    local text = _G[dropdown:GetName().."Text"]
+    if text then text:SetTextColor(Theme:Color("TEXT_PRIMARY")) end
+    local btn = _G[dropdown:GetName().."Button"]
+    if btn then
+        local nt = btn:GetNormalTexture(); if nt then nt:SetVertexColor(Theme:Color("GOLD")) end
+        local pt = btn:GetPushedTexture(); if pt then pt:SetVertexColor(Theme:Color("GOLD")) end
+    end
+
+    local level = TRP3FW.SETTING_LEVELS and TRP3FW.SETTING_LEVELS[settingKey] or 4
+    dropdown.complexityLevel = level
+    dropdown.settingKey = settingKey
+    dropdown.EnableDropDown = function(self) UIDropDownMenu_EnableDropDown(self); skin:SetBackdropBorderColor(Theme:Color("BORDER_STRONG")) end
+    dropdown.DisableDropDown = function(self) UIDropDownMenu_DisableDropDown(self); skin:SetBackdropBorderColor(Theme:Color("BORDER")) end
+    table.insert(self.complexityWidgets, dropdown)
+
+    if tooltipText or level > 1 then
+        local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
+        dropdown:HookScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(labelText, 1, 1, 1)
+            GameTooltip:AddLine(tip, nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        dropdown:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    return dropdown, label
+end
+
 -- A skinned push button: slate fill + border, gold label, hover lift. Pass
 -- isPrimary=true for the gold-accented primary action (e.g. Close/Save). Exposes
 -- SetText/SetScript like a normal Button and a SetOnClick convenience.
