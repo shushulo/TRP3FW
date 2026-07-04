@@ -176,12 +176,31 @@ Theme.metrics = {
     SIDEBAR_W  = 158, -- left nav width
 }
 
--- Fonts: prefer TRP3's font objects when available so we inherit its exact
--- typography; fall back to Blizzard defaults otherwise.
+-- Fonts: build custom font objects that inherit each Blizzard base's face and
+-- flags but bump the point size, so every widget reading Theme.fonts.* gets
+-- consistently larger text from one place. Change FONT_BUMP to rescale globally.
+Theme.FONT_BUMP = 2  -- points added to each role's Blizzard base size
+
+local function makeFont(name, baseObjectName, fallbackSize)
+    local base = _G[baseObjectName]
+    local fontObj = CreateFont(name)
+    if base then
+        fontObj:CopyFontObject(base)
+        local file, size, flags = base:GetFont()
+        if file and size then
+            fontObj:SetFont(file, size + Theme.FONT_BUMP, flags)
+        end
+    else
+        -- Extremely defensive fallback if the base object is missing.
+        fontObj:SetFont(STANDARD_TEXT_FONT, (fallbackSize or 12) + Theme.FONT_BUMP, "")
+    end
+    return name
+end
+
 Theme.fonts = {
-    TITLE   = "GameFontNormalLarge",
-    HEADER  = "GameFontNormal",
-    LABEL   = "GameFontHighlight",
-    SUB     = "GameFontNormalSmall",
-    VALUE   = "GameFontNormalHuge",
+    TITLE  = makeFont("TRP3FW_Font_Title",  "GameFontNormalLarge", 16),
+    HEADER = makeFont("TRP3FW_Font_Header", "GameFontNormal",      12),
+    LABEL  = makeFont("TRP3FW_Font_Label",  "GameFontHighlight",   12),
+    SUB    = makeFont("TRP3FW_Font_Sub",    "GameFontNormalSmall", 10),
+    VALUE  = makeFont("TRP3FW_Font_Value",  "GameFontNormalHuge",  24),
 }

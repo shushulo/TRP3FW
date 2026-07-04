@@ -64,7 +64,7 @@ local function hitBar(parent, label)
 
     local lbl = row:CreateFontString(nil, "ARTWORK", Theme.fonts.SUB)
     lbl:SetPoint("LEFT", 0, 0)
-    lbl:SetWidth(104); lbl:SetJustifyH("LEFT")
+    lbl:SetWidth(116); lbl:SetJustifyH("LEFT")
     lbl:SetText(label)
     lbl:SetTextColor(Theme:Color("TEXT_SECONDARY"))
 
