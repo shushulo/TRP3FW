@@ -103,10 +103,10 @@ local function hitBar(parent, label)
         end
         local w = self.track:GetWidth()
         if w and w > 0 then self.fill:SetWidth(math.max(1, w * rate / 100)) end
-        -- Health color: <33% red, 33-66% yellow, >=66% green.
+        -- Health color: <50% red, 50-80% yellow, >=80% green.
         local colorKey
-        if rate >= 66 then colorKey = "SUCCESS"
-        elseif rate >= 33 then colorKey = "WARN"
+        if rate >= 80 then colorKey = "SUCCESS"
+        elseif rate >= 50 then colorKey = "WARN"
         else colorKey = "DANGER" end
         self.fill:SetColorTexture(Theme:Color(colorKey))
         self.pct:SetText(string.format("%.0f%%", rate))
