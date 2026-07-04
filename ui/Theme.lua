@@ -173,7 +173,7 @@ Theme.metrics = {
     ROW_TALL   = 40,  -- row with sub-label / larger control
     SECTION    = 45,  -- gap before a new section header
     PAD        = 12,  -- card interior padding
-    CARD_GAP   = 10,  -- gap between stacked cards
+    CARD_GAP   = 8,   -- gap between stacked cards (== GAP so all gaps match)
     SIDEBAR_W  = 158, -- left nav width
 
     -- Content layout (single source of truth so all tabs stay in sync).
@@ -182,14 +182,14 @@ Theme.metrics = {
     --   the frame's border art consumes ~5px, so 14 raw reads as ~8 visible.
     -- Cards fill the scroll viewport edge-to-edge (CONTENT_INSET 0) -- the
     --   structural gaps provide the spacing, never stacked twice.
-    -- Derivation: window(840) - EDGE(14) - sidebar(158) - GAP(8) - EDGE(14)
-    --   = 646 content panel; - scrollbar zone(24 = GAP + 16px bar) = 622.
+    -- Derivation: window(856) - EDGE(14) - sidebar(158) - GAP(8) - EDGE(14)
+    --   = 662 content panel; - scrollbar zone(24 = GAP + 16px bar) = 638.
     GAP           = 8,
     EDGE          = 14,
     TOP_GAP       = 32,  -- title bar (~24px art) + GAP
-    SCROLL_W      = 622,
+    SCROLL_W      = 638,
     CONTENT_INSET = 0,
-    CARD_W        = 622, -- == SCROLL_W (cards span the full viewport)
+    CARD_W        = 638, -- == SCROLL_W (cards span the full viewport)
 }
 
 -- Fonts: build custom font objects that inherit each Blizzard base's face and

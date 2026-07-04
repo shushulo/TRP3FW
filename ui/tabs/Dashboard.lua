@@ -145,7 +145,7 @@ local function CreateDashboardTab(container)
 
     -- ---- Environment card (pill badges) -----------------------------------
     local envCard = TabManager:CreateCard(content, "Environment", W)
-    envCard:SetPoint("TOPLEFT", alertsTile, "BOTTOMLEFT", 0, -10)
+    envCard:SetPoint("TOPLEFT", alertsTile, "BOTTOMLEFT", 0, -Theme.metrics.CARD_GAP)
     envCard:SetWidth(W)
     local badgeY = envCard:NextY(26)
     local badgeSpecs = { "TRP3", "MRP", "XRP", "MSP", "Epsilon API" }
@@ -169,7 +169,7 @@ local function CreateDashboardTab(container)
 
     -- ---- Cache hit-rate card ----------------------------------------------
     local cacheCard = TabManager:CreateCard(content, "Cache hit rate", W)
-    cacheCard:SetPoint("TOPLEFT", envCard, "BOTTOMLEFT", 0, -10)
+    cacheCard:SetPoint("TOPLEFT", envCard, "BOTTOMLEFT", 0, -Theme.metrics.CARD_GAP)
     cacheCard:SetWidth(W)
 
     local barSpecs = {
@@ -187,7 +187,7 @@ local function CreateDashboardTab(container)
 
     -- ---- Recent activity card (fills the lower area with useful data) ------
     local recentCard = TabManager:CreateCard(content, "Recent activity", W)
-    recentCard:SetPoint("TOPLEFT", cacheCard, "BOTTOMLEFT", 0, -10)
+    recentCard:SetPoint("TOPLEFT", cacheCard, "BOTTOMLEFT", 0, -Theme.metrics.CARD_GAP)
     recentCard:SetWidth(W)
     dashWidgets.recent = {}
     for i = 1, 6 do

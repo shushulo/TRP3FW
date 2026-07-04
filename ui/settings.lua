@@ -887,7 +887,7 @@ function TRP3FW:InitializeUI()
     TRP3FW:InitializeSettings(); InitializeMinimapSettings()
     local Theme = TRP3FW.Theme
     settingsFrame = CreateFrame("Frame", "TRP3FW_PrefsFrame", UIParent, "BasicFrameTemplateWithInset")
-    settingsFrame:SetSize(840, 520); settingsFrame:SetPoint("CENTER"); settingsFrame:SetMovable(true); settingsFrame:EnableMouse(true); settingsFrame:RegisterForDrag("LeftButton")
+    settingsFrame:SetSize(856, 520); settingsFrame:SetPoint("CENTER"); settingsFrame:SetMovable(true); settingsFrame:EnableMouse(true); settingsFrame:RegisterForDrag("LeftButton")
     settingsFrame:SetScript("OnDragStart", settingsFrame.StartMoving); settingsFrame:SetScript("OnDragStop", settingsFrame.StopMovingOrSizing); settingsFrame:Hide()
     self:CreateMinimapButton(); settingsFrame.title = settingsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge"); settingsFrame.title:SetPoint("TOP", 0, -5); settingsFrame.title:SetText("TRP3 Firewall Settings v"..TRP3FW.VERSION)
 

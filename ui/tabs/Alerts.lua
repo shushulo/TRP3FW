@@ -101,7 +101,10 @@ local function CreateAlertsTab(container)
         { key = "ghost", label = "Ghosty", tooltip = "Phase/Map Alert+Ghost, WHO On, Start-phase ghost+switch, Scan replies block, Batching On" },
     }
     local presetY = presetCard:NextY(30)
-    local PBTN_W, PBTN_GAP = 112, 8
+    -- Compute the button width from the card so five buttons + four gaps exactly
+    -- fill the row (12px pad each side) without overflowing.
+    local PBTN_GAP = 8
+    local PBTN_W = math.floor((CARD_W - 24 - 4 * PBTN_GAP) / 5)
     local px = 12
     for _, preset in ipairs(presets) do
         local btn = TabManager:CreateButton(presetCard, preset.label, PBTN_W, false)
