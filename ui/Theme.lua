@@ -50,6 +50,11 @@ Theme.palette = {
     BORDER        = rgb("2c3242"), -- default hairline between cards/rows
     BORDER_STRONG = rgb("3a4256"), -- hover / emphasized divider
 
+    -- Track (unfilled slider groove, progress-bar background): a visible
+    -- blue-slate. INSET is too near-black to read against a CARD surface.
+    TRACK         = rgb("39435c"),
+    TRACK_HOVER   = rgb("4a5674"),
+
     -- Text
     TEXT_PRIMARY   = rgb("cdd2df"),
     TEXT_SECONDARY = rgb("9aa0b6"),

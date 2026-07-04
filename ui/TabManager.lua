@@ -596,7 +596,7 @@ function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, min
     track:SetPoint("LEFT"); track:SetPoint("RIGHT")
     track:SetHeight(4)
     track:SetTexture(WHITE8X8)
-    track:SetColorTexture(Theme:Color("INSET"))
+    track:SetColorTexture(Theme:Color("TRACK"))
 
     local thumb = slider:CreateTexture(nil, "OVERLAY")
     thumb:SetTexture(WHITE8X8)
@@ -658,6 +658,105 @@ function TabManager:CreateSkinnedHeader(parent, text, yOffset)
     line:SetColorTexture(Theme:Color("BORDER"))
 
     return header
+end
+
+-- A skinned push button: slate fill + border, gold label, hover lift. Pass
+-- isPrimary=true for the gold-accented primary action (e.g. Close/Save). Exposes
+-- SetText/SetScript like a normal Button and a SetOnClick convenience.
+function TabManager:CreateButton(parent, text, width, isPrimary)
+    local Theme = TRP3FW.Theme
+
+    local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    btn:SetSize(width or 100, 24)
+    btn:SetBackdrop({
+        bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+
+    local fs = btn:CreateFontString(nil, "OVERLAY", Theme.fonts.LABEL)
+    fs:SetPoint("CENTER")
+    fs:SetText(text)
+    btn:SetFontString(fs)
+    btn.text = fs
+
+    local function base(self)
+        if isPrimary then
+            self:SetBackdropColor(Theme:Color("CARD_HOVER"))
+            self:SetBackdropBorderColor(Theme:Color("GOLD"))
+            fs:SetTextColor(Theme:Color("GOLD_TEXT"))
+        else
+            self:SetBackdropColor(Theme:Color("CARD"))
+            self:SetBackdropBorderColor(Theme:Color("BORDER_STRONG"))
+            fs:SetTextColor(Theme:Color("TEXT_PRIMARY"))
+        end
+    end
+    btn:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(Theme:Color("BORDER_STRONG"))
+        self:SetBackdropBorderColor(Theme:Color("GOLD"))
+    end)
+    btn:SetScript("OnLeave", base)
+    btn:SetScript("OnMouseDown", function(self) fs:SetPoint("CENTER", 0, -1) end)
+    btn:SetScript("OnMouseUp", function(self) fs:SetPoint("CENTER", 0, 0) end)
+    base(btn)
+
+    function btn:SetOnClick(fn) self:SetScript("OnClick", fn) end
+    return btn
+end
+
+-- A skinned single-line edit box in a slate well, with a label above it. Named
+-- CreateSkinnedEditBox (not CreateEditBox) so the classic numeric InputBoxTemplate
+-- helper used by not-yet-migrated tabs keeps working. numeric defaults to false
+-- (whitelist/name fields are text). Registers with complexity/tooltip.
+function TabManager:CreateSkinnedEditBox(parent, labelText, tooltipText, width, settingKey, numeric)
+    local Theme = TRP3FW.Theme
+    width = width or 120
+
+    local label = parent:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
+    label:SetText(labelText)
+    label:SetTextColor(Theme:Color("TEXT_SECONDARY"))
+
+    local well = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    well:SetSize(width, 22)
+    well:SetBackdrop(Theme.BACKDROP_CHIP)
+    well:SetBackdropColor(Theme:Color("INSET"))
+    well:SetBackdropBorderColor(Theme:Color("BORDER_STRONG"))
+
+    local editBox = CreateFrame("EditBox", nil, well)
+    editBox:SetPoint("TOPLEFT", 6, -2)
+    editBox:SetPoint("BOTTOMRIGHT", -6, 2)
+    editBox:SetAutoFocus(false)
+    editBox:SetFontObject(Theme.fonts.LABEL)
+    editBox:SetTextColor(Theme:Color("TEXT_PRIMARY"))
+    if numeric then editBox:SetNumeric(true); editBox:SetMaxLetters(6) end
+    editBox.label = label
+    editBox.well = well
+
+    label:SetPoint("BOTTOMLEFT", well, "TOPLEFT", 0, 4)
+
+    -- Focus highlight on the well border.
+    editBox:SetScript("OnEditFocusGained", function() well:SetBackdropBorderColor(Theme:Color("GOLD")) end)
+    editBox:SetScript("OnEditFocusLost", function() well:SetBackdropBorderColor(Theme:Color("BORDER_STRONG")) end)
+    editBox:SetScript("OnEscapePressed", editBox.ClearFocus)
+
+    local level = TRP3FW.SETTING_LEVELS and TRP3FW.SETTING_LEVELS[settingKey] or 4
+    editBox.complexityLevel = level
+    editBox.settingKey = settingKey
+    table.insert(self.complexityWidgets, editBox)
+
+    if tooltipText or level > 1 then
+        local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
+        editBox:HookScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(labelText, 1, 1, 1)
+            GameTooltip:AddLine(tip, nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        editBox:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    return editBox, label
 end
 
 function TabManager:SwitchToTab(id)
