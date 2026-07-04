@@ -329,7 +329,7 @@ function TabManager:CreateScrollFrame(parent, contentHeight)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
     -- Use fixed width for child to avoid 0-width issues, will be updated by scrollFrame
-    scrollChild:SetSize(660, contentHeight or 1000)
+    scrollChild:SetSize(548, contentHeight or 1000)
     scrollFrame:SetScrollChild(scrollChild)
 
     return scrollFrame, scrollChild

@@ -39,7 +39,7 @@ local function CreateNotificationsTab(container)
 
     local scrollFrame, content = TabManager:CreateScrollFrame(tab, 640)
     local uiElements = TabManager:GetUI()
-    local CARD_W = 600
+    local CARD_W = 540
     local M = TRP3FW.Theme.metrics
 
     -- ---- Card 1: master toggle --------------------------------------------

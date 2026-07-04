@@ -113,7 +113,7 @@ local function CreateDashboardTab(container)
     tab:SetAllPoints()
 
     local scrollFrame, content = TabManager:CreateScrollFrame(tab, 540)
-    local W = 640
+    local W = 540
 
     -- ---- Stat tiles (3 across) --------------------------------------------
     local tileW, tileH, gap = (W - 24) / 3, 50, 8
