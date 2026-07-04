@@ -914,8 +914,13 @@ function TRP3FW:InitializeUI()
             local isActive = (nav.tabId == activeId)
             nav.marker:SetShown(isActive)
             nav.bg:SetShown(isActive)
-            nav.label:SetTextColor(isActive and Theme:Color("GOLD_TEXT") or Theme:Color("TEXT_SECONDARY"))
-            if nav.icon then nav.icon:SetVertexColor(isActive and Theme:Color("GOLD_TEXT") or Theme:Color("TEXT_SECONDARY")) end
+            -- NOTE: must NOT write `Theme:Color(a and X or Y)` inline as a call
+            -- argument -- `a and f() or g()` truncates the multi-return to ONE
+            -- value, so SetTextColor gets only r (g,b default to 0 = RED). Pick
+            -- the palette name first, then pass the full r,g,b,a.
+            local key = isActive and "GOLD_TEXT" or "TEXT_SECONDARY"
+            nav.label:SetTextColor(Theme:Color(key))
+            if nav.icon then nav.icon:SetVertexColor(Theme:Color(key)) end
         end
     end
     TRP3FW._highlightNav = highlightNav
