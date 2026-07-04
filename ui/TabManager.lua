@@ -684,15 +684,20 @@ function TabManager:CreateSkinnedDropdown(parent, labelText, tooltipText, width,
     label:SetText(labelText)
     label:SetTextColor(Theme:Color("TEXT_SECONDARY"))
 
-    local dropdown = CreateFrame("Frame", nil, parent, "UIDropDownMenuTemplate")
+    -- UIDropDownMenuTemplate relies on NAMED child frames ($parentText,
+    -- $parentButton, ...); a nil name makes GetName() nil and those lookups
+    -- fail. Give each dropdown a unique global name.
+    self._dropdownCount = (self._dropdownCount or 0) + 1
+    local dropdownName = "TRP3FW_SkinnedDropdown" .. self._dropdownCount
+    local dropdown = CreateFrame("Frame", dropdownName, parent, "UIDropDownMenuTemplate")
     UIDropDownMenu_SetWidth(dropdown, width)
     dropdown.label = label
     label:SetPoint("BOTTOMLEFT", dropdown, "TOPLEFT", 16, 3)
 
     -- Hide the default Blizzard dropdown art.
-    local dl = _G[dropdown:GetName() and (dropdown:GetName().."Left")]
-    local dm = _G[dropdown:GetName() and (dropdown:GetName().."Middle")]
-    local dr = _G[dropdown:GetName() and (dropdown:GetName().."Right")]
+    local dl = _G[dropdownName .. "Left"]
+    local dm = _G[dropdownName .. "Middle"]
+    local dr = _G[dropdownName .. "Right"]
     if dl then dl:SetAlpha(0) end
     if dm then dm:SetAlpha(0) end
     if dr then dr:SetAlpha(0) end
@@ -708,9 +713,9 @@ function TabManager:CreateSkinnedDropdown(parent, labelText, tooltipText, width,
     dropdown.skin = skin
 
     -- Recolor the visible text and chevron to match.
-    local text = _G[dropdown:GetName().."Text"]
+    local text = _G[dropdownName .. "Text"]
     if text then text:SetTextColor(Theme:Color("TEXT_PRIMARY")) end
-    local btn = _G[dropdown:GetName().."Button"]
+    local btn = _G[dropdownName .. "Button"]
     if btn then
         local nt = btn:GetNormalTexture(); if nt then nt:SetVertexColor(Theme:Color("GOLD")) end
         local pt = btn:GetPushedTexture(); if pt then pt:SetVertexColor(Theme:Color("GOLD")) end
