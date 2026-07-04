@@ -128,7 +128,7 @@ local function CreateDashboardTab(container)
     -- ---- Stat tiles (3 across) --------------------------------------------
     local tileW, tileH, gap = (W - 16) / 3, 50, 8
     local alertsTile = statTile(content, "Alerts")
-    alertsTile:SetSize(tileW, tileH); alertsTile:SetPoint("TOPLEFT", INSET, -10)
+    alertsTile:SetSize(tileW, tileH); alertsTile:SetPoint("TOPLEFT", INSET, 0)
     alertsTile.value:SetTextColor(Theme:Color("WARN"))
 
     local blockedTile = statTile(content, "Blocked")

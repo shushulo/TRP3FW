@@ -14,8 +14,8 @@ local function stackCard(content, card, prev, width)
         card:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
     else
         local inset = TRP3FW.Theme.metrics.CONTENT_INSET
-        card:SetPoint("TOPLEFT", content, "TOPLEFT", inset, -10)
-        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -inset, -10)
+        card:SetPoint("TOPLEFT", content, "TOPLEFT", inset, 0)
+        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -inset, 0)
     end
     return card
 end

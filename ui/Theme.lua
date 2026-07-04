@@ -177,14 +177,19 @@ Theme.metrics = {
     SIDEBAR_W  = 158, -- left nav width
 
     -- Content layout (single source of truth so all tabs stay in sync).
-    -- SCROLL_W: scroll viewport / scroll-child width inside the content panel.
-    -- CONTENT_INSET: uniform gap used for every margin (also the card inset).
-    -- CARD_W: resulting card width every migrated tab should use.
-    -- Derivation: window(840) - frameInset(8) - GAP(8) - sidebar(158) - GAP(8)
-    --   - GAP(8) - scrollbar(22) = 628 viewport; CARD_W = 628 - 2*8 = 612.
-    SCROLL_W      = 628,
-    CONTENT_INSET = 8,
-    CARD_W        = 628 - 16, -- SCROLL_W - 2*CONTENT_INSET = 612
+    -- GAP: the ONE visual gap between boxes (sidebar->cards, cards->scrollbar,
+    --   scrollbar->edge, below title bar). EDGE: margin from the raw frame edge;
+    --   the frame's border art consumes ~5px, so 14 raw reads as ~8 visible.
+    -- Cards fill the scroll viewport edge-to-edge (CONTENT_INSET 0) -- the
+    --   structural gaps provide the spacing, never stacked twice.
+    -- Derivation: window(840) - EDGE(14) - sidebar(158) - GAP(8) - EDGE(14)
+    --   = 646 content panel; - scrollbar zone(24 = GAP + 16px bar) = 622.
+    GAP           = 8,
+    EDGE          = 14,
+    TOP_GAP       = 32,  -- title bar (~24px art) + GAP
+    SCROLL_W      = 622,
+    CONTENT_INSET = 0,
+    CARD_W        = 622, -- == SCROLL_W (cards span the full viewport)
 }
 
 -- Fonts: build custom font objects that inherit each Blizzard base's face and

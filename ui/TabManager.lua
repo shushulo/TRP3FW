@@ -320,16 +320,32 @@ function TabManager:CreateHorizontalStackedBar(parent, width, height)
 end
 
 function TabManager:CreateScrollFrame(parent, contentHeight)
+    local M = TRP3FW.Theme.metrics
     local scrollFrame = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
-    -- Fill the content panel; reserve 22px on the right for the scrollbar so the
-    -- scroll viewport (and thus the cards inside it) leave a consistent margin.
-    scrollFrame:SetPoint("TOPLEFT", 0, -8)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 6)
+    -- Fill the content panel exactly (no internal top inset -- the first card's
+    -- top must line up with the sidebar's top). Reserve GAP + 16px on the right
+    -- for the scrollbar so the card->scrollbar gap equals the structural GAP.
+    scrollFrame:SetPoint("TOPLEFT", 0, 0)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -(M.GAP + 16), 0)
+
+    -- Re-anchor the template's scrollbar to sit exactly GAP right of the
+    -- viewport (its default is +6, which made the right gap look different).
+    local scrollBar = scrollFrame.ScrollBar
+    if scrollBar then
+        scrollBar:ClearAllPoints()
+        scrollBar:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", M.GAP, -16)
+        scrollBar:SetPoint("BOTTOMLEFT", scrollFrame, "BOTTOMRIGHT", M.GAP, 16)
+    end
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
     -- Viewport width from the shared metric (content panel - scrollbar reserve).
-    scrollChild:SetSize(TRP3FW.Theme.metrics.SCROLL_W, contentHeight or 1000)
+    scrollChild:SetSize(M.SCROLL_W, contentHeight or 1000)
     scrollFrame:SetScrollChild(scrollChild)
+    -- Safety net: keep the scroll child's width in lockstep with the real
+    -- viewport so full-width cards can never overhang or fall short.
+    scrollFrame:HookScript("OnSizeChanged", function(self, w)
+        if w and w > 0 then scrollChild:SetWidth(w) end
+    end)
 
     return scrollFrame, scrollChild
 end
