@@ -925,7 +925,24 @@ function TRP3FW:InitializeUI()
     end
     TRP3FW._highlightNav = highlightNav
 
-    local navY = -8
+    -- Search box (visual placeholder for now; not yet wired to filtering).
+    local searchBox = CreateFrame("Frame", nil, sidebar, "BackdropTemplate")
+    searchBox:SetPoint("TOPLEFT", 8, -8)
+    searchBox:SetPoint("TOPRIGHT", -8, -8)
+    searchBox:SetHeight(22)
+    searchBox:SetBackdrop(Theme.BACKDROP_CHIP)
+    searchBox:SetBackdropColor(Theme:Color("CARD"))
+    searchBox:SetBackdropBorderColor(Theme:Color("BORDER"))
+    local searchIcon = searchBox:CreateTexture(nil, "OVERLAY")
+    searchIcon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
+    searchIcon:SetSize(14, 14); searchIcon:SetPoint("LEFT", 6, 0)
+    searchIcon:SetVertexColor(Theme:Color("TEXT_MUTED"))
+    local searchText = searchBox:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
+    searchText:SetPoint("LEFT", searchIcon, "RIGHT", 5, 0)
+    searchText:SetText("Search settings")
+    searchText:SetTextColor(Theme:Color("TEXT_MUTED"))
+
+    local navY = -38  -- start nav below the search box
     for _, tabInfo in ipairs(TRP3FW.TabManager.orderedTabs) do
         local nav = CreateFrame("Button", nil, sidebar)
         nav:SetPoint("TOPLEFT", 4, navY)
@@ -966,8 +983,46 @@ function TRP3FW:InitializeUI()
     end
     if navButtons[1] then navButtons[1]:GetScript("OnClick")(navButtons[1]) end
 
+    -- Complexity control pinned to the sidebar bottom (mockup parity). Visual for
+    -- now: shows the current level and, on click, opens the Appearance tab where
+    -- the live complexity dropdown lives. Kept separate from that dropdown so it
+    -- does not fight RefreshUI's single uiElements.complexityDropdown sync.
+    local complexityCaption = sidebar:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
+    complexityCaption:SetPoint("BOTTOMLEFT", 10, 40)
+    complexityCaption:SetText("COMPLEXITY")
+    complexityCaption:SetTextColor(Theme:Color("TEXT_MUTED"))
+
+    local complexityBtn = CreateFrame("Button", nil, sidebar, "BackdropTemplate")
+    complexityBtn:SetPoint("BOTTOMLEFT", 8, 12)
+    complexityBtn:SetPoint("BOTTOMRIGHT", -8, 12)
+    complexityBtn:SetHeight(22)
+    complexityBtn:SetBackdrop(Theme.BACKDROP_CHIP)
+    complexityBtn:SetBackdropColor(Theme:Color("CARD"))
+    complexityBtn:SetBackdropBorderColor(Theme:Color("BORDER_STRONG"))
+    local complexityText = complexityBtn:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
+    complexityText:SetPoint("LEFT", 8, 0)
+    complexityText:SetTextColor(Theme:Color("GOLD_TEXT"))
+    local complexityArrow = complexityBtn:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
+    complexityArrow:SetPoint("RIGHT", -8, 0)
+    complexityArrow:SetText("v")
+    complexityArrow:SetTextColor(Theme:Color("TEXT_MUTED"))
+    local function refreshComplexityLabel()
+        local lvl = (TRP3FW.Prefs and TRP3FW.Prefs.uiComplexityLevel) or 2
+        complexityText:SetText(COMPLEXITY_NAMES[lvl] or "Intermediate")
+    end
+    complexityBtn:SetScript("OnShow", refreshComplexityLabel)
+    complexityBtn:SetScript("OnClick", function()
+        TRP3FW.TabManager:SwitchToTab("filters")
+        highlightNav("filters")
+    end)
+    complexityBtn:SetScript("OnEnter", function(self) self:SetBackdropBorderColor(Theme:Color("GOLD")) end)
+    complexityBtn:SetScript("OnLeave", function(self) self:SetBackdropBorderColor(Theme:Color("BORDER_STRONG")) end)
+    refreshComplexityLabel()
+    TRP3FW._refreshComplexityLabel = refreshComplexityLabel
+
     settingsFrame:HookScript("OnShow", function()
         highlightNav(TRP3FW.TabManager.activeTab and TRP3FW.TabManager.activeTab.id)
+        refreshComplexityLabel()
         TRP3FW:RefreshUI()
     end)
 

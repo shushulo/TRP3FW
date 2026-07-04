@@ -7,6 +7,35 @@
 local addonName, TRP3FW = ...
 local TabManager = TRP3FW.TabManager
 
+-- Environment badge: a bordered pill chip. Present = green fill/border/text,
+-- absent = muted slate. Sized to its label. Exposes :SetPresent(bool).
+local function envBadge(parent, label)
+    local Theme = TRP3FW.Theme
+    local badge = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    badge:SetBackdrop(Theme.BACKDROP_CHIP)
+    badge:SetHeight(20)
+
+    local fs = badge:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
+    fs:SetPoint("CENTER")
+    fs:SetText(label)
+    badge.label = fs
+    badge:SetWidth(fs:GetStringWidth() + 20)
+
+    function badge:SetPresent(present)
+        if present then
+            self:SetBackdropColor(0.09, 0.16, 0.09, 1)          -- deep green tint
+            self:SetBackdropBorderColor(0.28, 0.47, 0.28, 1)    -- green border
+            fs:SetTextColor(Theme:Color("SUCCESS_T"))
+        else
+            self:SetBackdropColor(Theme:Color("INSET"))
+            self:SetBackdropBorderColor(Theme:Color("BORDER"))
+            fs:SetTextColor(Theme:Color("TEXT_MUTED"))
+        end
+    end
+    badge:SetPresent(false)
+    return badge
+end
+
 -- Small stat tile: caption + big colored number. Returns the tile (with .value).
 local function statTile(parent, caption)
     local Theme = TRP3FW.Theme
@@ -103,16 +132,20 @@ local function CreateDashboardTab(container)
     dashWidgets.blocked = blockedTile.value
     dashWidgets.ghosted = ghostTile.value
 
-    -- ---- Environment card --------------------------------------------------
+    -- ---- Environment card (pill badges) -----------------------------------
     local envCard = TabManager:CreateCard(content, "Environment", W)
     envCard:SetPoint("TOPLEFT", alertsTile, "BOTTOMLEFT", 0, -10)
     envCard:SetWidth(W)
-    local badges = envCard:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
-    badges:SetPoint("TOPLEFT", 12, envCard:NextY(24))
-    badges:SetPoint("RIGHT", envCard, "RIGHT", -12, 0)
-    badges:SetJustifyH("LEFT")
-    badges:SetText("...")
-    dashWidgets.env = badges
+    local badgeY = envCard:NextY(26)
+    local badgeSpecs = { "TRP3", "MRP", "XRP", "MSP", "Epsilon API" }
+    dashWidgets.env = {}
+    local bx = 12
+    for _, name in ipairs(badgeSpecs) do
+        local badge = envBadge(envCard, name)
+        badge:SetPoint("TOPLEFT", bx, badgeY)
+        dashWidgets.env[name] = badge
+        bx = bx + badge:GetWidth() + 6
+    end
     envCard:FitHeight(8)
 
     -- ---- Cache hit-rate card ----------------------------------------------
@@ -147,7 +180,7 @@ local function CreateDashboardTab(container)
         player:SetPoint("TOPLEFT", 80, rowY); player:SetWidth(300); player:SetJustifyH("LEFT")
         player:SetTextColor(Theme:Color("TEXT_PRIMARY"))
         local outcome = recentCard:CreateFontString(nil, "ARTWORK", Theme.fonts.SUB)
-        outcome:SetPoint("TOPRIGHT", recentCard, "TOPRIGHT", -12, rowY)
+        outcome:SetPoint("TOPRIGHT", recentCard, "TOPRIGHT", -24, rowY)
         outcome:SetWidth(120); outcome:SetJustifyH("RIGHT")
         dashWidgets.recent[i] = { time = time, player = player, outcome = outcome }
     end
@@ -166,19 +199,16 @@ local function RefreshDashboard()
         dashWidgets.ghosted:SetText(tostring(s.ghostSends or 0))
     end
 
-    -- Environment badges (green = present, muted = absent).
+    -- Environment badges (green pill = present, muted = absent).
     if dashWidgets.env then
-        local Theme = TRP3FW.Theme
-        local on = "|cff7fc07f%s|r"
-        local off = "|cff707790%s|r"
         local d = TRP3FW.detectedAddons or {}
-        local parts = {}
-        table.insert(parts, string.format(d.TRP3 and on or off, "TRP3"))
-        table.insert(parts, string.format(d.MRP and on or off, "MRP"))
-        table.insert(parts, string.format(d.XRP and on or off, "XRP"))
-        table.insert(parts, string.format(d.MSP and on or off, "MSP"))
-        table.insert(parts, string.format(TRP3FW.hasEpsilonAPI and on or off, "Epsilon API"))
-        dashWidgets.env:SetText(table.concat(parts, "   "))
+        local present = {
+            TRP3 = d.TRP3, MRP = d.MRP, XRP = d.XRP, MSP = d.MSP,
+            ["Epsilon API"] = TRP3FW.hasEpsilonAPI,
+        }
+        for name, badge in pairs(dashWidgets.env) do
+            badge:SetPresent(present[name] and true or false)
+        end
     end
 
     -- Cache hit-rate bars. Mirrors the 8 bars the Status tab tracks. Note SPVP
