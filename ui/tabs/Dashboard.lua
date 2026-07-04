@@ -35,13 +35,14 @@ local function hitBar(parent, label)
 
     local lbl = row:CreateFontString(nil, "ARTWORK", Theme.fonts.SUB)
     lbl:SetPoint("LEFT", 0, 0)
-    lbl:SetWidth(90); lbl:SetJustifyH("LEFT")
+    lbl:SetWidth(104); lbl:SetJustifyH("LEFT")
     lbl:SetText(label)
     lbl:SetTextColor(Theme:Color("TEXT_SECONDARY"))
 
+    -- Readout inset from the row's right edge so "100%" doesn't touch the card.
     local pct = row:CreateFontString(nil, "ARTWORK", Theme.fonts.SUB)
-    pct:SetPoint("RIGHT", 0, 0)
-    pct:SetWidth(70); pct:SetJustifyH("RIGHT")
+    pct:SetPoint("RIGHT", -6, 0)
+    pct:SetWidth(54); pct:SetJustifyH("RIGHT")
     pct:SetTextColor(Theme:Color("TEXT_SECONDARY"))
     row.pct = pct
 
@@ -81,7 +82,7 @@ local function CreateDashboardTab(container)
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
 
-    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 460)
+    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 540)
     local W = 640
 
     -- ---- Stat tiles (3 across) --------------------------------------------
@@ -119,7 +120,10 @@ local function CreateDashboardTab(container)
     cacheCard:SetPoint("TOPLEFT", envCard, "BOTTOMLEFT", 0, -10)
     cacheCard:SetWidth(W)
 
-    local barSpecs = { "Interaction", "Phase check", "WHO query", "Allowed senders" }
+    local barSpecs = {
+        "Interaction", "Phase check", "WHO query", "Allowed senders",
+        "Map scan", "Broadcast", "SPVP salt", "SPVP verified",
+    }
     dashWidgets.bars = {}
     for _, name in ipairs(barSpecs) do
         local bar = hitBar(cacheCard, name)
@@ -177,14 +181,20 @@ local function RefreshDashboard()
         dashWidgets.env:SetText(table.concat(parts, "   "))
     end
 
-    -- Cache hit-rate bars.
+    -- Cache hit-rate bars. Mirrors the 8 bars the Status tab tracks. Note SPVP
+    -- salt lives at sessionStats.spvpCache.hits/misses, not cacheStats.*.
     local cs = s and s.cacheStats
     if cs and dashWidgets.bars then
+        local spvpSalt = s.spvpCache or {}
         local map = {
             ["Interaction"]     = { cs.interactionCacheHits, cs.interactionCacheMisses },
             ["Phase check"]     = { cs.phaseCacheHits, cs.phaseCacheMisses },
             ["WHO query"]       = { cs.whoCacheHits, cs.whoCacheMisses },
             ["Allowed senders"] = { cs.allowedSendersCacheHits, cs.allowedSendersCacheMisses },
+            ["Map scan"]        = { cs.mapCacheHits, cs.mapCacheMisses },
+            ["Broadcast"]       = { cs.broadcastCacheHits, cs.broadcastCacheMisses },
+            ["SPVP salt"]       = { spvpSalt.hits, spvpSalt.misses },
+            ["SPVP verified"]   = { cs.spvpVerifiedCacheHits, cs.spvpVerifiedCacheMisses },
         }
         for name, bar in pairs(dashWidgets.bars) do
             local v = map[name]
