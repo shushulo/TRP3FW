@@ -257,4 +257,4 @@ local function CreateDebugTab(container)
     return scrollFrame
 end
 
-TabManager:RegisterTab("debug", "Advanced", "Advanced Settings", CreateDebugTab, function() TRP3FW:RefreshUI() end)
+TabManager:RegisterTab("debug", "Advanced", "Advanced Settings", CreateDebugTab, function() TRP3FW:RefreshUI() end, "Interface\\Icons\\Trade_Engineering")

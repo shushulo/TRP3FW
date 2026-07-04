@@ -885,30 +885,80 @@ function TRP3FW:InitializeUI()
     if settingsFrame then return end
     TRP3FW.TabManager:LinkUI(uiElements, complexityWidgets, epsilonControls)
     TRP3FW:InitializeSettings(); InitializeMinimapSettings()
+    local Theme = TRP3FW.Theme
     settingsFrame = CreateFrame("Frame", "TRP3FW_PrefsFrame", UIParent, "BasicFrameTemplateWithInset")
-    settingsFrame:SetSize(700, 550); settingsFrame:SetPoint("CENTER"); settingsFrame:SetMovable(true); settingsFrame:EnableMouse(true); settingsFrame:RegisterForDrag("LeftButton")
+    settingsFrame:SetSize(852, 560); settingsFrame:SetPoint("CENTER"); settingsFrame:SetMovable(true); settingsFrame:EnableMouse(true); settingsFrame:RegisterForDrag("LeftButton")
     settingsFrame:SetScript("OnDragStart", settingsFrame.StartMoving); settingsFrame:SetScript("OnDragStop", settingsFrame.StopMovingOrSizing); settingsFrame:Hide()
     self:CreateMinimapButton(); settingsFrame.title = settingsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge"); settingsFrame.title:SetPoint("TOP", 0, -5); settingsFrame.title:SetText("TRP3 Firewall Settings v"..TRP3FW.VERSION)
-    TRP3FW.TabManager:Initialize(settingsFrame); local tabs = {}
-    for i, tabInfo in ipairs(TRP3FW.TabManager.orderedTabs) do
-        local b = CreateFrame("Button", nil, settingsFrame); b:SetSize(88, 30); b:SetPoint("TOPLEFT", (i-1)*92+10, -30)
-        b.bg = b:CreateTexture(nil, "BACKGROUND"); b.bg:SetAllPoints(); b.bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-        b.text = b:CreateFontString(nil, "ARTWORK", "GameFontNormal"); b.text:SetPoint("CENTER"); b.text:SetText(tabInfo.name)
-        b:SetScript("OnClick", function() TRP3FW.TabManager:SwitchToTab(tabInfo.id); for j, t in ipairs(tabs) do if j == i then t.bg:SetColorTexture(0.3, 0.3, 0.3, 1); t.text:SetTextColor(1, 1, 1) else t.bg:SetColorTexture(0.2, 0.2, 0.2, 0.8); t.text:SetTextColor(0.7, 0.7, 0.7) end end end)
-        tabs[i] = b
+
+    -- ---- Left sidebar nav --------------------------------------------------
+    local SIDEBAR_W = Theme.metrics.SIDEBAR_W
+    local sidebar = CreateFrame("Frame", nil, settingsFrame, "BackdropTemplate")
+    sidebar:SetPoint("TOPLEFT", 8, -28)
+    sidebar:SetPoint("BOTTOMLEFT", 8, 36)
+    sidebar:SetWidth(SIDEBAR_W)
+    sidebar:SetBackdrop(Theme.BACKDROP_CARD)
+    sidebar:SetBackdropColor(Theme:Color("INSET"))
+    sidebar:SetBackdropBorderColor(Theme:Color("BORDER"))
+
+    -- ---- Right content panel (this becomes the TabManager container) -------
+    local contentPanel = CreateFrame("Frame", nil, settingsFrame)
+    contentPanel:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 8, 0)
+    contentPanel:SetPoint("BOTTOMRIGHT", -8, 36)
+    TRP3FW.TabManager:Initialize(contentPanel)
+
+    -- Nav buttons (one per registered tab), vertical list in the sidebar.
+    local navButtons = {}
+    local function highlightNav(activeId)
+        for _, nav in ipairs(navButtons) do
+            local isActive = (nav.tabId == activeId)
+            nav.marker:SetShown(isActive)
+            nav.bg:SetShown(isActive)
+            nav.label:SetTextColor(isActive and Theme:Color("GOLD_TEXT") or Theme:Color("TEXT_SECONDARY"))
+            if nav.icon then nav.icon:SetVertexColor(isActive and Theme:Color("GOLD_TEXT") or Theme:Color("TEXT_SECONDARY")) end
+        end
     end
-    if #tabs > 0 then tabs[1]:GetScript("OnClick")(tabs[1]) end
+    TRP3FW._highlightNav = highlightNav
+
+    local navY = -8
+    for _, tabInfo in ipairs(TRP3FW.TabManager.orderedTabs) do
+        local nav = CreateFrame("Button", nil, sidebar)
+        nav:SetPoint("TOPLEFT", 4, navY)
+        nav:SetPoint("TOPRIGHT", -4, navY)
+        nav:SetHeight(28)
+        nav.tabId = tabInfo.id
+
+        nav.bg = nav:CreateTexture(nil, "BACKGROUND")
+        nav.bg:SetAllPoints(); nav.bg:SetColorTexture(Theme:Color("CARD_HOVER")); nav.bg:Hide()
+
+        nav.marker = nav:CreateTexture(nil, "ARTWORK")
+        nav.marker:SetPoint("TOPLEFT"); nav.marker:SetPoint("BOTTOMLEFT")
+        nav.marker:SetWidth(3); nav.marker:SetColorTexture(Theme:Color("GOLD")); nav.marker:Hide()
+
+        if tabInfo.iconTexture then
+            nav.icon = nav:CreateTexture(nil, "OVERLAY")
+            nav.icon:SetSize(15, 15); nav.icon:SetPoint("LEFT", 10, 0)
+            nav.icon:SetTexture(tabInfo.iconTexture)
+        end
+
+        nav.label = nav:CreateFontString(nil, "OVERLAY", Theme.fonts.LABEL)
+        nav.label:SetPoint("LEFT", nav.icon or nav, "LEFT", nav.icon and 22 or 12, 0)
+        nav.label:SetText(tabInfo.name)
+        nav.label:SetTextColor(Theme:Color("TEXT_SECONDARY"))
+
+        nav:SetScript("OnEnter", function(self) if not self.bg:IsShown() then self.bg:Show(); self.bg:SetColorTexture(Theme:Color("CARD")) end end)
+        nav:SetScript("OnLeave", function(self) highlightNav(TRP3FW.TabManager.activeTab and TRP3FW.TabManager.activeTab.id) end)
+        nav:SetScript("OnClick", function(self)
+            TRP3FW.TabManager:SwitchToTab(self.tabId)
+            highlightNav(self.tabId)
+        end)
+        table.insert(navButtons, nav)
+        navY = navY - 30
+    end
+    if navButtons[1] then navButtons[1]:GetScript("OnClick")(navButtons[1]) end
 
     settingsFrame:HookScript("OnShow", function()
-        local activeId = TRP3FW.TabManager.activeTab and TRP3FW.TabManager.activeTab.id
-        for i, tabInfo in ipairs(TRP3FW.TabManager.orderedTabs) do
-            local t = tabs[i]
-            if t then
-                local isActive = (tabInfo.id == activeId)
-                t.bg:SetColorTexture(isActive and 0.3 or 0.2, isActive and 0.3 or 0.2, isActive and 0.3 or 0.2, isActive and 1.0 or 0.8)
-                t.text:SetTextColor(isActive and 1 or 0.7, isActive and 1 or 0.7, isActive and 1 or 0.7)
-            end
-        end
+        highlightNav(TRP3FW.TabManager.activeTab and TRP3FW.TabManager.activeTab.id)
         TRP3FW:RefreshUI()
     end)
 

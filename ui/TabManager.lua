@@ -24,7 +24,7 @@ function TabManager:GetEpsilonControls()
     return self.epsilonControls
 end
 
-function TabManager:RegisterTab(id, name, title, createFunc, refreshFunc)
+function TabManager:RegisterTab(id, name, title, createFunc, refreshFunc, iconTexture)
     if self.tabs[id] then
         TRP3FW:Warn("Tab already registered: "..tostring(id))
         return
@@ -36,6 +36,7 @@ function TabManager:RegisterTab(id, name, title, createFunc, refreshFunc)
         title = title,
         create = createFunc,
         refresh = refreshFunc,
+        iconTexture = iconTexture,  -- optional sidebar nav icon
         frame = nil
     }
 
@@ -320,12 +321,15 @@ end
 
 function TabManager:CreateScrollFrame(parent, contentHeight)
     local scrollFrame = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", 10, -70)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -30, 40)
+    -- Content now renders inside the sidebar shell's content panel (no top tab
+    -- strip to clear), so the top offset is small. Leave room on the right for
+    -- the scrollbar and a little bottom padding.
+    scrollFrame:SetPoint("TOPLEFT", 4, -8)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -26, 6)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
     -- Use fixed width for child to avoid 0-width issues, will be updated by scrollFrame
-    scrollChild:SetSize(640, contentHeight or 1000)
+    scrollChild:SetSize(660, contentHeight or 1000)
     scrollFrame:SetScrollChild(scrollChild)
 
     return scrollFrame, scrollChild

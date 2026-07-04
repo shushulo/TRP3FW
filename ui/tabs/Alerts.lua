@@ -314,4 +314,4 @@ local function CreateAlertsTab(container)
     return scrollFrame
 end
 
-TabManager:RegisterTab("alerts", "Protection", "Protection & Blocking", CreateAlertsTab, function() TRP3FW:RefreshUI() end)
+TabManager:RegisterTab("alerts", "Protection", "Protection & Blocking", CreateAlertsTab, function() TRP3FW:RefreshUI() end, "Interface\\Icons\\Ability_Warrior_ShieldWall")

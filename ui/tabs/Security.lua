@@ -374,4 +374,4 @@ local function CreateSecurityTab(container)
     return scrollFrame
 end
 
-TabManager:RegisterTab("security", "Security", "Security & Access Control", CreateSecurityTab, function() TRP3FW:RefreshUI() end)
+TabManager:RegisterTab("security", "Security", "Security & Access Control", CreateSecurityTab, function() TRP3FW:RefreshUI() end, "Interface\\Icons\\INV_Misc_Key_03")

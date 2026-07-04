@@ -130,4 +130,4 @@ end
 
 TabManager:RegisterTab("profiles", "Profiles", "Settings Profiles", CreateProfilesTab, function()
     if currentRefreshFunc then currentRefreshFunc() end
-end)
+end, "Interface\\Icons\\Achievement_Character_Human_Male")

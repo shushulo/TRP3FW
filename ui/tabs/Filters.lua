@@ -69,4 +69,4 @@ local function CreateFiltersTab(container)
     return scrollFrame
 end
 
-TabManager:RegisterTab("filters", "Appearance", "Appearance & Filters", CreateFiltersTab, function() TRP3FW:RefreshUI() end)
+TabManager:RegisterTab("filters", "Appearance", "Appearance & Filters", CreateFiltersTab, function() TRP3FW:RefreshUI() end, "Interface\\Icons\\INV_Misc_Ornatebox")

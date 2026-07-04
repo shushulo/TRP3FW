@@ -135,4 +135,4 @@ local function CreateNotificationsTab(container)
     return scrollFrame
 end
 
-TabManager:RegisterTab("notifications", "Notifications", "Notification Settings", CreateNotificationsTab, function() TRP3FW:RefreshUI() end)
+TabManager:RegisterTab("notifications", "Notifications", "Notification Settings", CreateNotificationsTab, function() TRP3FW:RefreshUI() end, "Interface\\Icons\\INV_Letter_15")

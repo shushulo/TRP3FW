@@ -350,4 +350,4 @@ local function CreateStatusTab(container)
     return scrollFrame
 end
 
-TabManager:RegisterTab("status", "Status", "Status & Performance", CreateStatusTab, function() if TRP3FW.UpdateStatusTab then TRP3FW:UpdateStatusTab() end end)
+TabManager:RegisterTab("status", "Status", "Status & Performance", CreateStatusTab, function() if TRP3FW.UpdateStatusTab then TRP3FW:UpdateStatusTab() end end, "Interface\\Icons\\INV_Misc_Note_01")
