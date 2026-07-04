@@ -681,7 +681,7 @@ function TabManager:CreateSkinnedDropdown(parent, labelText, tooltipText, width,
     width = width or 200
 
     local label = parent:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
-    label:SetText(labelText)
+    label:SetText(labelText or "")
     label:SetTextColor(Theme:Color("TEXT_SECONDARY"))
 
     -- UIDropDownMenuTemplate relies on NAMED child frames ($parentText,
@@ -728,7 +728,9 @@ function TabManager:CreateSkinnedDropdown(parent, labelText, tooltipText, width,
     dropdown.DisableDropDown = function(self) UIDropDownMenu_DisableDropDown(self); skin:SetBackdropBorderColor(Theme:Color("BORDER")) end
     table.insert(self.complexityWidgets, dropdown)
 
-    if tooltipText or level > 1 then
+    -- Only attach a tooltip when there's a label to title it (nil-label
+    -- dropdowns like the per-row override selectors get none).
+    if labelText and (tooltipText or level > 1) then
         local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
         dropdown:HookScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
