@@ -44,15 +44,14 @@ local function statTile(parent, caption)
     tile:SetBackdropColor(Theme:Color("CARD"))
     tile:SetBackdropBorderColor(Theme:Color("BORDER"))
 
+    -- Centered layout: caption centered near the top, big value centered below.
     local cap = tile:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-    cap:SetPoint("TOPLEFT", 10, -8)
+    cap:SetPoint("TOP", 0, -8)
     cap:SetText(caption:upper())
     cap:SetTextColor(Theme:Color("TEXT_MUTED"))
 
-    -- Anchor the value to the bottom-left so it fills the tile instead of
-    -- floating high with dead space beneath it.
     local val = tile:CreateFontString(nil, "OVERLAY", Theme.fonts.VALUE)
-    val:SetPoint("BOTTOMLEFT", 9, 6)
+    val:SetPoint("TOP", cap, "BOTTOM", 0, -2)
     val:SetText("0")
     tile.value = val
     return tile
@@ -140,13 +139,21 @@ local function CreateDashboardTab(container)
     envCard:SetWidth(W)
     local badgeY = envCard:NextY(26)
     local badgeSpecs = { "TRP3", "MRP", "XRP", "MSP", "Epsilon API" }
+    local BADGE_GAP = 8
     dashWidgets.env = {}
-    local bx = 12
+    -- Create first, then center the whole row within the card.
+    local made, total = {}, 0
     for _, name in ipairs(badgeSpecs) do
         local badge = envBadge(envCard, name)
-        badge:SetPoint("TOPLEFT", bx, badgeY)
         dashWidgets.env[name] = badge
-        bx = bx + badge:GetWidth() + 6
+        made[#made + 1] = badge
+        total = total + badge:GetWidth() + BADGE_GAP
+    end
+    total = total - BADGE_GAP
+    local bx = math.floor((W - total) / 2)
+    for _, badge in ipairs(made) do
+        badge:SetPoint("TOPLEFT", bx, badgeY)
+        bx = bx + badge:GetWidth() + BADGE_GAP
     end
     envCard:FitHeight(8)
 

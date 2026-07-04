@@ -35,20 +35,21 @@ local function rgb(hex)
 end
 
 Theme.palette = {
-    -- Surfaces (darkest -> lightest)
-    PANEL         = rgb("0d0f16"), -- main content background (slate)
-    CARD          = rgb("141824"), -- grouped setting cards / header+footer bars
-    INSET         = rgb("0a0c12"), -- sidebar, slider tracks, sunken wells
-    CARD_HOVER    = rgb("1a1f2e"), -- hovered/active row tint
+    -- Surfaces (darkest -> lightest). Lifted out of near-black so cards read as
+    -- distinct slate panels rather than voids; hue stays slate-blue.
+    PANEL         = rgb("161a26"), -- main content background (slate)
+    CARD          = rgb("222839"), -- grouped setting cards / header+footer bars
+    INSET         = rgb("11141d"), -- sidebar, slider tracks, sunken wells
+    CARD_HOVER    = rgb("2e3650"), -- hovered/active row tint
 
     -- Trim & accent (gold, used sparingly)
-    GOLD          = rgb("c99a44"), -- frame border tint, active markers, fills that mean "accent"
-    GOLD_TEXT     = rgb("e7d6a8"), -- section captions, accented labels
+    GOLD          = rgb("d1a24c"), -- frame border tint, active markers, fills that mean "accent"
+    GOLD_TEXT     = rgb("ecdcb0"), -- section captions, accented labels
     FRAME_GOLD    = rgb("8a6a2f"), -- outer ornate frame edge tint
 
     -- Borders
-    BORDER        = rgb("2c3242"), -- default hairline between cards/rows
-    BORDER_STRONG = rgb("3a4256"), -- hover / emphasized divider
+    BORDER        = rgb("3a4258"), -- default hairline between cards/rows
+    BORDER_STRONG = rgb("4c566f"), -- hover / emphasized divider
 
     -- Track (unfilled slider groove, progress-bar background): a visible
     -- blue-slate. INSET is too near-black to read against a CARD surface.
