@@ -16,7 +16,9 @@ local MODE_OPTIONS = {
     {t="Block (with notification)", v="alert_block"}, {t="Send blank profile (with notification)", v="alert_ghost"},
 }
 
--- Stack a card below the previous one (or at the top), full content width.
+-- Stack a card below the previous one (or at the top). Cards span from x=12 to
+-- 10px shy of the content's right edge (leaving room beside the scrollbar). The
+-- CARD_W callers use for internal layout must equal this anchored width.
 local function stackCard(content, card, prev, width)
     card:SetWidth(width)
     if prev then
@@ -24,7 +26,7 @@ local function stackCard(content, card, prev, width)
         card:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
     else
         card:SetPoint("TOPLEFT", content, "TOPLEFT", 12, -10)
-        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -20, -10)
+        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -10, -10)
     end
     return card
 end
@@ -37,7 +39,8 @@ local function CreateAlertsTab(container)
     local uiElements = TabManager:GetUI()
     local epsilonControls = TabManager:GetEpsilonControls()
     local M = TRP3FW.Theme.metrics
-    local CARD_W = 540
+    -- Must match stackCard's anchored width: content(548) - 12 left - 10 right.
+    local CARD_W = 526
 
     -- ===== Preset logic (unchanged behavior) ===============================
     local function ApplyPreset(preset)
@@ -98,9 +101,10 @@ local function CreateAlertsTab(container)
         { key = "ghost", label = "Ghosty", tooltip = "Phase/Map Alert+Ghost, WHO On, Start-phase ghost+switch, Scan replies block, Batching On" },
     }
     local presetY = presetCard:NextY(30)
+    local PBTN_W, PBTN_GAP = 94, 6
     local px = 12
     for _, preset in ipairs(presets) do
-        local btn = TabManager:CreateButton(presetCard, preset.label, 98, false)
+        local btn = TabManager:CreateButton(presetCard, preset.label, PBTN_W, false)
         btn:SetPoint("TOPLEFT", px, presetY)
         btn:SetOnClick(function() ApplyPreset(preset.key) end)
         if preset.tooltip then
@@ -112,8 +116,8 @@ local function CreateAlertsTab(container)
             end)
             btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
         end
-        px = px + 104
-        if px + 98 > CARD_W then px = 12; presetY = presetY - 28 end
+        px = px + PBTN_W + PBTN_GAP
+        if px + PBTN_W > CARD_W - 12 then px = 12; presetY = presetY - 28 end
     end
     presetCard._cursorY = presetY - 34
 
