@@ -129,6 +129,26 @@ local function CreateDashboardTab(container)
     end
     cacheCard:FitHeight(8)
 
+    -- ---- Recent activity card (fills the lower area with useful data) ------
+    local recentCard = TabManager:CreateCard(content, "Recent activity", W)
+    recentCard:SetPoint("TOPLEFT", cacheCard, "BOTTOMLEFT", 0, -10)
+    recentCard:SetWidth(W)
+    dashWidgets.recent = {}
+    for i = 1, 6 do
+        local rowY = recentCard:NextY(20)
+        local time = recentCard:CreateFontString(nil, "ARTWORK", Theme.fonts.SUB)
+        time:SetPoint("TOPLEFT", 12, rowY); time:SetWidth(64); time:SetJustifyH("LEFT")
+        time:SetTextColor(Theme:Color("TEXT_MUTED"))
+        local player = recentCard:CreateFontString(nil, "ARTWORK", Theme.fonts.SUB)
+        player:SetPoint("TOPLEFT", 80, rowY); player:SetWidth(300); player:SetJustifyH("LEFT")
+        player:SetTextColor(Theme:Color("TEXT_PRIMARY"))
+        local outcome = recentCard:CreateFontString(nil, "ARTWORK", Theme.fonts.SUB)
+        outcome:SetPoint("TOPRIGHT", recentCard, "TOPRIGHT", -12, rowY)
+        outcome:SetWidth(120); outcome:SetJustifyH("RIGHT")
+        dashWidgets.recent[i] = { time = time, player = player, outcome = outcome }
+    end
+    recentCard:FitHeight(8)
+
     return scrollFrame
 end
 
@@ -169,6 +189,29 @@ local function RefreshDashboard()
         for name, bar in pairs(dashWidgets.bars) do
             local v = map[name]
             if v then bar:SetRate(v[1] or 0, v[2] or 0) end
+        end
+    end
+
+    -- Recent activity: newest entries from the notification history.
+    if dashWidgets.recent then
+        local function outcome(e)
+            if e.wasGhost then return "|cff79b0ddGhosted|r"
+            elseif e.wasBlocked then return "|cffd76b5eBlocked|r"
+            elseif e.wasAlert then return "|cffc99a44Alert|r"
+            else return "|cff7fc07fAllowed|r" end
+        end
+        local history = TRP3FW.notificationHistory or {}
+        local n = #history
+        for i, row in ipairs(dashWidgets.recent) do
+            local e = history[n - i + 1]  -- newest first
+            if e then
+                row.time:SetText(e.timestamp and date("%H:%M:%S", e.timestamp) or "--")
+                row.player:SetText(e.player or "Unknown")
+                row.outcome:SetText(outcome(e))
+            else
+                row.time:SetText(""); row.outcome:SetText("")
+                row.player:SetText(i == 1 and "|cff555555No recent activity|r" or "")
+            end
         end
     end
 end

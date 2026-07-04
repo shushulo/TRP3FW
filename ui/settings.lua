@@ -887,7 +887,7 @@ function TRP3FW:InitializeUI()
     TRP3FW:InitializeSettings(); InitializeMinimapSettings()
     local Theme = TRP3FW.Theme
     settingsFrame = CreateFrame("Frame", "TRP3FW_PrefsFrame", UIParent, "BasicFrameTemplateWithInset")
-    settingsFrame:SetSize(852, 560); settingsFrame:SetPoint("CENTER"); settingsFrame:SetMovable(true); settingsFrame:EnableMouse(true); settingsFrame:RegisterForDrag("LeftButton")
+    settingsFrame:SetSize(852, 520); settingsFrame:SetPoint("CENTER"); settingsFrame:SetMovable(true); settingsFrame:EnableMouse(true); settingsFrame:RegisterForDrag("LeftButton")
     settingsFrame:SetScript("OnDragStart", settingsFrame.StartMoving); settingsFrame:SetScript("OnDragStop", settingsFrame.StopMovingOrSizing); settingsFrame:Hide()
     self:CreateMinimapButton(); settingsFrame.title = settingsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge"); settingsFrame.title:SetPoint("TOP", 0, -5); settingsFrame.title:SetText("TRP3 Firewall Settings v"..TRP3FW.VERSION)
 
@@ -937,8 +937,12 @@ function TRP3FW:InitializeUI()
 
         if tabInfo.iconTexture then
             nav.icon = nav:CreateTexture(nil, "OVERLAY")
-            nav.icon:SetSize(15, 15); nav.icon:SetPoint("LEFT", 10, 0)
+            nav.icon:SetSize(14, 14); nav.icon:SetPoint("LEFT", 10, 0)
             nav.icon:SetTexture(tabInfo.iconTexture)
+            -- Trim the icon border and desaturate so vertex-color tinting is
+            -- clean (colored icons * gold tint = muddy red otherwise).
+            nav.icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
+            nav.icon:SetDesaturated(true)
         end
 
         nav.label = nav:CreateFontString(nil, "OVERLAY", Theme.fonts.LABEL)
@@ -976,7 +980,7 @@ function TRP3FW:InitializeUI()
     end)
 
     TRP3FW:RefreshUI()
-    local ticker; TRP3FW.StartStatusUpdates = function() if ticker then ticker:Cancel() end; ticker = C_Timer.NewTicker(TRP3FW.Prefs.statusRefreshRate or 30, function() if settingsFrame:IsVisible() and TRP3FW.TabManager.activeTab and TRP3FW.TabManager.activeTab.id == "status" then TRP3FW:UpdateStatusTab() end end) end
+    local ticker; TRP3FW.StartStatusUpdates = function() if ticker then ticker:Cancel() end; ticker = C_Timer.NewTicker(TRP3FW.Prefs.statusRefreshRate or 30, function() if settingsFrame:IsVisible() and TRP3FW.TabManager.activeTab then local id = TRP3FW.TabManager.activeTab.id; if id == "status" then TRP3FW:UpdateStatusTab() elseif id == "dashboard" and TRP3FW.RefreshDashboard then TRP3FW.RefreshDashboard() end end end) end
     TRP3FW.StartStatusUpdates(); TRP3FW:Success("UI Initialized")
 end
 

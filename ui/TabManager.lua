@@ -789,8 +789,9 @@ function TabManager:SwitchToTab(id)
         tab.refresh()
     end
 
-    -- If switching to status tab, ensure the background timer is running
-    if id == "status" and TRP3FW.StartStatusUpdates then
+    -- If switching to a live-updating tab (status or dashboard), ensure the
+    -- background timer is running. The ticker itself checks the active tab.
+    if (id == "status" or id == "dashboard") and TRP3FW.StartStatusUpdates then
         TRP3FW:StartStatusUpdates()
     end
 
