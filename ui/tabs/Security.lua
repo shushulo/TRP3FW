@@ -29,10 +29,13 @@ end
 local function multilineNames(card, wY, height, initialText, onChanged, onFocusLost)
     local Theme = TRP3FW.Theme
     local W = Theme.metrics.CARD_W
+    -- The visual box is the backdrop, which extends -6 left / +26 right of the
+    -- scroll frame; offset the scroll so the BOX sits exactly GAP(8) from each
+    -- card edge: left 14-6=8, right 14+(W-48)+26 = W-8.
     local scroll = CreateFrame("ScrollFrame", nil, card, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 16, wY); scroll:SetSize(W - 60, height)
+    scroll:SetPoint("TOPLEFT", 14, wY); scroll:SetSize(W - 48, height)
     local edit = CreateFrame("EditBox", nil, scroll)
-    edit:SetMultiLine(true); edit:SetFontObject(Theme.fonts.SUB); edit:SetWidth(W - 80); edit:SetHeight(height)
+    edit:SetMultiLine(true); edit:SetFontObject(Theme.fonts.SUB); edit:SetWidth(W - 68); edit:SetHeight(height)
     edit:SetAutoFocus(false); edit:SetMaxLetters(3000); edit:SetText(initialText or "")
     edit:SetScript("OnEscapePressed", edit.ClearFocus)
     if onChanged then edit:SetScript("OnTextChanged", onChanged) end
@@ -107,7 +110,7 @@ local function CreateSecurityTab(container)
         wlLabel:SetText(string.format("Names (one per line):  |cffaaaaaa(%s)|r", n == 0 and "empty" or (n == 1 and "1 name" or n.." names")))
     end
 
-    local wlScroll, wlEdit = multilineNames(wlCard, wlCard:NextY(104), 88, TRP3FW.Prefs.whitelistEntries,
+    local wlScroll, wlEdit = multilineNames(wlCard, wlCard:NextY(94), 88, TRP3FW.Prefs.whitelistEntries,
         function(self) TRP3FW.Prefs.whitelistEntries = self:GetText(); updateCount(self:GetText()) end,
         function(self)
             local cleaned = sanitizeNames(self:GetText())
@@ -117,7 +120,8 @@ local function CreateSecurityTab(container)
     uiElements.whitelistScroll = wlScroll
     uiElements.whitelistEdit = wlEdit
     updateCount(TRP3FW.Prefs.whitelistEntries)
-    wlCard:FitHeight(14)
+    -- Box bottom sits 6 below the scroll (94-88); +8 pad = 8px gap to card edge.
+    wlCard:FitHeight(8)
 
     -- ===== Card 2: Map scan reply controls =================================
     local scanCard = stackCard(content, TabManager:CreateCard(content, "Map scan reply controls", W), wlCard)
@@ -174,7 +178,7 @@ local function CreateSecurityTab(container)
     swLabel:SetPoint("TOPLEFT", 12, scanCard:NextY(18)); swLabel:SetTextColor(Theme:Color("TEXT_SECONDARY"))
     swLabel:SetText("Scan reply whitelist (one name per line):")
 
-    local swScroll, swEdit = multilineNames(scanCard, scanCard:NextY(96), 80, TRP3FW.Prefs.scanResponseWhitelist,
+    local swScroll, swEdit = multilineNames(scanCard, scanCard:NextY(86), 80, TRP3FW.Prefs.scanResponseWhitelist,
         function(self) TRP3FW.Prefs.scanResponseWhitelist = self:GetText() end,
         function(self)
             local cleaned = sanitizeNames(self:GetText())
@@ -183,7 +187,7 @@ local function CreateSecurityTab(container)
         end)
     uiElements.scanResponseWhitelistScroll = swScroll
     uiElements.scanResponseWhitelistEdit = swEdit
-    scanCard:FitHeight(14)
+    scanCard:FitHeight(8)
 
     -- ===== Card 3: SPVP ====================================================
     local spvpCard = stackCard(content, TabManager:CreateCard(content, "SPVP (cryptographic phase verification)", W), scanCard)
@@ -233,7 +237,7 @@ local function CreateSecurityTab(container)
     if epsilonControls then table.insert(epsilonControls, uiElements.spvpSaltStatus) end
 
     uiElements.spvpSecureButton = TabManager:CreateButton(spvpCard, "Secure this phase", 180, false)
-    uiElements.spvpSecureButton:SetPoint("TOPLEFT", 12, spvpCard:NextY(34))
+    uiElements.spvpSecureButton:SetPoint("TOPLEFT", 12, spvpCard:NextY(24))
     uiElements.spvpSecureButton:SetOnClick(function()
         if not C_Epsilon or not (C_Epsilon.IsOwner() or C_Epsilon.IsOfficer()) then
             TRP3FW:Error("You must be a phase owner or officer to secure phases.")
@@ -248,7 +252,8 @@ local function CreateSecurityTab(container)
         end
     end)
     if epsilonControls then table.insert(epsilonControls, uiElements.spvpSecureButton) end
-    spvpCard:FitHeight(14)
+    -- Button is 24 tall in a 24 step; +8 pad = 8px gap below it.
+    spvpCard:FitHeight(8)
 
     return scrollFrame
 end

@@ -183,7 +183,9 @@ local function CreateAlertsTab(container)
     uiElements.useWhoQuery:SetPoint("RIGHT", locCard, "RIGHT", -14, 0)
     uiElements.useWhoQuery:SetOnToggle(function(c) TRP3FW.Prefs.useWhoQuery = c end)
     if epsilonControls then table.insert(epsilonControls, uiElements.useWhoQuery) end
-    locCard:FitHeight(10)
+    -- Toggle rows advance 30 for 22-tall pills, leaving 8 residual; pad 0 keeps
+    -- the bottom gap at exactly 8 like every other gap.
+    locCard:FitHeight(0)
 
     -- ===== Card 3: Ghost mode ==============================================
     local ghostCard = stackCard(content, TabManager:CreateCard(content, "Ghost mode", CARD_W), locCard, CARD_W)
@@ -243,11 +245,13 @@ local function CreateAlertsTab(container)
     end)
     if epsilonControls then table.insert(epsilonControls, uiElements.ghostProfileWhitelistEnabled) end
 
-    -- Multiline exclusion whitelist, in a slate well.
-    local wlY = ghostCard:NextY(112)
+    -- Multiline exclusion whitelist, in a slate well. The visual box is the
+    -- backdrop (-6 left / +26 right of the scroll), so offset the scroll to put
+    -- the BOX exactly GAP(8) from each card edge: 14-6=8, 14+(W-48)+26 = W-8.
+    local wlY = ghostCard:NextY(96)
     local wls = CreateFrame("ScrollFrame", nil, ghostCard, "UIPanelScrollFrameTemplate")
-    wls:SetPoint("TOPLEFT", 16, wlY); wls:SetSize(CARD_W - 60, 90); uiElements.ghostProfileWhitelistScroll = wls
-    local wle = CreateFrame("EditBox", nil, wls); wle:SetMultiLine(true); wle:SetFontObject(TRP3FW.Theme.fonts.SUB); wle:SetWidth(CARD_W - 80); wle:SetHeight(90); wle:SetAutoFocus(false); wle:SetMaxLetters(3000)
+    wls:SetPoint("TOPLEFT", 14, wlY); wls:SetSize(CARD_W - 48, 90); uiElements.ghostProfileWhitelistScroll = wls
+    local wle = CreateFrame("EditBox", nil, wls); wle:SetMultiLine(true); wle:SetFontObject(TRP3FW.Theme.fonts.SUB); wle:SetWidth(CARD_W - 68); wle:SetHeight(90); wle:SetAutoFocus(false); wle:SetMaxLetters(3000)
     wle:SetText(TRP3FW.Prefs.ghostProfileWhitelist or ""); wle:SetScript("OnTextChanged", function(self) TRP3FW.Prefs.ghostProfileWhitelist = self:GetText() end)
     wle:SetScript("OnEscapePressed", wle.ClearFocus)
     wls:SetScrollChild(wle); uiElements.ghostProfileWhitelistEdit = wle
@@ -259,7 +263,8 @@ local function CreateAlertsTab(container)
     wlbg:SetBackdropBorderColor(TRP3FW.Theme:Color("BORDER_STRONG"))
     TabManager:AddComplexityWidget(wle, "ghostProfileWhitelist"); TabManager:AddComplexityWidget(wls, "ghostProfileWhitelist"); TabManager:AddComplexityWidget(wlbg, "ghostProfileWhitelist")
     if epsilonControls then table.insert(epsilonControls, wle); table.insert(epsilonControls, wls); table.insert(epsilonControls, wlbg) end
-    ghostCard:FitHeight(14)
+    -- Box bottom is 6 below the scroll (96-90); +8 pad = 8px gap to card edge.
+    ghostCard:FitHeight(8)
 
     -- ===== Card 4: Overrides ===============================================
     local ovCard = stackCard(content, TabManager:CreateCard(content, "Profile overrides", CARD_W), ghostCard, CARD_W)
@@ -315,13 +320,13 @@ local function CreateAlertsTab(container)
             renderedRows = renderedRows + 1
             RenderOverrideRow(renderedRows)  -- consumes the slot the button was in
             placeAddButton()                 -- move button below the new row
-            ovCard:FitHeight(40)
+            ovCard:FitHeight(32)  -- 24px button + 8 gap below
             if renderedRows >= MAX_ROWS then addRowBtn:Disable() end
         end
     end)
     if renderedRows >= MAX_ROWS then addRowBtn:Disable() end
-    ovCard._cursorY = ovCard._cursorY - 30  -- reserve the button's own height
-    ovCard:FitHeight(14)
+    ovCard._cursorY = ovCard._cursorY - 24  -- reserve the button's own height
+    ovCard:FitHeight(8)
 
     return scrollFrame
 end
