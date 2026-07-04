@@ -49,8 +49,10 @@ local function statTile(parent, caption)
     cap:SetText(caption:upper())
     cap:SetTextColor(Theme:Color("TEXT_MUTED"))
 
+    -- Anchor the value to the bottom-left so it fills the tile instead of
+    -- floating high with dead space beneath it.
     local val = tile:CreateFontString(nil, "OVERLAY", Theme.fonts.VALUE)
-    val:SetPoint("TOPLEFT", 9, -20)
+    val:SetPoint("BOTTOMLEFT", 9, 6)
     val:SetText("0")
     tile.value = val
     return tile
@@ -115,7 +117,7 @@ local function CreateDashboardTab(container)
     local W = 640
 
     -- ---- Stat tiles (3 across) --------------------------------------------
-    local tileW, tileH, gap = (W - 24) / 3, 56, 8
+    local tileW, tileH, gap = (W - 24) / 3, 50, 8
     local alertsTile = statTile(content, "Alerts")
     alertsTile:SetSize(tileW, tileH); alertsTile:SetPoint("TOPLEFT", 12, -10)
     alertsTile.value:SetTextColor(Theme:Color("WARN"))

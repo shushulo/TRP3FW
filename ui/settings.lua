@@ -921,6 +921,7 @@ function TRP3FW:InitializeUI()
             local key = isActive and "GOLD_TEXT" or "TEXT_SECONDARY"
             nav.label:SetTextColor(Theme:Color(key))
             if nav.icon then nav.icon:SetVertexColor(Theme:Color(key)) end
+            if isActive then nav.bg:SetColorTexture(Theme:Color("CARD_HOVER")) end
         end
     end
     TRP3FW._highlightNav = highlightNav
@@ -953,9 +954,10 @@ function TRP3FW:InitializeUI()
         nav.bg = nav:CreateTexture(nil, "BACKGROUND")
         nav.bg:SetAllPoints(); nav.bg:SetColorTexture(Theme:Color("CARD_HOVER")); nav.bg:Hide()
 
+        -- Active spine: a crisp 4px gold bar down the left edge.
         nav.marker = nav:CreateTexture(nil, "ARTWORK")
         nav.marker:SetPoint("TOPLEFT"); nav.marker:SetPoint("BOTTOMLEFT")
-        nav.marker:SetWidth(3); nav.marker:SetColorTexture(Theme:Color("GOLD")); nav.marker:Hide()
+        nav.marker:SetWidth(4); nav.marker:SetColorTexture(Theme:Color("GOLD_TEXT")); nav.marker:Hide()
 
         if tabInfo.iconTexture then
             nav.icon = nav:CreateTexture(nil, "OVERLAY")

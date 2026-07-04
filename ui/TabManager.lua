@@ -387,7 +387,14 @@ function TabManager:CreateCard(parent, captionText, width)
         cap:SetText(captionText:upper())
         cap:SetTextColor(Theme:Color("GOLD"))
         card.caption = cap
-        topPad = 26
+        -- Hairline divider under the caption (mockup parity; adds structure).
+        local rule = card:CreateTexture(nil, "ARTWORK")
+        rule:SetHeight(1)
+        rule:SetPoint("TOPLEFT", cap, "BOTTOMLEFT", 0, -4)
+        rule:SetPoint("RIGHT", card, "RIGHT", -12, 0)
+        rule:SetColorTexture(Theme:Color("BORDER"))
+        card.rule = rule
+        topPad = 30
     end
 
     card._cursorY = -topPad
