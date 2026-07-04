@@ -182,11 +182,14 @@ Theme.metrics = {
     --   the frame's border art consumes ~5px, so 14 raw reads as ~8 visible.
     -- Cards fill the scroll viewport edge-to-edge (CONTENT_INSET 0) -- the
     --   structural gaps provide the spacing, never stacked twice.
-    -- Derivation: window(856) - EDGE(14) - sidebar(158) - GAP(8) - EDGE(14)
+    -- Derivation: window(864) - EDGE(18) - sidebar(158) - GAP(8) - EDGE(18)
     --   = 662 content panel; - scrollbar zone(24 = GAP + 16px bar) = 638.
+    -- EDGE/TOP_GAP are raw-frame offsets; the border art (~5px edge, ~24px
+    -- title bar) eats part of them, so the visible outer margins land slightly
+    -- LARGER than the inner 8px gaps -- deliberate (outer margins > gutters).
     GAP           = 8,
-    EDGE          = 14,
-    TOP_GAP       = 32,  -- title bar (~24px art) + GAP
+    EDGE          = 18,
+    TOP_GAP       = 36,
     SCROLL_W      = 638,
     CONTENT_INSET = 0,
     CARD_W        = 638, -- == SCROLL_W (cards span the full viewport)
