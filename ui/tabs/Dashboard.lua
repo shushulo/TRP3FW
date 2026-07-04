@@ -94,13 +94,22 @@ local function hitBar(parent, label)
     function row:SetRate(hits, misses)
         local total = (hits or 0) + (misses or 0)
         local rate = total > 0 and ((hits / total) * 100) or 0
+        if total == 0 then
+            -- No data yet: hide the fill so an empty bar isn't a misleading red 0%.
+            self.fill:SetWidth(1)
+            self.fill:SetColorTexture(Theme:Color("TRACK"))
+            self.pct:SetText("--")
+            return
+        end
         local w = self.track:GetWidth()
         if w and w > 0 then self.fill:SetWidth(math.max(1, w * rate / 100)) end
-        if total == 0 then
-            self.pct:SetText("--")
-        else
-            self.pct:SetText(string.format("%.0f%%", rate))
-        end
+        -- Health color: <33% red, 33-66% yellow, >=66% green.
+        local colorKey
+        if rate >= 66 then colorKey = "SUCCESS"
+        elseif rate >= 33 then colorKey = "WARN"
+        else colorKey = "DANGER" end
+        self.fill:SetColorTexture(Theme:Color(colorKey))
+        self.pct:SetText(string.format("%.0f%%", rate))
     end
     return row
 end
