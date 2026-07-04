@@ -32,7 +32,9 @@ local function CreateFiltersTab(container)
     local cxCard = stackCard(content, TabManager:CreateCard(content, "Settings complexity", CARD_W), nil, CARD_W)
     local cx = TabManager:CreateSkinnedDropdown(cxCard, "Level",
         "How many settings to show. Higher levels reveal more advanced options.", 220, "uiComplexityLevel")
-    cx:SetPoint("TOPLEFT", 6, cxCard:NextY(46))
+    -- Dropdowns carry their own label ABOVE the frame, so drop them ~16px below
+    -- the cursor to clear the card caption/divider.
+    cx:SetPoint("TOPLEFT", 6, cxCard:NextY(60) - 16)
     uiElements.complexityDropdown = cx
     UIDropDownMenu_Initialize(cx, function(self, level)
         for i = 1, 4 do
