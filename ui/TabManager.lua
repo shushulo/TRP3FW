@@ -321,15 +321,14 @@ end
 
 function TabManager:CreateScrollFrame(parent, contentHeight)
     local scrollFrame = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
-    -- Content now renders inside the sidebar shell's content panel (no top tab
-    -- strip to clear), so the top offset is small. Leave room on the right for
-    -- the scrollbar and a little bottom padding.
-    scrollFrame:SetPoint("TOPLEFT", 4, -8)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -26, 6)
+    -- Fill the content panel; reserve 22px on the right for the scrollbar so the
+    -- scroll viewport (and thus the cards inside it) leave a consistent margin.
+    scrollFrame:SetPoint("TOPLEFT", 0, -8)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 6)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    -- Use fixed width for child to avoid 0-width issues, will be updated by scrollFrame
-    scrollChild:SetSize(548, contentHeight or 1000)
+    -- Viewport width from the shared metric (content panel - scrollbar reserve).
+    scrollChild:SetSize(TRP3FW.Theme.metrics.SCROLL_W, contentHeight or 1000)
     scrollFrame:SetScrollChild(scrollChild)
 
     return scrollFrame, scrollChild

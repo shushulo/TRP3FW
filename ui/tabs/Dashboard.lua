@@ -122,12 +122,13 @@ local function CreateDashboardTab(container)
     tab:SetAllPoints()
 
     local scrollFrame, content = TabManager:CreateScrollFrame(tab, 540)
-    local W = 540
+    local W = TRP3FW.Theme.metrics.CARD_W
+    local INSET = TRP3FW.Theme.metrics.CONTENT_INSET
 
     -- ---- Stat tiles (3 across) --------------------------------------------
-    local tileW, tileH, gap = (W - 24) / 3, 50, 8
+    local tileW, tileH, gap = (W - 16) / 3, 50, 8
     local alertsTile = statTile(content, "Alerts")
-    alertsTile:SetSize(tileW, tileH); alertsTile:SetPoint("TOPLEFT", 12, -10)
+    alertsTile:SetSize(tileW, tileH); alertsTile:SetPoint("TOPLEFT", INSET, -10)
     alertsTile.value:SetTextColor(Theme:Color("WARN"))
 
     local blockedTile = statTile(content, "Blocked")

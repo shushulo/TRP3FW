@@ -16,17 +16,18 @@ local MODE_OPTIONS = {
     {t="Block (with notification)", v="alert_block"}, {t="Send blank profile (with notification)", v="alert_ghost"},
 }
 
--- Stack a card below the previous one (or at the top). Cards span from x=12 to
--- 10px shy of the content's right edge (leaving room beside the scrollbar). The
--- CARD_W callers use for internal layout must equal this anchored width.
+-- Stack a card below the previous one (or at the top). Cards inset 8px on each
+-- side of the scroll viewport, matching the shell's structural gap. The CARD_W
+-- callers use for internal layout must equal this anchored width.
 local function stackCard(content, card, prev, width)
     card:SetWidth(width)
     if prev then
         card:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
         card:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
     else
-        card:SetPoint("TOPLEFT", content, "TOPLEFT", 12, -10)
-        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -10, -10)
+        local inset = TRP3FW.Theme.metrics.CONTENT_INSET
+        card:SetPoint("TOPLEFT", content, "TOPLEFT", inset, -10)
+        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -inset, -10)
     end
     return card
 end
@@ -39,8 +40,7 @@ local function CreateAlertsTab(container)
     local uiElements = TabManager:GetUI()
     local epsilonControls = TabManager:GetEpsilonControls()
     local M = TRP3FW.Theme.metrics
-    -- Must match stackCard's anchored width: content(548) - 12 left - 10 right.
-    local CARD_W = 526
+    local CARD_W = M.CARD_W
 
     -- ===== Preset logic (unchanged behavior) ===============================
     local function ApplyPreset(preset)
@@ -101,7 +101,7 @@ local function CreateAlertsTab(container)
         { key = "ghost", label = "Ghosty", tooltip = "Phase/Map Alert+Ghost, WHO On, Start-phase ghost+switch, Scan replies block, Batching On" },
     }
     local presetY = presetCard:NextY(30)
-    local PBTN_W, PBTN_GAP = 94, 6
+    local PBTN_W, PBTN_GAP = 106, 8
     local px = 12
     for _, preset in ipairs(presets) do
         local btn = TabManager:CreateButton(presetCard, preset.label, PBTN_W, false)

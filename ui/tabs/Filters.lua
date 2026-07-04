@@ -13,8 +13,9 @@ local function stackCard(content, card, prev, width)
         card:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
         card:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
     else
-        card:SetPoint("TOPLEFT", content, "TOPLEFT", 12, -10)
-        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -20, -10)
+        local inset = TRP3FW.Theme.metrics.CONTENT_INSET
+        card:SetPoint("TOPLEFT", content, "TOPLEFT", inset, -10)
+        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -inset, -10)
     end
     return card
 end
@@ -26,7 +27,7 @@ local function CreateFiltersTab(container)
     local scrollFrame, content = TabManager:CreateScrollFrame(tab, 380)
     local uiElements = TabManager:GetUI()
     local M = TRP3FW.Theme.metrics
-    local CARD_W = 540
+    local CARD_W = M.CARD_W
 
     -- ---- Card 1: complexity ------------------------------------------------
     local cxCard = stackCard(content, TabManager:CreateCard(content, "Settings complexity", CARD_W), nil, CARD_W)

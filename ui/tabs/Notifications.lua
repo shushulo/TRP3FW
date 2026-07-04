@@ -19,8 +19,9 @@ local function stackCard(content, card, prev, width)
         card:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
         card:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
     else
-        card:SetPoint("TOPLEFT", content, "TOPLEFT", 12, -10)
-        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -20, -10)
+        local inset = TRP3FW.Theme.metrics.CONTENT_INSET
+        card:SetPoint("TOPLEFT", content, "TOPLEFT", inset, -10)
+        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -inset, -10)
     end
     return card
 end
@@ -39,8 +40,8 @@ local function CreateNotificationsTab(container)
 
     local scrollFrame, content = TabManager:CreateScrollFrame(tab, 640)
     local uiElements = TabManager:GetUI()
-    local CARD_W = 540
     local M = TRP3FW.Theme.metrics
+    local CARD_W = M.CARD_W
 
     -- ---- Card 1: master toggle --------------------------------------------
     local masterCard = stackCard(content, TabManager:CreateCard(content, nil, CARD_W), nil, CARD_W)

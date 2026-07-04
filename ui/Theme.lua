@@ -175,6 +175,14 @@ Theme.metrics = {
     PAD        = 12,  -- card interior padding
     CARD_GAP   = 10,  -- gap between stacked cards
     SIDEBAR_W  = 158, -- left nav width
+
+    -- Content layout (single source of truth so all tabs stay in sync).
+    -- SCROLL_W: scroll viewport / scroll-child width inside the content panel.
+    -- CONTENT_INSET: gap on each side between the viewport edge and a card.
+    -- CARD_W: resulting card width every migrated tab should use.
+    SCROLL_W      = 604,
+    CONTENT_INSET = 8,
+    CARD_W        = 604 - 16, -- SCROLL_W - 2*CONTENT_INSET = 588
 }
 
 -- Fonts: build custom font objects that inherit each Blizzard base's face and
