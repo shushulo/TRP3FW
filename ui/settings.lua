@@ -887,15 +887,24 @@ function TRP3FW:InitializeUI()
     TRP3FW:InitializeSettings(); InitializeMinimapSettings()
     local Theme = TRP3FW.Theme
     settingsFrame = CreateFrame("Frame", "TRP3FW_PrefsFrame", UIParent, "BasicFrameTemplateWithInset")
-    settingsFrame:SetSize(808, 520); settingsFrame:SetPoint("CENTER"); settingsFrame:SetMovable(true); settingsFrame:EnableMouse(true); settingsFrame:RegisterForDrag("LeftButton")
+    settingsFrame:SetSize(840, 520); settingsFrame:SetPoint("CENTER"); settingsFrame:SetMovable(true); settingsFrame:EnableMouse(true); settingsFrame:RegisterForDrag("LeftButton")
     settingsFrame:SetScript("OnDragStart", settingsFrame.StartMoving); settingsFrame:SetScript("OnDragStop", settingsFrame.StopMovingOrSizing); settingsFrame:Hide()
     self:CreateMinimapButton(); settingsFrame.title = settingsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge"); settingsFrame.title:SetPoint("TOP", 0, -5); settingsFrame.title:SetText("TRP3 Firewall Settings v"..TRP3FW.VERSION)
 
-    -- ---- Left sidebar nav --------------------------------------------------
+    -- ---- Uniform layout margins -------------------------------------------
+    -- One GAP everywhere: window-inset -> sidebar, sidebar -> content, content
+    -- -> window, and top -> first row. TOP_GAP clears the title bar.
+    local GAP = Theme.metrics.CONTENT_INSET  -- shared with the cards
+    local TOP_GAP = 30
     local SIDEBAR_W = Theme.metrics.SIDEBAR_W
+
+    -- Bottom margin must clear the Reset/Close button row (24px tall at y=10).
+    local BOTTOM_GAP = 34 + GAP
+
+    -- ---- Left sidebar nav --------------------------------------------------
     local sidebar = CreateFrame("Frame", nil, settingsFrame, "BackdropTemplate")
-    sidebar:SetPoint("TOPLEFT", 8, -28)
-    sidebar:SetPoint("BOTTOMLEFT", 8, 36)
+    sidebar:SetPoint("TOPLEFT", GAP, -TOP_GAP)
+    sidebar:SetPoint("BOTTOMLEFT", GAP, BOTTOM_GAP)
     sidebar:SetWidth(SIDEBAR_W)
     sidebar:SetBackdrop(Theme.BACKDROP_CARD)
     sidebar:SetBackdropColor(Theme:Color("INSET"))
@@ -903,8 +912,8 @@ function TRP3FW:InitializeUI()
 
     -- ---- Right content panel (this becomes the TabManager container) -------
     local contentPanel = CreateFrame("Frame", nil, settingsFrame)
-    contentPanel:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 8, 0)
-    contentPanel:SetPoint("BOTTOMRIGHT", -8, 36)
+    contentPanel:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", GAP, 0)
+    contentPanel:SetPoint("BOTTOMRIGHT", -GAP, BOTTOM_GAP)
     TRP3FW.TabManager:Initialize(contentPanel)
 
     -- Nav buttons (one per registered tab), vertical list in the sidebar.

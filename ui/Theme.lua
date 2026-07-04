@@ -178,11 +178,13 @@ Theme.metrics = {
 
     -- Content layout (single source of truth so all tabs stay in sync).
     -- SCROLL_W: scroll viewport / scroll-child width inside the content panel.
-    -- CONTENT_INSET: gap on each side between the viewport edge and a card.
+    -- CONTENT_INSET: uniform gap used for every margin (also the card inset).
     -- CARD_W: resulting card width every migrated tab should use.
-    SCROLL_W      = 604,
+    -- Derivation: window(840) - frameInset(8) - GAP(8) - sidebar(158) - GAP(8)
+    --   - GAP(8) - scrollbar(22) = 628 viewport; CARD_W = 628 - 2*8 = 612.
+    SCROLL_W      = 628,
     CONTENT_INSET = 8,
-    CARD_W        = 604 - 16, -- SCROLL_W - 2*CONTENT_INSET = 588
+    CARD_W        = 628 - 16, -- SCROLL_W - 2*CONTENT_INSET = 612
 }
 
 -- Fonts: build custom font objects that inherit each Blizzard base's face and
