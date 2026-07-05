@@ -45,17 +45,21 @@ local function CreateDebugTab(container)
         eb:SetScript("OnEditFocusLost", save)
     end
 
-    -- A labelled numeric edit box placed on the right of its row inside a card.
+    -- A labelled numeric edit box placed on the right of its row inside a card,
+    -- with the label on the left. IMPORTANT: CreateSkinnedEditBox's outer frame
+    -- is `eb.well` (the editBox is anchored INSIDE it) -- position the WELL, not
+    -- the editBox, or the two conflicting anchor sets mangle the layout.
     -- Returns the edit box (also stored under uiElements[key]).
     local function numRow(card, key, label, tip, min, max, pct)
         local eb, lbl = TabManager:CreateSkinnedEditBox(card, label, tip, 70, key, true)
-        local rowY = card:NextY(24)
-        eb:SetPoint("TOPRIGHT", card, "TOPRIGHT", -INNER, rowY)
-        -- The label anchors above the edit box by default; re-anchor it to the
-        -- LEFT of the row instead (edit box on the right, label on the left).
+        local well = eb.well
+        local rowY = card:NextY(26)
+        well:ClearAllPoints()
+        well:SetPoint("TOPRIGHT", card, "TOPRIGHT", -INNER, rowY)
+        -- Re-anchor the label to the LEFT of the row, vertically centered on the well.
         lbl:ClearAllPoints()
         lbl:SetPoint("LEFT", card, "LEFT", INNER, 0)
-        lbl:SetPoint("TOP", eb.well or eb, "TOP", 0, -4)
+        lbl:SetPoint("TOP", well, "TOP", 0, -4)
         setupEditBox(eb, key, min, max, pct)
         uiElements[key] = eb
         return eb
