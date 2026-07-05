@@ -220,26 +220,27 @@ function TabManager:CreateDropdown(parent, labelText, tooltipText, width, settin
 end
 
 function TabManager:CreateProgressBar(parent, width, height)
+    local Theme = TRP3FW.Theme
     local bar = CreateFrame("Frame", nil, parent)
     bar:SetSize(width, height or 20)
 
     local bg = bar:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
+    bg:SetColorTexture(Theme:Color("TRACK"))
     bar.bg = bg
 
     local fill = bar:CreateTexture(nil, "ARTWORK")
     fill:SetPoint("LEFT")
     fill:SetHeight(height or 20)
-    fill:SetColorTexture(0, 1, 0, 0.8)
+    fill:SetColorTexture(Theme:Color("SUCCESS"))
     bar.fill = fill
 
     local border = bar:CreateTexture(nil, "OVERLAY")
     border:SetAllPoints()
-    border:SetColorTexture(0.5, 0.5, 0.5, 0.3)
+    border:SetColorTexture(Theme:Color("BORDER", 0.4))
     border:SetDrawLayer("OVERLAY", 7)
 
-    local text = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local text = bar:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
     text:SetPoint("CENTER")
     bar.text = text
 
@@ -247,9 +248,10 @@ function TabManager:CreateProgressBar(parent, width, height)
         percent = math.max(0, math.min(100, percent))
         local fillWidth = (width * percent) / 100
         self.fill:SetWidth(math.max(1, fillWidth))
-        if percent >= 80 then self.fill:SetColorTexture(0, 0.8, 0, 0.8)
-        elseif percent >= 50 then self.fill:SetColorTexture(1, 0.8, 0, 0.8)
-        else self.fill:SetColorTexture(0.9, 0.2, 0, 0.8) end
+        -- <50 red, 50-80 amber, >=80 green (matches the dashboard convention).
+        if percent >= 80 then self.fill:SetColorTexture(Theme:Color("SUCCESS"))
+        elseif percent >= 50 then self.fill:SetColorTexture(Theme:Color("WARN"))
+        else self.fill:SetColorTexture(Theme:Color("DANGER")) end
         self.text:SetText(displayText or string.format("%.1f%%", percent))
     end
 
@@ -257,25 +259,22 @@ function TabManager:CreateProgressBar(parent, width, height)
 end
 
 function TabManager:CreateStatCard(parent, width, height)
-    local card = CreateFrame("Frame", nil, parent)
+    local Theme = TRP3FW.Theme
+    local card = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     card:SetSize(width, height)
-    local bg = card:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.15, 0.15, 0.18, 0.9)
-    local border = CreateFrame("Frame", nil, card, "BackdropTemplate")
-    border:SetAllPoints()
-    border:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12, insets = { left = 2, right = 2, top = 2, bottom = 2 } })
-    border:SetBackdropBorderColor(0.3, 0.3, 0.35, 1)
-    local title = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    card:SetBackdrop(Theme.BACKDROP_CHIP)
+    card:SetBackdropColor(Theme:Color("INSET"))
+    card:SetBackdropBorderColor(Theme:Color("BORDER"))
+    local title = card:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
     title:SetPoint("TOP", 0, -8)
-    title:SetTextColor(0.7, 0.7, 0.7)
+    title:SetTextColor(Theme:Color("TEXT_MUTED"))
     card.title = title
-    local value = card:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    local value = card:CreateFontString(nil, "OVERLAY", Theme.fonts.VALUE)
     value:SetPoint("CENTER", 0, -5)
     card.value = value
-    local subtext = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local subtext = card:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
     subtext:SetPoint("BOTTOM", 0, 8)
-    subtext:SetTextColor(0.6, 0.6, 0.6)
+    subtext:SetTextColor(Theme:Color("TEXT_MUTED"))
     card.subtext = subtext
     return card
 end

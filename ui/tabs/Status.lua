@@ -14,15 +14,21 @@ local SECTION_GAP = 12
 -- The previousAnchor (frame or nil) is what we anchor below; if nil, anchor to top of content.
 -- expandedHeight = total content height when expanded (excluding the header).
 local function CreateSection(parent, previousAnchor, title, expandedHeight, defaultOpen, onToggle)
-    local frame = CreateFrame("Frame", nil, parent)
+    local Theme = TRP3FW.Theme
+    local INNER = Theme.metrics.INNER
+    local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     frame:SetWidth(1) -- width inherited from anchors
     if previousAnchor then
-        frame:SetPoint("TOPLEFT", previousAnchor, "BOTTOMLEFT", 0, -SECTION_GAP)
-        frame:SetPoint("TOPRIGHT", previousAnchor, "BOTTOMRIGHT", 0, -SECTION_GAP)
+        frame:SetPoint("TOPLEFT", previousAnchor, "BOTTOMLEFT", 0, -Theme.metrics.CARD_GAP)
+        frame:SetPoint("TOPRIGHT", previousAnchor, "BOTTOMRIGHT", 0, -Theme.metrics.CARD_GAP)
     else
-        frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -10)
-        frame:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -10)
+        frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+        frame:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 0)
     end
+    -- Card-style backdrop so each collapsible section reads like the other tabs.
+    frame:SetBackdrop(Theme.BACKDROP_CARD)
+    frame:SetBackdropColor(Theme:Color("CARD"))
+    frame:SetBackdropBorderColor(Theme:Color("BORDER"))
 
     local section = {
         frame = frame,
@@ -32,24 +38,24 @@ local function CreateSection(parent, previousAnchor, title, expandedHeight, defa
         title = title,
     }
 
-    local header = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    header:SetPoint("TOPLEFT", 20, 0)
-    header:SetTextColor(0, 1, 1)
+    local header = frame:CreateFontString(nil, "ARTWORK", Theme.fonts.CAPTION)
+    header:SetPoint("TOPLEFT", INNER + 16, -10)  -- room for the arrow to its left
+    header:SetTextColor(Theme:Color("GOLD"))
     section.header = header
 
     local toggle = CreateFrame("Button", nil, frame)
-    toggle:SetSize(20, 20)
-    toggle:SetPoint("RIGHT", header, "LEFT", -4, 0)
-    local arrow = toggle:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    toggle:SetSize(16, 16)
+    toggle:SetPoint("RIGHT", header, "LEFT", -6, 0)
+    local arrow = toggle:CreateFontString(nil, "OVERLAY", Theme.fonts.CAPTION)
     arrow:SetAllPoints()
     arrow:SetJustifyH("CENTER")
-    arrow:SetTextColor(0, 1, 1)
+    arrow:SetTextColor(Theme:Color("GOLD"))
 
     local line = frame:CreateTexture(nil, "ARTWORK")
     line:SetHeight(1)
-    line:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -5)
-    line:SetPoint("RIGHT", frame, -20, 0)
-    line:SetColorTexture(0.3, 0.3, 0.3, 1)
+    line:SetPoint("TOPLEFT", header, "BOTTOMLEFT", -16, -8)
+    line:SetPoint("RIGHT", frame, -INNER, 0)
+    line:SetColorTexture(Theme:Color("BORDER"))
 
     -- Hitbox spanning the whole header strip so users don't have to click the tiny arrow
     local hitbox = CreateFrame("Button", nil, frame)
@@ -65,9 +71,10 @@ local function CreateSection(parent, previousAnchor, title, expandedHeight, defa
     section.body = body
 
     function section:Refresh()
-        -- ASCII glyphs: GameFontNormalLarge (Friz Quadrata) doesn't include the
-        -- Unicode triangle codepoints (U+25BC / U+25B6), so they render as tofu.
-        header:SetText((self.open and "[-] " or "[+] ") .. self.title)
+        -- ASCII glyphs: the caption font doesn't include the Unicode triangle
+        -- codepoints (U+25BC / U+25B6), so they render as tofu -- use +/-.
+        arrow:SetText(self.open and "-" or "+")
+        header:SetText(self.title)
         if self.open then
             body:Show()
             frame:SetHeight(SECTION_HEADER_HEIGHT + self.expandedHeight)
@@ -223,11 +230,9 @@ local function CreateStatusTab(container)
             if TRP3FW.UpdateBackgroundTracking then TRP3FW:UpdateBackgroundTracking() end
         end)
 
-        local showHistoryBtn = CreateFrame("Button", nil, body, "UIPanelButtonTemplate")
-        showHistoryBtn:SetSize(120, 22)
+        local showHistoryBtn = TabManager:CreateButton(body, "Show graphs", 120, false)
         showHistoryBtn:SetPoint("LEFT", histCheck.label, "RIGHT", 20, 0)
-        showHistoryBtn:SetText("Show Graphs")
-        showHistoryBtn:SetScript("OnClick", function()
+        showHistoryBtn:SetOnClick(function()
             if TRP3FW.ToggleHistoryWindow then TRP3FW:ToggleHistoryWindow() end
         end)
     end
@@ -307,9 +312,10 @@ local function CreateStatusTab(container)
     settingsFrame:SetPoint("TOPRIGHT", privSec.frame, "BOTTOMRIGHT", 0, -SECTION_GAP)
     settingsFrame:SetHeight(110)
     do
-        TabManager:CreateSectionHeader(settingsFrame, "Status Tab Settings", 0)
-        local refreshText = settingsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        refreshText:SetPoint("TOPLEFT", 20, -35); refreshText:SetText("Auto-Refresh Rate:")
+        TabManager:CreateSkinnedHeader(settingsFrame, "Status tab settings", 0)
+        local refreshText = settingsFrame:CreateFontString(nil, "OVERLAY", TRP3FW.Theme.fonts.LABEL)
+        refreshText:SetPoint("TOPLEFT", 20, -35); refreshText:SetText("Auto-refresh rate:")
+        refreshText:SetTextColor(TRP3FW.Theme:Color("TEXT_SECONDARY"))
 
         local slider = CreateFrame("Slider", "TRP3FW_StatusRefreshSlider", settingsFrame, "OptionsSliderTemplate")
         slider:SetPoint("TOPLEFT", 20, -65); slider:SetWidth(360)
@@ -325,10 +331,9 @@ local function CreateStatusTab(container)
             if TRP3FW.StartStatusUpdates then TRP3FW:StartStatusUpdates() end
         end)
 
-        local refreshBtn = CreateFrame("Button", nil, settingsFrame, "UIPanelButtonTemplate")
-        refreshBtn:SetSize(90, 22); refreshBtn:SetPoint("LEFT", slider, "RIGHT", 12, 0)
-        refreshBtn:SetText("Refresh now")
-        refreshBtn:SetScript("OnClick", function() if TRP3FW.UpdateStatusTab then TRP3FW:UpdateStatusTab() end end)
+        local refreshBtn = TabManager:CreateButton(settingsFrame, "Refresh now", 90, false)
+        refreshBtn:SetPoint("LEFT", slider, "RIGHT", 12, 0)
+        refreshBtn:SetOnClick(function() if TRP3FW.UpdateStatusTab then TRP3FW:UpdateStatusTab() end end)
     end
 
     -- Default expansion by complexity (per spec 6.5)
