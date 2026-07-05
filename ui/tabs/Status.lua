@@ -7,8 +7,11 @@
 local addonName, TRP3FW = ...
 local TabManager = TRP3FW.TabManager
 
-local SECTION_HEADER_HEIGHT = 30   -- header + underline + small gap
-local SECTION_GAP = 12
+-- Header block: caption top(10) + caption height(20) + gap(8) + rule(1) +
+-- gap(8) = 47, matching CreateCard's captioned topPad so the divider has equal
+-- spacing above/below and the body clears it. Collapsed frames use this height.
+local SECTION_HEADER_HEIGHT = 47
+local SECTION_GAP = 8
 
 -- Build a section container that supports collapse with reflow.
 -- The previousAnchor (frame or nil) is what we anchor below; if nil, anchor to top of content.
@@ -40,6 +43,8 @@ local function CreateSection(parent, previousAnchor, title, expandedHeight, defa
 
     local header = frame:CreateFontString(nil, "ARTWORK", Theme.fonts.CAPTION)
     header:SetPoint("TOPLEFT", INNER + 16, -10)  -- room for the arrow to its left
+    header:SetHeight(20)  -- fixed so the divider anchor is deterministic
+    header:SetJustifyV("MIDDLE")
     header:SetTextColor(Theme:Color("GOLD"))
     section.header = header
 
