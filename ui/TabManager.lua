@@ -395,10 +395,11 @@ function TabManager:CreateCard(parent, captionText, width)
     card:SetBackdropColor(Theme:Color("CARD"))
     card:SetBackdropBorderColor(Theme:Color("BORDER"))
 
+    local INNER = Theme.metrics.INNER
     local topPad = 10
     if captionText then
         local cap = card:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-        cap:SetPoint("TOPLEFT", 12, -9)
+        cap:SetPoint("TOPLEFT", INNER, -9)
         cap:SetText(captionText:upper())
         cap:SetTextColor(Theme:Color("GOLD"))
         card.caption = cap
@@ -406,7 +407,7 @@ function TabManager:CreateCard(parent, captionText, width)
         local rule = card:CreateTexture(nil, "ARTWORK")
         rule:SetHeight(1)
         rule:SetPoint("TOPLEFT", cap, "BOTTOMLEFT", 0, -4)
-        rule:SetPoint("RIGHT", card, "RIGHT", -12, 0)
+        rule:SetPoint("RIGHT", card, "RIGHT", -INNER, 0)
         rule:SetColorTexture(Theme:Color("BORDER"))
         card.rule = rule
         topPad = 30

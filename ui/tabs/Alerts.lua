@@ -126,11 +126,11 @@ local function CreateAlertsTab(container)
 
     -- Current mode summary
     local sumHdr = presetCard:CreateFontString(nil, "ARTWORK", TRP3FW.Theme.fonts.SUB)
-    sumHdr:SetPoint("TOPLEFT", 12, presetCard:NextY(18))
+    sumHdr:SetPoint("TOPLEFT", 8, presetCard:NextY(18))
     sumHdr:SetText("Current modes")
     sumHdr:SetTextColor(TRP3FW.Theme:Color("TEXT_MUTED"))
     uiElements.notificationModeSummaryNotify = presetCard:CreateFontString(nil, "ARTWORK", TRP3FW.Theme.fonts.SUB)
-    uiElements.notificationModeSummaryNotify:SetPoint("TOPLEFT", 12, presetCard:NextY(44))
+    uiElements.notificationModeSummaryNotify:SetPoint("TOPLEFT", 8, presetCard:NextY(44))
     uiElements.notificationModeSummaryNotify:SetWidth(CARD_W - 24)
     uiElements.notificationModeSummaryNotify:SetJustifyH("LEFT")
     uiElements.notificationModeSummaryNotify:SetTextColor(TRP3FW.Theme:Color("TEXT_PRIMARY"))
@@ -141,7 +141,7 @@ local function CreateAlertsTab(container)
 
     local pcm = TabManager:CreateSkinnedDropdown(locCard, "Phase check mode",
         "How should TRP3FW respond when someone from a different phase requests your profile? Default: Alert.", 220, "phaseCheckMode")
-    pcm:SetPoint("TOPLEFT", 6, locCard:NextY(56) - 16); uiElements.phaseCheckModeDropdown = pcm
+    pcm:SetPoint("TOPLEFT", -8, locCard:NextY(56) - 16); uiElements.phaseCheckModeDropdown = pcm
     UIDropDownMenu_Initialize(pcm, function()
         for _, it in ipairs(MODE_OPTIONS) do
             local info = UIDropDownMenu_CreateInfo(); info.text = it.t
@@ -157,7 +157,7 @@ local function CreateAlertsTab(container)
 
     local mcm = TabManager:CreateSkinnedDropdown(locCard, "Map check mode",
         "How should TRP3FW respond when someone from a different map requests your profile? Default: Alert.", 220, "mapCheckMode")
-    mcm:SetPoint("TOPLEFT", 6, locCard:NextY(56)); uiElements.mapCheckModeDropdown = mcm
+    mcm:SetPoint("TOPLEFT", -8, locCard:NextY(56)); uiElements.mapCheckModeDropdown = mcm
     UIDropDownMenu_Initialize(mcm, function()
         for _, it in ipairs(MODE_OPTIONS) do
             local info = UIDropDownMenu_CreateInfo(); info.text = it.t
@@ -173,14 +173,14 @@ local function CreateAlertsTab(container)
 
     uiElements.allowGroupPhaseBypass = TabManager:CreateToggle(locCard,
         "Auto-allow party/raid", "Party/raid members skip checks.", "allowGroupPhaseBypass")
-    uiElements.allowGroupPhaseBypass:SetPoint("TOPLEFT", 12, locCard:NextY())
-    uiElements.allowGroupPhaseBypass:SetPoint("RIGHT", locCard, "RIGHT", -14, 0)
+    uiElements.allowGroupPhaseBypass:SetPoint("TOPLEFT", 8, locCard:NextY())
+    uiElements.allowGroupPhaseBypass:SetPoint("RIGHT", locCard, "RIGHT", -8, 0)
     uiElements.allowGroupPhaseBypass:SetOnToggle(function(c) TRP3FW.Prefs.allowGroupPhaseBypass = c end)
 
     uiElements.useWhoQuery = TabManager:CreateToggle(locCard,
         "Use WHO query", "Use WHO queries as a secondary location check (Epsilon only).", "useWhoQuery")
-    uiElements.useWhoQuery:SetPoint("TOPLEFT", 12, locCard:NextY())
-    uiElements.useWhoQuery:SetPoint("RIGHT", locCard, "RIGHT", -14, 0)
+    uiElements.useWhoQuery:SetPoint("TOPLEFT", 8, locCard:NextY())
+    uiElements.useWhoQuery:SetPoint("RIGHT", locCard, "RIGHT", -8, 0)
     uiElements.useWhoQuery:SetOnToggle(function(c) TRP3FW.Prefs.useWhoQuery = c end)
     if epsilonControls then table.insert(epsilonControls, uiElements.useWhoQuery) end
     -- Toggle rows advance 30 for 22-tall pills, leaving 8 residual; pad 0 keeps
@@ -192,7 +192,7 @@ local function CreateAlertsTab(container)
 
     local gpd = TabManager:CreateSkinnedDropdown(ghostCard, "Ghost profile",
         "Choose which profile to send in ghost mode.", 300, "ghostProfileName")
-    gpd:SetPoint("TOPLEFT", 6, ghostCard:NextY(56) - 16); uiElements.ghostProfileDropdown = gpd
+    gpd:SetPoint("TOPLEFT", -8, ghostCard:NextY(56) - 16); uiElements.ghostProfileDropdown = gpd
     UIDropDownMenu_Initialize(gpd, function()
         local profiles = TRP3FW:GetAllProfiles()
         if #profiles > 0 then
@@ -210,35 +210,35 @@ local function CreateAlertsTab(container)
     end)
 
     uiElements.epsilonWarning = ghostCard:CreateFontString(nil, "OVERLAY", TRP3FW.Theme.fonts.SUB)
-    uiElements.epsilonWarning:SetPoint("TOPLEFT", 12, ghostCard:NextY(20))
+    uiElements.epsilonWarning:SetPoint("TOPLEFT", 8, ghostCard:NextY(20))
     uiElements.epsilonWarning:SetText("|cffff6600Epsilon-only options hidden (API unavailable)|r")
     uiElements.epsilonWarning:Hide()
 
     uiElements.blockStartPhase = TabManager:CreateToggle(ghostCard,
         "Block in start phase", "Block transmissions in phase 169.", "blockStartPhase")
-    uiElements.blockStartPhase:SetPoint("TOPLEFT", 12, ghostCard:NextY())
-    uiElements.blockStartPhase:SetPoint("RIGHT", ghostCard, "RIGHT", -14, 0)
+    uiElements.blockStartPhase:SetPoint("TOPLEFT", 8, ghostCard:NextY())
+    uiElements.blockStartPhase:SetPoint("RIGHT", ghostCard, "RIGHT", -8, 0)
     uiElements.blockStartPhase:SetOnToggle(function(c) TRP3FW.Prefs.blockStartPhase = c; if TRP3FW.Prefs.ghostOnStartPhase and TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end)
     if epsilonControls then table.insert(epsilonControls, uiElements.blockStartPhase) end
 
     uiElements.ghostOnStartPhase = TabManager:CreateToggle(ghostCard,
         "Ghost in start phase", "Send blank profile in phase 169.", "ghostOnStartPhase")
-    uiElements.ghostOnStartPhase:SetPoint("TOPLEFT", 12, ghostCard:NextY())
-    uiElements.ghostOnStartPhase:SetPoint("RIGHT", ghostCard, "RIGHT", -14, 0)
+    uiElements.ghostOnStartPhase:SetPoint("TOPLEFT", 8, ghostCard:NextY())
+    uiElements.ghostOnStartPhase:SetPoint("RIGHT", ghostCard, "RIGHT", -8, 0)
     uiElements.ghostOnStartPhase:SetOnToggle(function(c) TRP3FW.Prefs.ghostOnStartPhase = c; if TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end)
     if epsilonControls then table.insert(epsilonControls, uiElements.ghostOnStartPhase) end
 
     uiElements.ghostProfileSwitch = TabManager:CreateToggle(ghostCard,
         "Auto-switch to blank profile", "Switch to blank profile in 169/1605.", "ghostProfileSwitch")
-    uiElements.ghostProfileSwitch:SetPoint("TOPLEFT", 12, ghostCard:NextY())
-    uiElements.ghostProfileSwitch:SetPoint("RIGHT", ghostCard, "RIGHT", -14, 0)
+    uiElements.ghostProfileSwitch:SetPoint("TOPLEFT", 8, ghostCard:NextY())
+    uiElements.ghostProfileSwitch:SetPoint("RIGHT", ghostCard, "RIGHT", -8, 0)
     uiElements.ghostProfileSwitch:SetOnToggle(function(c) TRP3FW.Prefs.ghostProfileSwitch = c; if TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end)
     if epsilonControls then table.insert(epsilonControls, uiElements.ghostProfileSwitch) end
 
     uiElements.ghostProfileWhitelistEnabled = TabManager:CreateToggle(ghostCard,
         "Exclude phases/maps", "Keep real profile in specific areas.", "ghostProfileWhitelistEnabled")
-    uiElements.ghostProfileWhitelistEnabled:SetPoint("TOPLEFT", 12, ghostCard:NextY())
-    uiElements.ghostProfileWhitelistEnabled:SetPoint("RIGHT", ghostCard, "RIGHT", -14, 0)
+    uiElements.ghostProfileWhitelistEnabled:SetPoint("TOPLEFT", 8, ghostCard:NextY())
+    uiElements.ghostProfileWhitelistEnabled:SetPoint("RIGHT", ghostCard, "RIGHT", -8, 0)
     uiElements.ghostProfileWhitelistEnabled:SetOnToggle(function(c)
         TRP3FW.Prefs.ghostProfileWhitelistEnabled = c
         if uiElements.ghostProfileWhitelistEdit then if c then uiElements.ghostProfileWhitelistEdit:Enable() else uiElements.ghostProfileWhitelistEdit:Disable() end; uiElements.ghostProfileWhitelistEdit:SetAlpha(c and 1 or 0.5) end
@@ -246,8 +246,8 @@ local function CreateAlertsTab(container)
     if epsilonControls then table.insert(epsilonControls, uiElements.ghostProfileWhitelistEnabled) end
 
     -- Multiline exclusion whitelist, in a slate well. The visual box is the
-    -- backdrop (-6 left / +26 right of the scroll), so offset the scroll to put
-    -- the BOX exactly GAP(8) from each card edge: 14-6=8, 14+(W-48)+26 = W-8.
+    -- backdrop (-6 left / +26 right of the scroll). Match the 8px interior inset
+    -- (== all card gaps): box left = 14-6 = 8, box right = 14+(W-48)+26 = W-8.
     local wlY = ghostCard:NextY(96)
     local wls = CreateFrame("ScrollFrame", nil, ghostCard, "UIPanelScrollFrameTemplate")
     wls:SetPoint("TOPLEFT", 14, wlY); wls:SetSize(CARD_W - 48, 90); uiElements.ghostProfileWhitelistScroll = wls
@@ -280,7 +280,7 @@ local function CreateAlertsTab(container)
         TRP3FW.Prefs.ghostProfileOverrides[i] = TRP3FW.Prefs.ghostProfileOverrides[i] or {}
         local entry = TRP3FW.Prefs.ghostProfileOverrides[i]
         local rowY = ovCard:NextY(34)
-        local l = ovCard:CreateFontString(nil, "OVERLAY", TRP3FW.Theme.fonts.SUB); l:SetPoint("TOPLEFT", 12, rowY - 4); l:SetText(string.format("#%02d", i)); l:SetTextColor(TRP3FW.Theme:Color("TEXT_MUTED"))
+        local l = ovCard:CreateFontString(nil, "OVERLAY", TRP3FW.Theme.fonts.SUB); l:SetPoint("TOPLEFT", 8, rowY - 4); l:SetText(string.format("#%02d", i)); l:SetTextColor(TRP3FW.Theme:Color("TEXT_MUTED"))
         local cb = CreateFrame("EditBox", nil, ovCard, "InputBoxTemplate"); cb:SetSize(130, 20); cb:SetAutoFocus(false); cb:SetPoint("TOPLEFT", 48, rowY - 2); cb:SetText(entry.match or "")
         cb:SetScript("OnTextChanged", function(self) entry.match = self:GetText() end)
         cb:SetScript("OnEscapePressed", cb.ClearFocus)
@@ -311,7 +311,7 @@ local function CreateAlertsTab(container)
     -- at the button's slot and re-place the button just below it.
     local function placeAddButton()
         addRowBtn:ClearAllPoints()
-        addRowBtn:SetPoint("TOPLEFT", 12, ovCard._cursorY)
+        addRowBtn:SetPoint("TOPLEFT", 8, ovCard._cursorY)
     end
     addRowBtn = TabManager:CreateButton(ovCard, "+ Add row", 100, false)
     placeAddButton()

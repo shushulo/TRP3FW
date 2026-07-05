@@ -30,8 +30,8 @@ local function multilineNames(card, wY, height, initialText, onChanged, onFocusL
     local Theme = TRP3FW.Theme
     local W = Theme.metrics.CARD_W
     -- The visual box is the backdrop, which extends -6 left / +26 right of the
-    -- scroll frame; offset the scroll so the BOX sits exactly GAP(8) from each
-    -- card edge: left 14-6=8, right 14+(W-48)+26 = W-8.
+    -- scroll frame. Match the 8px interior inset (== all card gaps): box left =
+    -- 14-6 = 8, box right = 14+(W-48)+26 = W-8.
     local scroll = CreateFrame("ScrollFrame", nil, card, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 14, wY); scroll:SetSize(W - 48, height)
     local edit = CreateFrame("EditBox", nil, scroll)
@@ -76,13 +76,13 @@ local function CreateSecurityTab(container)
     wlCard:SetBackdropBorderColor(Theme:Color("DANGER"))
 
     local warn = wlCard:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-    warn:SetPoint("TOPLEFT", 12, wlCard:NextY(30)); warn:SetPoint("RIGHT", wlCard, "RIGHT", -12, 0); warn:SetJustifyH("LEFT")
+    warn:SetPoint("TOPLEFT", 8, wlCard:NextY(30)); warn:SetPoint("RIGHT", wlCard, "RIGHT", -8, 0); warn:SetJustifyH("LEFT")
     warn:SetText("|cffff6600Warning:|r listed players will |cffffff00always|r receive your current profile. All phase/map checks, blocking, ghost mode, and start-phase protections are skipped for them.")
 
     uiElements.whitelistEnabled = TabManager:CreateToggle(wlCard, "Enable whitelist bypass",
         "Allow listed names to bypass all security checks and always receive your active profile.", "whitelistEnabled")
-    uiElements.whitelistEnabled:SetPoint("TOPLEFT", 12, wlCard:NextY())
-    uiElements.whitelistEnabled:SetPoint("RIGHT", wlCard, "RIGHT", -14, 0)
+    uiElements.whitelistEnabled:SetPoint("TOPLEFT", 8, wlCard:NextY())
+    uiElements.whitelistEnabled:SetPoint("RIGHT", wlCard, "RIGHT", -8, 0)
     -- Confirm-on-enable (unchanged behavior); toggle exposes GetChecked/SetChecked.
     uiElements.whitelistEnabled:SetScript("OnClick", function(self)
         if self:GetChecked() then
@@ -97,7 +97,7 @@ local function CreateSecurityTab(container)
     end)
 
     local wlLabel = wlCard:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-    wlLabel:SetPoint("TOPLEFT", 12, wlCard:NextY(18)); wlLabel:SetTextColor(Theme:Color("TEXT_SECONDARY"))
+    wlLabel:SetPoint("TOPLEFT", 8, wlCard:NextY(18)); wlLabel:SetTextColor(Theme:Color("TEXT_SECONDARY"))
     uiElements.whitelistNameLabel = wlLabel
 
     local function countNames(text)
@@ -128,19 +128,19 @@ local function CreateSecurityTab(container)
 
     uiElements.notifyOnScanResponse = TabManager:CreateToggle(scanCard, "Show scan reply notifications",
         "Controls notifications for scan replies.", "notifyOnScanResponse")
-    uiElements.notifyOnScanResponse:SetPoint("TOPLEFT", 12, scanCard:NextY())
-    uiElements.notifyOnScanResponse:SetPoint("RIGHT", scanCard, "RIGHT", -14, 0)
+    uiElements.notifyOnScanResponse:SetPoint("TOPLEFT", 8, scanCard:NextY())
+    uiElements.notifyOnScanResponse:SetPoint("RIGHT", scanCard, "RIGHT", -8, 0)
     uiElements.notifyOnScanResponse:SetOnToggle(function(c) TRP3FW.Prefs.notifyOnScanResponse = c; TRP3FW:RefreshUI() end)
 
     uiElements.notifyOnScanAllow = TabManager:CreateToggle(scanCard, "Notify on scan allow",
         "Show notifications when scan replies are allowed.", "notifyOnScanAllow")
-    uiElements.notifyOnScanAllow:SetPoint("TOPLEFT", 12, scanCard:NextY())
-    uiElements.notifyOnScanAllow:SetPoint("RIGHT", scanCard, "RIGHT", -14, 0)
+    uiElements.notifyOnScanAllow:SetPoint("TOPLEFT", 8, scanCard:NextY())
+    uiElements.notifyOnScanAllow:SetPoint("RIGHT", scanCard, "RIGHT", -8, 0)
     uiElements.notifyOnScanAllow:SetOnToggle(function(c) TRP3FW.Prefs.notifyOnScanAllow = c end)
 
     local function scanModeDropdown(label, key, extraKey)
         local d = TabManager:CreateSkinnedDropdown(scanCard, label, "Behavior for scan replies.", 220, key)
-        d:SetPoint("TOPLEFT", 6, scanCard:NextY(52) - 16)
+        d:SetPoint("TOPLEFT", -8, scanCard:NextY(52) - 16)
         UIDropDownMenu_Initialize(d, function()
             local m = { {text="Off", val="off"}, {text="Statistics only", val="statistics"}, {text="Alert (send anyway)", val="alert"}, {text="Block (silent)", val="block"}, {text="Alert + block", val="alert_block"} }
             for _, item in ipairs(m) do
@@ -168,14 +168,14 @@ local function CreateSecurityTab(container)
     for _, g in ipairs(gating) do
         local key, label, tip = g[1], g[2], g[3]
         local t = TabManager:CreateToggle(scanCard, label, tip, key)
-        t:SetPoint("TOPLEFT", 12, scanCard:NextY())
-        t:SetPoint("RIGHT", scanCard, "RIGHT", -14, 0)
+        t:SetPoint("TOPLEFT", 8, scanCard:NextY())
+        t:SetPoint("RIGHT", scanCard, "RIGHT", -8, 0)
         t:SetOnToggle(function(c) TRP3FW.Prefs[key] = c; if key == "scanResponseWhitelistEnabled" then TRP3FW:RefreshUI() end end)
         uiElements[key] = t
     end
 
     local swLabel = scanCard:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-    swLabel:SetPoint("TOPLEFT", 12, scanCard:NextY(18)); swLabel:SetTextColor(Theme:Color("TEXT_SECONDARY"))
+    swLabel:SetPoint("TOPLEFT", 8, scanCard:NextY(18)); swLabel:SetTextColor(Theme:Color("TEXT_SECONDARY"))
     swLabel:SetText("Scan reply whitelist (one name per line):")
 
     local swScroll, swEdit = multilineNames(scanCard, scanCard:NextY(86), 80, TRP3FW.Prefs.scanResponseWhitelist,
@@ -193,11 +193,11 @@ local function CreateSecurityTab(container)
     local spvpCard = stackCard(content, TabManager:CreateCard(content, "SPVP (cryptographic phase verification)", W), scanCard)
 
     local info = spvpCard:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-    info:SetPoint("TOPLEFT", 12, spvpCard:NextY(46)); info:SetPoint("RIGHT", spvpCard, "RIGHT", -12, 0); info:SetJustifyH("LEFT")
+    info:SetPoint("TOPLEFT", 8, spvpCard:NextY(46)); info:SetPoint("RIGHT", spvpCard, "RIGHT", -8, 0); info:SetJustifyH("LEFT")
     info:SetText("|cff00ccffSPVP|r verifies phase membership cryptographically as a fallback when normal location checks fail. Phase owners set a security key (salt); players in the same phase can then prove it without proximity checks.")
 
     local smd = TabManager:CreateSkinnedDropdown(spvpCard, "SPVP mode", "Control SPVP usage.", 220, "spvpMode")
-    smd:SetPoint("TOPLEFT", 6, spvpCard:NextY(52) - 16); uiElements.spvpModeDropdown = smd
+    smd:SetPoint("TOPLEFT", -8, spvpCard:NextY(52) - 16); uiElements.spvpModeDropdown = smd
     UIDropDownMenu_Initialize(smd, function()
         local l = { {t="Off", v="off"}, {t="Optional (post-check)", v="optional"}, {t="Preferred (pre-check)", v="preferred"}, {t="Required (strict)", v="required"} }
         for _, it in ipairs(l) do
@@ -210,34 +210,34 @@ local function CreateSecurityTab(container)
 
     uiElements.spvpAutoInitialize = TabManager:CreateToggle(spvpCard, "Auto-initialize salts",
         "Auto-generate keys for owned phases.", "spvpAutoInitialize")
-    uiElements.spvpAutoInitialize:SetPoint("TOPLEFT", 12, spvpCard:NextY())
-    uiElements.spvpAutoInitialize:SetPoint("RIGHT", spvpCard, "RIGHT", -14, 0)
+    uiElements.spvpAutoInitialize:SetPoint("TOPLEFT", 8, spvpCard:NextY())
+    uiElements.spvpAutoInitialize:SetPoint("RIGHT", spvpCard, "RIGHT", -8, 0)
     uiElements.spvpAutoInitialize:SetOnToggle(function(c) TRP3FW.Prefs.spvpAutoInitialize = c end)
     if epsilonControls then table.insert(epsilonControls, uiElements.spvpAutoInitialize) end
 
     local blockSlider = TabManager:CreateSlider(spvpCard, "Block duration",
         "How long a failed SPVP check blocks a sender.", "spvpBlockDuration", 10, 600, 10, "%d s")
-    blockSlider:SetPoint("TOPLEFT", 12, spvpCard:NextY(40))
-    blockSlider:SetPoint("RIGHT", spvpCard, "RIGHT", -14, 0)
+    blockSlider:SetPoint("TOPLEFT", 8, spvpCard:NextY(40))
+    blockSlider:SetPoint("RIGHT", spvpCard, "RIGHT", -8, 0)
     blockSlider:SetOnChange(function(v) TRP3FW.Prefs.spvpBlockDuration = v end)
     uiElements.spvpBlockDurationSlider = blockSlider
     if epsilonControls then table.insert(epsilonControls, blockSlider) end
 
     local saltSlider = TabManager:CreateSlider(spvpCard, "Salt cache",
         "How long to cache phase salts.", "spvpSaltCacheDuration", 300, 43200, 300, "%d s")
-    saltSlider:SetPoint("TOPLEFT", 12, spvpCard:NextY(40))
-    saltSlider:SetPoint("RIGHT", spvpCard, "RIGHT", -14, 0)
+    saltSlider:SetPoint("TOPLEFT", 8, spvpCard:NextY(40))
+    saltSlider:SetPoint("RIGHT", spvpCard, "RIGHT", -8, 0)
     saltSlider:SetOnChange(function(v) TRP3FW.Prefs.spvpSaltCacheDuration = v end)
     uiElements.spvpSaltCacheDurationSlider = saltSlider
     if epsilonControls then table.insert(epsilonControls, saltSlider) end
 
     uiElements.spvpSaltStatus = spvpCard:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-    uiElements.spvpSaltStatus:SetPoint("TOPLEFT", 12, spvpCard:NextY(24)); uiElements.spvpSaltStatus:SetPoint("RIGHT", spvpCard, "RIGHT", -12, 0); uiElements.spvpSaltStatus:SetJustifyH("LEFT")
+    uiElements.spvpSaltStatus:SetPoint("TOPLEFT", 8, spvpCard:NextY(24)); uiElements.spvpSaltStatus:SetPoint("RIGHT", spvpCard, "RIGHT", -8, 0); uiElements.spvpSaltStatus:SetJustifyH("LEFT")
     uiElements.spvpSaltStatus:SetText("Loading phase status...")
     if epsilonControls then table.insert(epsilonControls, uiElements.spvpSaltStatus) end
 
     uiElements.spvpSecureButton = TabManager:CreateButton(spvpCard, "Secure this phase", 180, false)
-    uiElements.spvpSecureButton:SetPoint("TOPLEFT", 12, spvpCard:NextY(24))
+    uiElements.spvpSecureButton:SetPoint("TOPLEFT", 8, spvpCard:NextY(24))
     uiElements.spvpSecureButton:SetOnClick(function()
         if not C_Epsilon or not (C_Epsilon.IsOwner() or C_Epsilon.IsOfficer()) then
             TRP3FW:Error("You must be a phase owner or officer to secure phases.")

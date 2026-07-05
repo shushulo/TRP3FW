@@ -35,7 +35,7 @@ local function CreateFiltersTab(container)
         "How many settings to show. Higher levels reveal more advanced options.", 220, "uiComplexityLevel")
     -- Dropdowns carry their own label ABOVE the frame, so drop them ~16px below
     -- the cursor to clear the card caption/divider.
-    cx:SetPoint("TOPLEFT", 6, cxCard:NextY(60) - 16)
+    cx:SetPoint("TOPLEFT", -8, cxCard:NextY(60) - 16)
     uiElements.complexityDropdown = cx
     UIDropDownMenu_Initialize(cx, function(self, level)
         for i = 1, 4 do
@@ -59,25 +59,25 @@ local function CreateFiltersTab(container)
 
     uiElements.filterGradients = TabManager:CreateToggle(fCard,
         "Strip colour gradients", "Remove colour gradients from incoming profiles.", "filterGradients")
-    uiElements.filterGradients:SetPoint("TOPLEFT", 12, fCard:NextY())
-    uiElements.filterGradients:SetPoint("RIGHT", fCard, "RIGHT", -14, 0)
+    uiElements.filterGradients:SetPoint("TOPLEFT", 8, fCard:NextY())
+    uiElements.filterGradients:SetPoint("RIGHT", fCard, "RIGHT", -8, 0)
     uiElements.filterGradients:SetOnToggle(function(c) TRP3FW.Prefs.filterGradients = c; TRP3FW:Info("Filter change will take effect after /reload") end)
 
     uiElements.filterIcons = TabManager:CreateToggle(fCard,
         "Strip icons from profiles", "Remove embedded icons from profile fields.", "filterIcons")
-    uiElements.filterIcons:SetPoint("TOPLEFT", 12, fCard:NextY())
-    uiElements.filterIcons:SetPoint("RIGHT", fCard, "RIGHT", -14, 0)
+    uiElements.filterIcons:SetPoint("TOPLEFT", 8, fCard:NextY())
+    uiElements.filterIcons:SetPoint("RIGHT", fCard, "RIGHT", -8, 0)
     uiElements.filterIcons:SetOnToggle(function(c) TRP3FW.Prefs.filterIcons = c; TRP3FW:Info("Filter change will take effect after /reload") end)
 
     uiElements.filterMinimumFontSize = TabManager:CreateToggle(fCard,
         "Minimum font size", "Inject a minimum font size into incoming profiles.", "filterMinimumFontSize")
-    uiElements.filterMinimumFontSize:SetPoint("TOPLEFT", 12, fCard:NextY(M.ROW_TALL))
-    uiElements.filterMinimumFontSize:SetPoint("RIGHT", fCard, "RIGHT", -14, 0)
+    uiElements.filterMinimumFontSize:SetPoint("TOPLEFT", 8, fCard:NextY(M.ROW_TALL))
+    uiElements.filterMinimumFontSize:SetPoint("RIGHT", fCard, "RIGHT", -8, 0)
     uiElements.filterMinimumFontSize:SetOnToggle(function(c) TRP3FW.Prefs.filterMinimumFontSize = c; TRP3FW:RefreshUI() end)
 
     local fsd = TabManager:CreateSkinnedDropdown(fCard, "Font size level",
         "Minimum font size to inject.", 200, "minimumFontSizeLevel")
-    fsd:SetPoint("TOPLEFT", 6, fCard:NextY(48))
+    fsd:SetPoint("TOPLEFT", -8, fCard:NextY(48))
     -- RefreshUI sets the text via "...LevelDropdown" (dropdownConfig loop) and
     -- enables/disables via "...Dropdown"; point both at this widget so it both
     -- shows the value and greys out when the toggle is off.

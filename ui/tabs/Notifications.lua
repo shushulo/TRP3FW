@@ -30,7 +30,7 @@ end
 -- and stretch its row to the card's right edge so the pill hugs the right side.
 local function bindToggle(toggle, key)
     toggle:SetOnToggle(function(checked) TRP3FW.Prefs[key] = checked end)
-    toggle:SetPoint("RIGHT", toggle:GetParent(), "RIGHT", -14, 0)
+    toggle:SetPoint("RIGHT", toggle:GetParent(), "RIGHT", -8, 0)
     return toggle
 end
 
@@ -47,7 +47,7 @@ local function CreateNotificationsTab(container)
     local masterCard = stackCard(content, TabManager:CreateCard(content, nil, CARD_W), nil, CARD_W)
     uiElements.notifyEnabled = TabManager:CreateToggle(masterCard,
         "Enable notifications", "Master toggle for all firewall alerts", "notifyEnabled")
-    uiElements.notifyEnabled:SetPoint("TOPLEFT", 12, masterCard:NextY(M.ROW_TALL))
+    uiElements.notifyEnabled:SetPoint("TOPLEFT", 8, masterCard:NextY(M.ROW_TALL))
     bindToggle(uiElements.notifyEnabled, "notifyEnabled")
     masterCard:FitHeight()
 
@@ -56,22 +56,22 @@ local function CreateNotificationsTab(container)
 
     uiElements.notifyOnAllow = TabManager:CreateToggle(notifyCard,
         "On allow (profile sent normally)", "Show notifications when profiles are sent normally (allowed)", "notifyOnAllow")
-    uiElements.notifyOnAllow:SetPoint("TOPLEFT", 12, notifyCard:NextY())
+    uiElements.notifyOnAllow:SetPoint("TOPLEFT", 8, notifyCard:NextY())
     bindToggle(uiElements.notifyOnAllow, "notifyOnAllow")
 
     uiElements.notifyOnStartPhaseBlock = TabManager:CreateToggle(notifyCard,
         "On start-phase block", "Show notifications when blocking in start phase (169)", "notifyOnStartPhaseBlock", "(phase 169)")
-    uiElements.notifyOnStartPhaseBlock:SetPoint("TOPLEFT", 12, notifyCard:NextY())
+    uiElements.notifyOnStartPhaseBlock:SetPoint("TOPLEFT", 8, notifyCard:NextY())
     bindToggle(uiElements.notifyOnStartPhaseBlock, "notifyOnStartPhaseBlock")
 
     uiElements.notifyOnBroadcast = TabManager:CreateToggle(notifyCard,
         "On broadcast", "Show notifications for map scan broadcasts (only affects Allow notifications)", "notifyOnBroadcast", "(affects allow only)")
-    uiElements.notifyOnBroadcast:SetPoint("TOPLEFT", 12, notifyCard:NextY())
+    uiElements.notifyOnBroadcast:SetPoint("TOPLEFT", 8, notifyCard:NextY())
     bindToggle(uiElements.notifyOnBroadcast, "notifyOnBroadcast")
 
     uiElements.notifyOnWhisper = TabManager:CreateToggle(notifyCard,
         "On whisper", "Show notifications for whisper exchanges (only affects Allow notifications)", "notifyOnWhisper", "(affects allow only)")
-    uiElements.notifyOnWhisper:SetPoint("TOPLEFT", 12, notifyCard:NextY())
+    uiElements.notifyOnWhisper:SetPoint("TOPLEFT", 8, notifyCard:NextY())
     bindToggle(uiElements.notifyOnWhisper, "notifyOnWhisper")
     notifyCard:FitHeight()
 
@@ -88,9 +88,9 @@ local function CreateNotificationsTab(container)
         { key = "showCheckResults",      label = "Check detail",   tip = "Append phase and map check results/methods to notifications" },
     }
     local chipY = apprCard:NextY(0)  -- take current cursor without advancing
-    local chipX = 12
-    local rowStartX = 12
-    local maxRight = CARD_W - 14
+    local chipX = 8
+    local rowStartX = 8
+    local maxRight = CARD_W - 8
     for _, spec in ipairs(chipSpecs) do
         local chip = TabManager:CreateChip(apprCard, spec.label, spec.tip, spec.key)
         -- Wrap to a new line when the chip would overflow the card width.
@@ -113,19 +113,19 @@ local function CreateNotificationsTab(container)
     local suppr = TabManager:CreateSlider(supprCard,
         "Duration", "How many seconds to suppress repeated notifications from the same player.",
         "suppressionTime", 0, 600, 5, "%d s")
-    suppr:SetPoint("TOPLEFT", 12, supprCard:NextY(M.ROW_TALL))
-    suppr:SetPoint("RIGHT", supprCard, "RIGHT", -14, 0)
+    suppr:SetPoint("TOPLEFT", 8, supprCard:NextY(M.ROW_TALL))
+    suppr:SetPoint("RIGHT", supprCard, "RIGHT", -8, 0)
     suppr:SetOnChange(function(v) TRP3FW.Prefs.suppressionTime = v end)
     uiElements.suppressionTime = suppr
 
     uiElements.refreshSuppression = TabManager:CreateToggle(supprCard,
         "Extend on activity", "Refresh the suppression window when new profile sends are detected from the same player (sliding window).", "refreshSuppression", "(sliding window)")
-    uiElements.refreshSuppression:SetPoint("TOPLEFT", 12, supprCard:NextY())
+    uiElements.refreshSuppression:SetPoint("TOPLEFT", 8, supprCard:NextY())
     bindToggle(uiElements.refreshSuppression, "refreshSuppression")
 
     uiElements.suppressAllWhoOutput = TabManager:CreateToggle(supprCard,
         "Suppress WHO output", "Hide all WHO results in chat.", "suppressAllWhoOutput")
-    uiElements.suppressAllWhoOutput:SetPoint("TOPLEFT", 12, supprCard:NextY())
+    uiElements.suppressAllWhoOutput:SetPoint("TOPLEFT", 8, supprCard:NextY())
     bindToggle(uiElements.suppressAllWhoOutput, "suppressAllWhoOutput")
     do
         local ec = TabManager:GetEpsilonControls()
