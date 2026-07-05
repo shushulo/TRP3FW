@@ -94,19 +94,24 @@ local function UpdateUIComplexity()
         local hasCustomLogic = widget.settingKey and CUSTOM_LOGIC_KEYS[widget.settingKey]
 
         if enabled then
-            -- Complexity met: enable (unless RefreshUI owns its enabled state) and show.
+            -- Complexity met: show it. Enable only if RefreshUI doesn't own the
+            -- widget's enabled state (custom-logic keys), and don't force-show
+            -- those -- RefreshUI (which ran first) owns their visibility/gating.
             if not hasCustomLogic then
+                if widget.Show then widget:Show() end
+                if widget.label and widget.label.Show then widget.label:Show() end
                 if widget.Enable then widget:Enable() end
                 if widget.EnableDropDown then widget:EnableDropDown() end
             end
             if widget.SetAlpha then widget:SetAlpha(1.0) end
             if widget.label then widget.label:SetAlpha(1.0) end
         else
-            -- Complexity unmet: HIDE it (was: fade to 0.5). The card Reflow below
-            -- also hides+restacks its registered rows; hiding here covers any
-            -- widget not wired into a card row so nothing filtered stays visible.
-            if widget.Disable then widget:Disable() end
-            if widget.DisableDropDown then widget:DisableDropDown() end
+            -- Complexity unmet: HIDE it (was: fade/disable, which just greyed it).
+            -- Card Reflow below restacks rows; hiding here also covers widgets
+            -- not wired into a card row. Custom-logic widgets are hidden too --
+            -- complexity outranks their gating when the level isn't met.
+            if widget.Hide then widget:Hide() end
+            if widget.label and widget.label.Hide then widget.label:Hide() end
         end
     end
 
