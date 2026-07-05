@@ -44,7 +44,7 @@ local function CreateNotificationsTab(container)
     local CARD_W = M.CARD_W
 
     -- ---- Card 1: master toggle --------------------------------------------
-    local masterCard = stackCard(content, TabManager:CreateCard(content, nil, CARD_W), nil, CARD_W)
+    local masterCard = stackCard(content, TabManager:CreateCard(content, "General", CARD_W), nil, CARD_W)
     uiElements.notifyEnabled = TabManager:CreateToggle(masterCard,
         "Enable notifications", "Master toggle for all firewall alerts", "notifyEnabled")
     uiElements.notifyEnabled:SetPoint("TOPLEFT", 12, masterCard:NextY(M.ROW_TALL))

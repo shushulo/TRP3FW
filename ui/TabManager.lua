@@ -398,19 +398,25 @@ function TabManager:CreateCard(parent, captionText, width)
     local INNER = Theme.metrics.INNER
     local topPad = 10
     if captionText then
+        -- Deterministic header block so the divider has EQUAL spacing above and
+        -- below regardless of font metrics:
+        --   captionTop(10) + capH(20) + GAP above + 1px rule + GAP below = topPad
+        local capTop, capH, gap = 10, 20, Theme.metrics.GAP
         local cap = card:CreateFontString(nil, "OVERLAY", Theme.fonts.CAPTION)
-        cap:SetPoint("TOPLEFT", INNER, -10)
+        cap:SetPoint("TOPLEFT", INNER, -capTop)
+        cap:SetHeight(capH)  -- fixed so the rule anchor is deterministic
+        cap:SetJustifyV("MIDDLE")
         cap:SetText(captionText:upper())
         cap:SetTextColor(Theme:Color("GOLD"))
         card.caption = cap
-        -- Hairline divider under the caption (mockup parity; adds structure).
+        -- Hairline divider: `gap` below the caption, `gap` above the first row.
         local rule = card:CreateTexture(nil, "ARTWORK")
         rule:SetHeight(1)
-        rule:SetPoint("TOPLEFT", cap, "BOTTOMLEFT", 0, -5)
+        rule:SetPoint("TOPLEFT", cap, "BOTTOMLEFT", 0, -gap)
         rule:SetPoint("RIGHT", card, "RIGHT", -INNER, 0)
         rule:SetColorTexture(Theme:Color("BORDER"))
         card.rule = rule
-        topPad = 36  -- taller caption font needs a bit more headroom
+        topPad = capTop + capH + gap + 1 + gap  -- = 10+20+8+1+8 = 47
     end
 
     card._cursorY = -topPad
