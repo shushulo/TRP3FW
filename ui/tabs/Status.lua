@@ -219,7 +219,9 @@ local function CreateStatusTab(container)
     -- ============================================================
     -- 6. Performance Metrics + History toggle
     -- ============================================================
-    local perfSec = CreateSection(content, envSec.frame, "Performance Metrics", 130, false)
+    -- expandedHeight fits the four stats (down to -71) plus the checkbox/button
+    -- row at -100 (~24 tall) with a gap below matching the other sections.
+    local perfSec = CreateSection(content, envSec.frame, "Performance Metrics", 140, false)
     do
         local body = perfSec.body
         uiElements.statusLatency       = inlineStat(body, "Latency (Inst/Avg/Peak):",   -5)
