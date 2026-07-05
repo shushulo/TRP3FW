@@ -398,19 +398,19 @@ function TabManager:CreateCard(parent, captionText, width)
     local INNER = Theme.metrics.INNER
     local topPad = 10
     if captionText then
-        local cap = card:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-        cap:SetPoint("TOPLEFT", INNER, -9)
+        local cap = card:CreateFontString(nil, "OVERLAY", Theme.fonts.CAPTION)
+        cap:SetPoint("TOPLEFT", INNER, -10)
         cap:SetText(captionText:upper())
         cap:SetTextColor(Theme:Color("GOLD"))
         card.caption = cap
         -- Hairline divider under the caption (mockup parity; adds structure).
         local rule = card:CreateTexture(nil, "ARTWORK")
         rule:SetHeight(1)
-        rule:SetPoint("TOPLEFT", cap, "BOTTOMLEFT", 0, -4)
+        rule:SetPoint("TOPLEFT", cap, "BOTTOMLEFT", 0, -5)
         rule:SetPoint("RIGHT", card, "RIGHT", -INNER, 0)
         rule:SetColorTexture(Theme:Color("BORDER"))
         card.rule = rule
-        topPad = 30
+        topPad = 36  -- taller caption font needs a bit more headroom
     end
 
     card._cursorY = -topPad

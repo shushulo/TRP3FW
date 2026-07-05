@@ -218,9 +218,10 @@ local function makeFont(name, baseObjectName, fallbackSize)
 end
 
 Theme.fonts = {
-    TITLE  = makeFont("TRP3FW_Font_Title",  "GameFontNormalLarge", 16),
-    HEADER = makeFont("TRP3FW_Font_Header", "GameFontNormal",      12),
-    LABEL  = makeFont("TRP3FW_Font_Label",  "GameFontHighlight",   12),
-    SUB    = makeFont("TRP3FW_Font_Sub",    "GameFontNormalSmall", 10),
-    VALUE  = makeFont("TRP3FW_Font_Value",  "GameFontNormalHuge",  24),
+    TITLE   = makeFont("TRP3FW_Font_Title",   "GameFontNormalLarge", 16),
+    CAPTION = makeFont("TRP3FW_Font_Caption", "GameFontNormalLarge", 16), -- gold card headers; larger than body LABEL
+    HEADER  = makeFont("TRP3FW_Font_Header",  "GameFontNormal",      12),
+    LABEL   = makeFont("TRP3FW_Font_Label",   "GameFontHighlight",   12),
+    SUB     = makeFont("TRP3FW_Font_Sub",     "GameFontNormalSmall", 10),
+    VALUE   = makeFont("TRP3FW_Font_Value",   "GameFontNormalHuge",  24),
 }
