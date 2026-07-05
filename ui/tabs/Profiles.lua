@@ -1,65 +1,68 @@
 -- ui/tabs/Profiles.lua
--- Settings Profiles management tab for TRP3FW
+-- Settings Profiles management tab for TRP3FW (migrated to the skinned kit)
 
 local addonName, TRP3FW = ...
 local TabManager = TRP3FW.TabManager
 
 local currentRefreshFunc
 
+local function stackCard(content, card, prev)
+    local W = TRP3FW.Theme.metrics.CARD_W
+    local inset = TRP3FW.Theme.metrics.CONTENT_INSET
+    card:SetWidth(W)
+    if prev then
+        card:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
+        card:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -TRP3FW.Theme.metrics.CARD_GAP)
+    else
+        card:SetPoint("TOPLEFT", content, "TOPLEFT", inset, 0)
+        card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -inset, 0)
+    end
+    return card
+end
+
 local function CreateProfilesTab(container)
+    local Theme = TRP3FW.Theme
+    local INNER = Theme.metrics.INNER
     local tab = CreateFrame("Frame", nil, container)
     tab:SetAllPoints()
 
-    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 500)
-    local uiElements = TabManager:GetUI()
-    local y = -10
+    local scrollFrame, content = TabManager:CreateScrollFrame(tab, 560)
+    local W = Theme.metrics.CARD_W
 
-    TabManager:CreateSectionHeader(content, "Profile Management", y)
-    y = y - 40
-
-    -- Active profile info
-    local activeLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    activeLabel:SetPoint("TOPLEFT", 20, y)
-    activeLabel:SetText("Active Profile:")
-
-    local activeValue = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    activeValue:SetPoint("LEFT", activeLabel, "RIGHT", 10, 0)
+    -- ===== Card 1: Active profile ==========================================
+    local activeCard = stackCard(content, TabManager:CreateCard(content, "Active profile", nil), nil)
+    local activeLabel = activeCard:CreateFontString(nil, "OVERLAY", Theme.fonts.LABEL)
+    activeLabel:SetPoint("TOPLEFT", INNER, activeCard:NextY(28))
+    activeLabel:SetText("Current:")
+    activeLabel:SetTextColor(Theme:Color("TEXT_SECONDARY"))
+    local activeValue = activeCard:CreateFontString(nil, "OVERLAY", Theme.fonts.LABEL)
+    activeValue:SetPoint("LEFT", activeLabel, "RIGHT", 8, 0)
+    activeValue:SetTextColor(Theme:Color("GOLD_TEXT"))
+    activeCard:FitHeight(12)
 
     local function UpdateProfileUI()
         local charKey = TRP3FW:GetCharacterKey()
         local activeProfile = TRP3FW.GlobalDB.profileKeys[charKey] or "Default"
-        activeValue:SetText("|cff00ff00" .. activeProfile .. "|r")
+        activeValue:SetText(activeProfile)
     end
-
     UpdateProfileUI()
-    y = y - 40
 
-    -- List of profiles
-    local listHeader = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    listHeader:SetPoint("TOPLEFT", 20, y)
-    listHeader:SetText("Available Profiles:")
-    y = y - 25
-
-    -- Simple profile list
-    local profileButtons = {}
+    -- ===== Card 2: Available profiles (dynamic list) =======================
+    local listCard = stackCard(content, TabManager:CreateCard(content, "Available profiles", nil), activeCard)
+    local listTopCursor = listCard._cursorY  -- capture the post-caption start Y
+    local rowButtons = {}
 
     local function RefreshProfileList()
         if not content:IsVisible() then return end
+        for _, btn in ipairs(rowButtons) do btn:Hide() end
+        wipe(rowButtons)
 
-        -- Clear old buttons
-        for _, btn in ipairs(profileButtons) do btn:Hide() end
-        profileButtons = {}
-
-        local currentY = y
         local charKey = TRP3FW:GetCharacterKey()
         local activeProfile = TRP3FW.GlobalDB.profileKeys[charKey] or "Default"
 
-        -- Get sorted profile names
         local names = {}
         if TRP3FW.GlobalDB and TRP3FW.GlobalDB.profiles then
-            for name in pairs(TRP3FW.GlobalDB.profiles) do
-                table.insert(names, name)
-            end
+            for name in pairs(TRP3FW.GlobalDB.profiles) do table.insert(names, name) end
         end
         table.sort(names, function(a, b)
             if a == "Default" then return true end
@@ -67,64 +70,53 @@ local function CreateProfilesTab(container)
             return a < b
         end)
 
-        for i, name in ipairs(names) do
-            local row = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-            row:SetSize(200, 25)
-            row:SetPoint("TOPLEFT", 30, currentY)
-            row:SetText(name)
+        -- Reset the card cursor to just under its caption/divider each refresh.
+        listCard._cursorY = listTopCursor
+        for _, name in ipairs(names) do
+            local rowY = listCard:NextY(30)
+            local isActive = (name == activeProfile)
 
-            if name == activeProfile then
-                row:Disable()
-                row:SetText(name .. " (Active)")
+            local switchBtn = TabManager:CreateButton(listCard, isActive and (name.." (active)") or name, 240, isActive)
+            switchBtn:SetPoint("TOPLEFT", INNER, rowY)
+            if isActive then
+                switchBtn:SetScript("OnClick", nil)
+            else
+                switchBtn:SetOnClick(function() StaticPopup_Show("TRP3FW_CONFIRM_PROFILE_SWITCH", name, nil, name) end)
             end
 
-            row:SetScript("OnClick", function()
-                StaticPopup_Show("TRP3FW_CONFIRM_PROFILE_SWITCH", name, nil, name)
-            end)
-
-            -- Delete button
-            local del = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-            del:SetSize(60, 25)
-            del:SetPoint("LEFT", row, "RIGHT", 5, 0)
-            del:SetText("Delete")
-            if name == "Default" or name == activeProfile then
-                del:Disable()
+            local del = TabManager:CreateButton(listCard, "Delete", 70, false)
+            del:SetPoint("LEFT", switchBtn, "RIGHT", 8, 0)
+            if name == "Default" or isActive then
+                del:SetScript("OnClick", nil); del.text:SetTextColor(Theme:Color("TEXT_MUTED"))
+            else
+                del:SetOnClick(function() StaticPopup_Show("TRP3FW_CONFIRM_PROFILE_DELETE", name, nil, name) end)
             end
-            del:SetScript("OnClick", function()
-                StaticPopup_Show("TRP3FW_CONFIRM_PROFILE_DELETE", name, nil, name)
-            end)
 
-            -- Rename button
-            local ren = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-            ren:SetSize(70, 25)
-            ren:SetPoint("LEFT", del, "RIGHT", 5, 0)
-            ren:SetText("Rename")
-            if name == "Default" then ren:Disable() end
-            ren:SetScript("OnClick", function()
-                StaticPopup_Show("TRP3FW_RENAME_PROFILE", name, nil, name)
-            end)
+            local ren = TabManager:CreateButton(listCard, "Rename", 80, false)
+            ren:SetPoint("LEFT", del, "RIGHT", 8, 0)
+            if name == "Default" then
+                ren:SetScript("OnClick", nil); ren.text:SetTextColor(Theme:Color("TEXT_MUTED"))
+            else
+                ren:SetOnClick(function() StaticPopup_Show("TRP3FW_RENAME_PROFILE", name, nil, name) end)
+            end
 
-            table.insert(profileButtons, row)
-            table.insert(profileButtons, del)
-            table.insert(profileButtons, ren)
-            currentY = currentY - 30
+            table.insert(rowButtons, switchBtn)
+            table.insert(rowButtons, del)
+            table.insert(rowButtons, ren)
         end
 
-        -- New Profile button
-        local newBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-        newBtn:SetSize(150, 30)
-        newBtn:SetPoint("TOPLEFT", 20, currentY - 20)
-        newBtn:SetText("Create New Profile")
-        newBtn:SetScript("OnClick", function()
-            StaticPopup_Show("TRP3FW_CREATE_PROFILE")
-        end)
-        table.insert(profileButtons, newBtn)
+        local newBtn = TabManager:CreateButton(listCard, "+ Create new profile", 180, false)
+        newBtn:SetPoint("TOPLEFT", INNER, listCard:NextY(38))
+        newBtn:SetOnClick(function() StaticPopup_Show("TRP3FW_CREATE_PROFILE") end)
+        table.insert(rowButtons, newBtn)
 
+        listCard:FitHeight(12)
         UpdateProfileUI()
     end
 
     currentRefreshFunc = RefreshProfileList
     TRP3FW.RefreshProfilesTab = RefreshProfileList
+    RefreshProfileList()
     return scrollFrame
 end
 
