@@ -54,26 +54,24 @@ local function CreateNotificationsTab(container)
     -- ---- Card 2: what to notify on ----------------------------------------
     local notifyCard = stackCard(content, TabManager:CreateCard(content, "What to notify on", CARD_W), masterCard, CARD_W)
 
-    uiElements.notifyOnAllow = TabManager:CreateToggle(notifyCard,
-        "On allow (profile sent normally)", "Show notifications when profiles are sent normally (allowed)", "notifyOnAllow")
-    uiElements.notifyOnAllow:SetPoint("TOPLEFT", 12, notifyCard:NextY())
-    bindToggle(uiElements.notifyOnAllow, "notifyOnAllow")
-
-    uiElements.notifyOnStartPhaseBlock = TabManager:CreateToggle(notifyCard,
-        "On start-phase block", "Show notifications when blocking in start phase (169)", "notifyOnStartPhaseBlock", "(phase 169)")
-    uiElements.notifyOnStartPhaseBlock:SetPoint("TOPLEFT", 12, notifyCard:NextY())
-    bindToggle(uiElements.notifyOnStartPhaseBlock, "notifyOnStartPhaseBlock")
-
-    uiElements.notifyOnBroadcast = TabManager:CreateToggle(notifyCard,
-        "On broadcast", "Show notifications for map scan broadcasts (only affects Allow notifications)", "notifyOnBroadcast", "(affects allow only)")
-    uiElements.notifyOnBroadcast:SetPoint("TOPLEFT", 12, notifyCard:NextY())
-    bindToggle(uiElements.notifyOnBroadcast, "notifyOnBroadcast")
-
-    uiElements.notifyOnWhisper = TabManager:CreateToggle(notifyCard,
-        "On whisper", "Show notifications for whisper exchanges (only affects Allow notifications)", "notifyOnWhisper", "(affects allow only)")
-    uiElements.notifyOnWhisper:SetPoint("TOPLEFT", 12, notifyCard:NextY())
-    bindToggle(uiElements.notifyOnWhisper, "notifyOnWhisper")
-    notifyCard:FitHeight()
+    -- Register each toggle as a reflowable row: reposition(y) anchors it, the
+    -- row's level (from the widget's complexityLevel) drives hide/show + resize.
+    local function toggleRow(card, key, label, tip, sub)
+        local t = TabManager:CreateToggle(card, label, tip, key, sub)
+        bindToggle(t, key)
+        uiElements[key] = t
+        card:AddRow(function(y)
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", card, "TOPLEFT", 12, y)
+            t:SetPoint("RIGHT", card, "RIGHT", -12, 0)
+        end, TRP3FW.Theme.metrics.ROW, t.complexityLevel, { t })
+        return t
+    end
+    toggleRow(notifyCard, "notifyOnAllow", "On allow (profile sent normally)", "Show notifications when profiles are sent normally (allowed)")
+    toggleRow(notifyCard, "notifyOnStartPhaseBlock", "On start-phase block", "Show notifications when blocking in start phase (169)", "(phase 169)")
+    toggleRow(notifyCard, "notifyOnBroadcast", "On broadcast", "Show notifications for map scan broadcasts (only affects Allow notifications)", "(affects allow only)")
+    toggleRow(notifyCard, "notifyOnWhisper", "On whisper", "Show notifications for whisper exchanges (only affects Allow notifications)", "(affects allow only)")
+    notifyCard:Reflow()  -- initial layout + size from the registered rows
 
     -- ---- Card 3: appearance (chip row) ------------------------------------
     local apprCard = stackCard(content, TabManager:CreateCard(content, "Appearance", CARD_W), notifyCard, CARD_W)

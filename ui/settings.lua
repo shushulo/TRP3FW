@@ -94,7 +94,7 @@ local function UpdateUIComplexity()
         local hasCustomLogic = widget.settingKey and CUSTOM_LOGIC_KEYS[widget.settingKey]
 
         if enabled then
-            -- Complexity Met: Enable ONLY if no custom logic (allow RefreshUI to handle custom ones)
+            -- Complexity met: enable (unless RefreshUI owns its enabled state) and show.
             if not hasCustomLogic then
                 if widget.Enable then widget:Enable() end
                 if widget.EnableDropDown then widget:EnableDropDown() end
@@ -102,12 +102,17 @@ local function UpdateUIComplexity()
             if widget.SetAlpha then widget:SetAlpha(1.0) end
             if widget.label then widget.label:SetAlpha(1.0) end
         else
-            -- Complexity Unmet: Force Disable & Fade
+            -- Complexity unmet: HIDE it (was: fade to 0.5). The card Reflow below
+            -- also hides+restacks its registered rows; hiding here covers any
+            -- widget not wired into a card row so nothing filtered stays visible.
             if widget.Disable then widget:Disable() end
             if widget.DisableDropDown then widget:DisableDropDown() end
-            if widget.SetAlpha then widget:SetAlpha(0.5) end
-            if widget.label then widget.label:SetAlpha(0.5) end
         end
+    end
+
+    -- Reflow every card so hidden rows collapse and cards resize to fit.
+    if TRP3FW.TabManager and TRP3FW.TabManager.ReflowAllCards then
+        TRP3FW.TabManager:ReflowAllCards(currentLevel)
     end
 end
 

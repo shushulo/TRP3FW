@@ -49,6 +49,15 @@ function TabManager:GetUI()
     return self.uiElements
 end
 
+-- Reflow every card created so far (hide filtered rows, restack, resize). Safe
+-- for cards that never registered rows -- their Reflow is a no-op.
+function TabManager:ReflowAllCards(currentLevel)
+    if not self._cards then return end
+    for _, card in ipairs(self._cards) do
+        if card.Reflow then card:Reflow(currentLevel) end
+    end
+end
+
 function TabManager:AddComplexityWidget(widget, key)
     widget.settingKey = key
     widget.complexityLevel = TRP3FW.SETTING_LEVELS[key] or 4
@@ -418,7 +427,9 @@ function TabManager:CreateCard(parent, captionText, width)
         topPad = capTop + capH + gap + 1 + gap  -- = 10+20+8+1+8 = 47
     end
 
+    card._topPad = topPad
     card._cursorY = -topPad
+    card._bottomPad = 12
     function card:NextY(step)
         local y = self._cursorY
         self._cursorY = self._cursorY - (step or TRP3FW.Theme.metrics.ROW)
@@ -426,7 +437,49 @@ function TabManager:CreateCard(parent, captionText, width)
     end
     -- Resize the card to fit its content after rows are added.
     function card:FitHeight(bottomPad)
-        self:SetHeight(math.abs(self._cursorY) + (bottomPad or 10))
+        self._bottomPad = bottomPad or self._bottomPad
+        self:SetHeight(math.abs(self._cursorY) + self._bottomPad)
+    end
+
+    -- ---- Reflow engine (hide + resize on complexity change) ----------------
+    -- Register a row so the card can hide/reflow it. `reposition(y)` places the
+    -- row's content at card-relative Y; `height` is the vertical space it takes;
+    -- `level` is the complexity level at/below which the row is shown (nil = 1,
+    -- always shown). `widgets` is a list of frames to Show/Hide with the row.
+    card._rows = {}
+    function card:AddRow(reposition, height, level, widgets)
+        local row = { reposition = reposition, height = height, level = level or 1, widgets = widgets }
+        table.insert(self._rows, row)
+        return row
+    end
+
+    -- Track every card so UpdateUIComplexity can reflow them all. Cards without
+    -- registered rows no-op in Reflow, so this stays safe for un-retrofitted cards.
+    -- Cards stack via anchors (each below the previous), so resizing one shifts
+    -- those below it automatically -- no tab-level relayout needed.
+    self._cards = self._cards or {}
+    table.insert(self._cards, card)
+
+    -- Re-stack only the rows whose level <= currentLevel; hide the rest; resize.
+    -- Falls back to a no-op if no rows were registered (un-reflowed cards).
+    function card:Reflow(currentLevel)
+        if #self._rows == 0 then return end
+        currentLevel = currentLevel or (TRP3FW.Prefs and TRP3FW.Prefs.uiComplexityLevel) or 2
+        local y = -self._topPad
+        for _, row in ipairs(self._rows) do
+            local shown = row.level <= currentLevel
+            if row.widgets then
+                for _, w in ipairs(row.widgets) do
+                    if w.SetShown then w:SetShown(shown) end
+                end
+            end
+            if shown then
+                row.reposition(y)
+                y = y - row.height
+            end
+        end
+        self._cursorY = y
+        self:SetHeight(math.abs(y) + self._bottomPad)
     end
 
     return card
