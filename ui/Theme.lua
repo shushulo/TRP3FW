@@ -173,7 +173,7 @@ Theme.metrics = {
     ROW_TALL   = 40,  -- row with sub-label / larger control
     SECTION    = 45,  -- gap before a new section header
     PAD        = 12,  -- card interior padding (legacy; prefer INNER)
-    INNER      = 8,   -- inset of ALL interior elements from the card edge (== GAP)
+    INNER      = 12,  -- inset of ALL interior elements from the card edge
     CARD_GAP   = 8,   -- gap between stacked cards (== GAP so all gaps match)
     SIDEBAR_W  = 158, -- left nav width
 
