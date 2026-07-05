@@ -134,7 +134,7 @@ local function CreateAlertsTab(container)
     uiElements.notificationModeSummaryNotify:SetWidth(CARD_W - 24)
     uiElements.notificationModeSummaryNotify:SetJustifyH("LEFT")
     uiElements.notificationModeSummaryNotify:SetTextColor(TRP3FW.Theme:Color("TEXT_PRIMARY"))
-    presetCard:FitHeight(10)
+    presetCard:FitHeight(12)
 
     -- ===== Card 2: Location checking =======================================
     local locCard = stackCard(content, TabManager:CreateCard(content, "Location checking", CARD_W), presetCard, CARD_W)
@@ -183,9 +183,9 @@ local function CreateAlertsTab(container)
     uiElements.useWhoQuery:SetPoint("RIGHT", locCard, "RIGHT", -12, 0)
     uiElements.useWhoQuery:SetOnToggle(function(c) TRP3FW.Prefs.useWhoQuery = c end)
     if epsilonControls then table.insert(epsilonControls, uiElements.useWhoQuery) end
-    -- Toggle rows advance 30 for 22-tall pills, leaving 8 residual; pad 0 keeps
-    -- the bottom gap at exactly 8 like every other gap.
-    locCard:FitHeight(0)
+    -- Last toggle row advanced ROW(30) for a 22-tall pill = 8 residual below it;
+    -- +4 makes the bottom gap 12, matching the 12px side insets.
+    locCard:FitHeight(4)
 
     -- ===== Card 3: Ghost mode ==============================================
     local ghostCard = stackCard(content, TabManager:CreateCard(content, "Ghost mode", CARD_W), locCard, CARD_W)
@@ -263,8 +263,9 @@ local function CreateAlertsTab(container)
     wlbg:SetBackdropBorderColor(TRP3FW.Theme:Color("BORDER_STRONG"))
     TabManager:AddComplexityWidget(wle, "ghostProfileWhitelist"); TabManager:AddComplexityWidget(wls, "ghostProfileWhitelist"); TabManager:AddComplexityWidget(wlbg, "ghostProfileWhitelist")
     if epsilonControls then table.insert(epsilonControls, wle); table.insert(epsilonControls, wls); table.insert(epsilonControls, wlbg) end
-    -- Box bottom is 6 below the scroll (96-90); +8 pad = 8px gap to card edge.
-    ghostCard:FitHeight(8)
+    -- Cursor sits at the box backdrop bottom (96 reserve - 90 box = 6 == backdrop
+    -- overhang); +12 = 12px gap below the box, matching the sides.
+    ghostCard:FitHeight(12)
 
     -- ===== Card 4: Overrides ===============================================
     local ovCard = stackCard(content, TabManager:CreateCard(content, "Profile overrides", CARD_W), ghostCard, CARD_W)
@@ -320,13 +321,13 @@ local function CreateAlertsTab(container)
             renderedRows = renderedRows + 1
             RenderOverrideRow(renderedRows)  -- consumes the slot the button was in
             placeAddButton()                 -- move button below the new row
-            ovCard:FitHeight(32)  -- 24px button + 8 gap below
+            ovCard:FitHeight(36)  -- 24px button + 12 gap below
             if renderedRows >= MAX_ROWS then addRowBtn:Disable() end
         end
     end)
     if renderedRows >= MAX_ROWS then addRowBtn:Disable() end
     ovCard._cursorY = ovCard._cursorY - 24  -- reserve the button's own height
-    ovCard:FitHeight(8)
+    ovCard:FitHeight(12)
 
     return scrollFrame
 end

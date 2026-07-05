@@ -121,7 +121,7 @@ local function CreateSecurityTab(container)
     uiElements.whitelistEdit = wlEdit
     updateCount(TRP3FW.Prefs.whitelistEntries)
     -- Box bottom sits 6 below the scroll (94-88); +8 pad = 8px gap to card edge.
-    wlCard:FitHeight(8)
+    wlCard:FitHeight(12)
 
     -- ===== Card 2: Map scan reply controls =================================
     local scanCard = stackCard(content, TabManager:CreateCard(content, "Map scan reply controls", W), wlCard)
@@ -187,7 +187,7 @@ local function CreateSecurityTab(container)
         end)
     uiElements.scanResponseWhitelistScroll = swScroll
     uiElements.scanResponseWhitelistEdit = swEdit
-    scanCard:FitHeight(8)
+    scanCard:FitHeight(12)
 
     -- ===== Card 3: SPVP ====================================================
     local spvpCard = stackCard(content, TabManager:CreateCard(content, "SPVP (cryptographic phase verification)", W), scanCard)
@@ -253,7 +253,7 @@ local function CreateSecurityTab(container)
     end)
     if epsilonControls then table.insert(epsilonControls, uiElements.spvpSecureButton) end
     -- Button is 24 tall in a 24 step; +8 pad = 8px gap below it.
-    spvpCard:FitHeight(8)
+    spvpCard:FitHeight(12)
 
     return scrollFrame
 end

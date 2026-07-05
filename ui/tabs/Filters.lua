@@ -52,7 +52,7 @@ local function CreateFiltersTab(container)
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    cxCard:FitHeight(10)
+    cxCard:FitHeight(12)
 
     -- ---- Card 2: profile filters -------------------------------------------
     local fCard = stackCard(content, TabManager:CreateCard(content, "Profile filters", CARD_W), cxCard, CARD_W)
