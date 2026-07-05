@@ -1027,10 +1027,28 @@ function TRP3FW:InitializeUI()
         local lvl = (TRP3FW.Prefs and TRP3FW.Prefs.uiComplexityLevel) or 2
         complexityText:SetText(COMPLEXITY_NAMES[lvl] or "Intermediate")
     end
+
+    -- Live dropdown menu: pick a level, enforce defaults, refresh + reflow.
+    local complexityMenu = CreateFrame("Frame", "TRP3FW_ComplexityMenu", complexityBtn, "UIDropDownMenuTemplate")
+    local function complexityMenuInit(self, level)
+        for i = 1, 4 do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = COMPLEXITY_NAMES[i]
+            info.checked = (TRP3FW.Prefs.uiComplexityLevel == i)
+            info.func = function()
+                TRP3FW.Prefs.uiComplexityLevel = i
+                if TRP3FW.EnforceComplexityDefaults then TRP3FW:EnforceComplexityDefaults(i) end
+                refreshComplexityLabel()
+                TRP3FW:RefreshUI()  -- drives UpdateUIComplexity -> hide + reflow
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end
+    UIDropDownMenu_Initialize(complexityMenu, complexityMenuInit, "MENU")
+
     complexityBtn:SetScript("OnShow", refreshComplexityLabel)
-    complexityBtn:SetScript("OnClick", function()
-        TRP3FW.TabManager:SwitchToTab("filters")
-        highlightNav("filters")
+    complexityBtn:SetScript("OnClick", function(self)
+        ToggleDropDownMenu(1, nil, complexityMenu, self, 0, 0)
     end)
     complexityBtn:SetScript("OnEnter", function(self) self:SetBackdropBorderColor(Theme:Color("GOLD")) end)
     complexityBtn:SetScript("OnLeave", function(self) self:SetBackdropBorderColor(Theme:Color("BORDER_STRONG")) end)

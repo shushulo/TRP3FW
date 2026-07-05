@@ -4,8 +4,6 @@
 local addonName, TRP3FW = ...
 local TabManager = TRP3FW.TabManager
 
-local COMPLEXITY_NAMES = { [1] = "Basic", [2] = "Intermediate", [3] = "Advanced", [4] = "Everything" }
-
 -- Stack a card below the previous one (or at the top), full content width.
 local function stackCard(content, card, prev, width)
     card:SetWidth(width)
@@ -29,33 +27,11 @@ local function CreateFiltersTab(container)
     local M = TRP3FW.Theme.metrics
     local CARD_W = M.CARD_W
 
-    -- ---- Card 1: complexity ------------------------------------------------
-    local cxCard = stackCard(content, TabManager:CreateCard(content, "Settings complexity", CARD_W), nil, CARD_W)
-    local cx = TabManager:CreateSkinnedDropdown(cxCard, "Level",
-        "How many settings to show. Higher levels reveal more advanced options.", 220, "uiComplexityLevel")
-    -- Dropdowns carry their own label ABOVE the frame, so drop them ~16px below
-    -- the cursor to clear the card caption/divider.
-    cx:SetPoint("TOPLEFT", -4, cxCard:NextY(60) - 16)
-    uiElements.complexityDropdown = cx
-    UIDropDownMenu_Initialize(cx, function(self, level)
-        for i = 1, 4 do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = COMPLEXITY_NAMES[i]; info.value = i
-            info.func = function()
-                TRP3FW.Prefs.uiComplexityLevel = i
-                UIDropDownMenu_SetText(cx, COMPLEXITY_NAMES[i])
-                if TRP3FW.EnforceComplexityDefaults then TRP3FW:EnforceComplexityDefaults(i) end
-                if TRP3FW._refreshComplexityLabel then TRP3FW._refreshComplexityLabel() end
-                TRP3FW:RefreshUI()
-            end
-            info.checked = (TRP3FW.Prefs.uiComplexityLevel == i)
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-    cxCard:FitHeight(12)
+    -- (The Settings-complexity card was removed -- the level is now chosen from
+    -- the live dropdown pinned to the bottom of the sidebar nav.)
 
-    -- ---- Card 2: profile filters -------------------------------------------
-    local fCard = stackCard(content, TabManager:CreateCard(content, "Profile filters", CARD_W), cxCard, CARD_W)
+    -- ---- Profile filters ---------------------------------------------------
+    local fCard = stackCard(content, TabManager:CreateCard(content, "Profile filters", CARD_W), nil, CARD_W)
 
     uiElements.filterGradients = TabManager:CreateToggle(fCard,
         "Strip colour gradients", "Remove colour gradients from incoming profiles.", "filterGradients")
