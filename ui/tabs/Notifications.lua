@@ -73,7 +73,7 @@ local function CreateNotificationsTab(container)
     toggleRow(notifyCard, "notifyOnWhisper", "On whisper", "Show notifications for whisper exchanges (only affects Allow notifications)", "(affects allow only)")
     notifyCard:Reflow()  -- initial layout + size from the registered rows
 
-    -- ---- Card 3: appearance (chip row) ------------------------------------
+    -- ---- Card 3: appearance (chip row, dynamic re-wrap on reflow) ----------
     local apprCard = stackCard(content, TabManager:CreateCard(content, "Appearance", CARD_W), notifyCard, CARD_W)
 
     local chipSpecs = {
@@ -85,25 +85,34 @@ local function CreateNotificationsTab(container)
         { key = "showCacheInfo",         label = "Cache hit/miss", tip = "Append cache status (HIT/MISS) to Allow notifications" },
         { key = "showCheckResults",      label = "Check detail",   tip = "Append phase and map check results/methods to notifications" },
     }
-    local chipY = apprCard:NextY(0)  -- take current cursor without advancing
-    local chipX = 12
-    local rowStartX = 12
-    local maxRight = CARD_W - 12
+    local chips = {}
     for _, spec in ipairs(chipSpecs) do
         local chip = TabManager:CreateChip(apprCard, spec.label, spec.tip, spec.key)
-        -- Wrap to a new line when the chip would overflow the card width.
-        if chipX > rowStartX and (chipX + chip:GetWidth()) > maxRight then
-            chipX = rowStartX
-            chipY = chipY - 30
-        end
-        chip:SetPoint("TOPLEFT", chipX, chipY)
         chip:SetOnToggle(function(checked) TRP3FW.Prefs[spec.key] = checked end)
         uiElements[spec.key] = chip
-        chipX = chipX + chip:GetWidth() + 8
+        chips[#chips + 1] = chip
     end
-    -- Advance the card cursor past the chip rows and size the card.
-    apprCard._cursorY = chipY - 30
-    apprCard:FitHeight()
+    -- One dynamic group row: re-wraps only the complexity-visible chips and
+    -- returns the height actually used, so the card shrinks with fewer chips.
+    apprCard:AddRow(function(y, level)
+        local x, rowY, rows = 12, y, 1
+        local maxRight = CARD_W - 12
+        for _, chip in ipairs(chips) do
+            if chip.complexityLevel <= level then
+                chip:Show()
+                if x > 12 and (x + chip:GetWidth()) > maxRight then
+                    x = 12; rowY = rowY - 30; rows = rows + 1
+                end
+                chip:ClearAllPoints()
+                chip:SetPoint("TOPLEFT", apprCard, "TOPLEFT", x, rowY)
+                x = x + chip:GetWidth() + 8
+            else
+                chip:Hide()
+            end
+        end
+        return rows * 30
+    end, 30, 1)
+    apprCard:Reflow()
 
     -- ---- Card 4: suppression ----------------------------------------------
     local supprCard = stackCard(content, TabManager:CreateCard(content, "Suppression", CARD_W), apprCard, CARD_W)
@@ -111,25 +120,22 @@ local function CreateNotificationsTab(container)
     local suppr = TabManager:CreateSlider(supprCard,
         "Duration", "How many seconds to suppress repeated notifications from the same player.",
         "suppressionTime", 0, 600, 5, "%d s")
-    suppr:SetPoint("TOPLEFT", 12, supprCard:NextY(M.ROW_TALL))
-    suppr:SetPoint("RIGHT", supprCard, "RIGHT", -12, 0)
     suppr:SetOnChange(function(v) TRP3FW.Prefs.suppressionTime = v end)
     uiElements.suppressionTime = suppr
+    supprCard:AddRow(function(y)
+        suppr:ClearAllPoints()
+        suppr:SetPoint("TOPLEFT", supprCard, "TOPLEFT", 12, y)
+        suppr:SetPoint("RIGHT", supprCard, "RIGHT", -12, 0)
+    end, M.ROW_TALL, suppr.slider.complexityLevel, { suppr })
 
-    uiElements.refreshSuppression = TabManager:CreateToggle(supprCard,
-        "Extend on activity", "Refresh the suppression window when new profile sends are detected from the same player (sliding window).", "refreshSuppression", "(sliding window)")
-    uiElements.refreshSuppression:SetPoint("TOPLEFT", 12, supprCard:NextY())
-    bindToggle(uiElements.refreshSuppression, "refreshSuppression")
-
-    uiElements.suppressAllWhoOutput = TabManager:CreateToggle(supprCard,
-        "Suppress WHO output", "Hide all WHO results in chat.", "suppressAllWhoOutput")
-    uiElements.suppressAllWhoOutput:SetPoint("TOPLEFT", 12, supprCard:NextY())
-    bindToggle(uiElements.suppressAllWhoOutput, "suppressAllWhoOutput")
+    toggleRow(supprCard, "refreshSuppression", "Extend on activity",
+        "Refresh the suppression window when new profile sends are detected from the same player (sliding window).", "(sliding window)")
+    toggleRow(supprCard, "suppressAllWhoOutput", "Suppress WHO output", "Hide all WHO results in chat.")
     do
         local ec = TabManager:GetEpsilonControls()
         if ec then table.insert(ec, uiElements.suppressAllWhoOutput) end
     end
-    supprCard:FitHeight()
+    supprCard:Reflow()
 
     return scrollFrame
 end

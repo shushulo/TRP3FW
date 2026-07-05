@@ -33,27 +33,31 @@ local function CreateFiltersTab(container)
     -- ---- Profile filters ---------------------------------------------------
     local fCard = stackCard(content, TabManager:CreateCard(content, "Profile filters", CARD_W), nil, CARD_W)
 
-    uiElements.filterGradients = TabManager:CreateToggle(fCard,
-        "Strip colour gradients", "Remove colour gradients from incoming profiles.", "filterGradients")
-    uiElements.filterGradients:SetPoint("TOPLEFT", 12, fCard:NextY())
-    uiElements.filterGradients:SetPoint("RIGHT", fCard, "RIGHT", -12, 0)
-    uiElements.filterGradients:SetOnToggle(function(c) TRP3FW.Prefs.filterGradients = c; TRP3FW:Info("Filter change will take effect after /reload") end)
-
-    uiElements.filterIcons = TabManager:CreateToggle(fCard,
-        "Strip icons from profiles", "Remove embedded icons from profile fields.", "filterIcons")
-    uiElements.filterIcons:SetPoint("TOPLEFT", 12, fCard:NextY())
-    uiElements.filterIcons:SetPoint("RIGHT", fCard, "RIGHT", -12, 0)
-    uiElements.filterIcons:SetOnToggle(function(c) TRP3FW.Prefs.filterIcons = c; TRP3FW:Info("Filter change will take effect after /reload") end)
-
-    uiElements.filterMinimumFontSize = TabManager:CreateToggle(fCard,
-        "Minimum font size", "Inject a minimum font size into incoming profiles.", "filterMinimumFontSize")
-    uiElements.filterMinimumFontSize:SetPoint("TOPLEFT", 12, fCard:NextY(M.ROW_TALL))
-    uiElements.filterMinimumFontSize:SetPoint("RIGHT", fCard, "RIGHT", -12, 0)
-    uiElements.filterMinimumFontSize:SetOnToggle(function(c) TRP3FW.Prefs.filterMinimumFontSize = c; TRP3FW:RefreshUI() end)
+    -- Reflowable toggle row helper (hide + restack + resize on complexity change).
+    local function toggleRow(key, label, tip, onToggle, step)
+        local t = TabManager:CreateToggle(fCard, label, tip, key)
+        t:SetOnToggle(onToggle)
+        uiElements[key] = t
+        fCard:AddRow(function(y)
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", fCard, "TOPLEFT", 12, y)
+            t:SetPoint("RIGHT", fCard, "RIGHT", -12, 0)
+        end, step or M.ROW, t.complexityLevel, { t })
+        return t
+    end
+    toggleRow("filterGradients", "Strip colour gradients", "Remove colour gradients from incoming profiles.",
+        function(c) TRP3FW.Prefs.filterGradients = c; TRP3FW:Info("Filter change will take effect after /reload") end)
+    toggleRow("filterIcons", "Strip icons from profiles", "Remove embedded icons from profile fields.",
+        function(c) TRP3FW.Prefs.filterIcons = c; TRP3FW:Info("Filter change will take effect after /reload") end)
+    toggleRow("filterMinimumFontSize", "Minimum font size", "Inject a minimum font size into incoming profiles.",
+        function(c) TRP3FW.Prefs.filterMinimumFontSize = c; TRP3FW:RefreshUI() end, M.ROW_TALL)
 
     local fsd = TabManager:CreateSkinnedDropdown(fCard, "Font size level",
         "Minimum font size to inject.", 200, "minimumFontSizeLevel")
-    fsd:SetPoint("TOPLEFT", -4, fCard:NextY(48))
+    fCard:AddRow(function(y)
+        fsd:ClearAllPoints()
+        fsd:SetPoint("TOPLEFT", fCard, "TOPLEFT", -4, y)
+    end, 48, fsd.complexityLevel, { fsd })
     -- RefreshUI sets the text via "...LevelDropdown" (dropdownConfig loop) and
     -- enables/disables via "...Dropdown"; point both at this widget so it both
     -- shows the value and greys out when the toggle is off.
@@ -69,7 +73,7 @@ local function CreateFiltersTab(container)
             UIDropDownMenu_AddButton(info)
         end
     end)
-    fCard:FitHeight(12)
+    fCard:Reflow()
 
     return scrollFrame
 end

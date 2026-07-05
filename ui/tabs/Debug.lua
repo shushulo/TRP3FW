@@ -1,11 +1,10 @@
 -- ui/tabs/Debug.lua
--- Advanced (Cache & Debug) settings tab for TRP3FW (migrated to the skinned kit)
+-- Advanced (Cache & Debug) settings tab for TRP3FW (skinned kit + reflow rows)
 --
--- The densest tab: ~24 numeric tunables, ~40 toggles, 4 batching sliders, 2
--- dropdowns. Preserves every uiElements key and behavior RefreshUI depends on
--- (the edits table drives all edit boxes via :SetText, the checks list drives
--- toggles via :SetChecked, and the granular clear/redact/debug groups + slider
--- and dropdown keys are all retained).
+-- Every row is registered with its card via card:AddRow so complexity changes
+-- hide filtered rows, restack the visible ones, and resize the card. All
+-- uiElements keys RefreshUI drives (edits table :SetText, checks :SetChecked,
+-- slider :SetValue, debugOutputDropdown) are preserved.
 
 local addonName, TRP3FW = ...
 local TabManager = TRP3FW.TabManager
@@ -45,62 +44,86 @@ local function CreateDebugTab(container)
         eb:SetScript("OnEditFocusLost", save)
     end
 
-    -- A labelled numeric edit box with the value paired to the RIGHT of the
-    -- label (not far-right), so the two read as one unit. IMPORTANT:
-    -- CreateSkinnedEditBox's outer frame is `eb.well` (the editBox sits inside
-    -- it) -- position the WELL, not the editBox.
-    --
-    -- If x/y are given, the row is placed at that offset from the card's
-    -- TOPLEFT (used for the 2-column cache grid). Otherwise it uses the card
-    -- cursor (single column, full width). Label is capped so the value clears it.
-    local function numRow(card, key, label, tip, min, max, pct, x, y, labelW)
+    -- Build a numeric item (label + skinned edit box) with a place(x, y, labelW)
+    -- function so both single-column rows and the 2-column grid can position it.
+    -- IMPORTANT: position eb.well (the outer frame), never the inner editBox.
+    local function makeNum(card, key, label, tip, min, max, pct)
         local eb, lbl = TabManager:CreateSkinnedEditBox(card, label, tip, 64, key, true)
-        local well = eb.well
-        x = x or INNER
-        y = y or card:NextY(26)
-        lbl:ClearAllPoints()
-        lbl:SetPoint("TOPLEFT", card, "TOPLEFT", x, y - 4)
-        lbl:SetWidth(labelW or 0)  -- 0 = natural width (single column)
-        lbl:SetJustifyH("LEFT")
-        well:ClearAllPoints()
-        -- Value sits just right of the label's box (paired), not far-right.
-        if labelW then
-            well:SetPoint("TOPLEFT", card, "TOPLEFT", x + labelW + 6, y)
-        else
-            well:SetPoint("TOPLEFT", lbl, "RIGHT", 8, 4)
-        end
         setupEditBox(eb, key, min, max, pct)
         uiElements[key] = eb
-        return eb
-    end
-
-    -- Lay out a list of {key,label,tip,min,max,pct} numeric specs in two columns
-    -- inside a card, pairing each value tightly to its label. Advances the card
-    -- cursor past the grid.
-    local function numGrid(card, specs)
-        local W = TRP3FW.Theme.metrics.CARD_W
-        local colW = (W - INNER * 2) / 2
-        local labelW = colW - 76  -- leave room for the 64px value box + gaps
-        local baseY = card:NextY(0)
-        for i, s in ipairs(specs) do
-            local col = (i - 1) % 2
-            local rowIdx = math.floor((i - 1) / 2)
-            numRow(card, s[1], s[2], s[3], s[4], s[5], s[6], INNER + col * colW, baseY - rowIdx * 28, labelW)
+        local item = { eb = eb, lbl = lbl }
+        function item.place(x, y, labelW)
+            lbl:ClearAllPoints()
+            lbl:SetPoint("TOPLEFT", card, "TOPLEFT", x, y - 4)
+            lbl:SetWidth(labelW or 0)
+            lbl:SetJustifyH("LEFT")
+            eb.well:ClearAllPoints()
+            if labelW then
+                eb.well:SetPoint("TOPLEFT", card, "TOPLEFT", x + labelW + 6, y)
+            else
+                eb.well:SetPoint("TOPLEFT", lbl, "RIGHT", 8, 4)
+            end
         end
-        card._cursorY = baseY - math.ceil(#specs / 2) * 28
+        return item
     end
 
-    -- A full-width toggle row. indent adds left padding for sub-options.
+    -- Single-column numeric row (label left, value right after it).
+    local function numRow(card, key, label, tip, min, max, pct)
+        local item = makeNum(card, key, label, tip, min, max, pct)
+        card:AddRow(function(y) item.place(INNER, y, nil) end, 26, item.eb.complexityLevel, { item.eb })
+        return item.eb
+    end
+
+    -- 2-column numeric grid as ONE dynamic row: re-grids only the visible items
+    -- and returns the height used, so the card shrinks with the filter level.
+    local function numGrid(card, specs)
+        local W = Theme.metrics.CARD_W
+        local colW = (W - INNER * 2) / 2
+        local labelW = colW - 76
+        local items = {}
+        for _, s in ipairs(specs) do
+            items[#items + 1] = makeNum(card, s[1], s[2], s[3], s[4], s[5], s[6])
+        end
+        card:AddRow(function(y, level)
+            local shown = {}
+            for _, it in ipairs(items) do
+                local s = it.eb.complexityLevel <= level
+                it.eb:SetShown(s); it.eb.well:SetShown(s); it.lbl:SetShown(s)
+                if s then shown[#shown + 1] = it end
+            end
+            for i, it in ipairs(shown) do
+                local col = (i - 1) % 2
+                local rowIdx = math.floor((i - 1) / 2)
+                it.place(INNER + col * colW, y - rowIdx * 28, labelW)
+            end
+            return math.ceil(#shown / 2) * 28
+        end, 28, 1)
+        return items
+    end
+
+    -- Full-width reflowable toggle row. indent adds left padding for sub-options.
     local function toggleRow(card, key, label, tip, onClick, indent)
         local t = TabManager:CreateToggle(card, label, tip, key)
-        t:SetPoint("TOPLEFT", INNER + (indent or 0), card:NextY())
-        t:SetPoint("RIGHT", card, "RIGHT", -INNER, 0)
         t:SetOnToggle(onClick or function(c) TRP3FW.Prefs[key] = c end)
         uiElements[key] = t
+        card:AddRow(function(y)
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", card, "TOPLEFT", INNER + (indent or 0), y)
+            t:SetPoint("RIGHT", card, "RIGHT", -INNER, 0)
+        end, Theme.metrics.ROW, t.complexityLevel, { t })
         return t
     end
 
-    -- ===== Card: Cache durations (all numeric tunables, 2-column grid) =====
+    -- Reflowable slider row (positions the row frame; level from inner slider).
+    local function sliderRow(card, rowWidget)
+        card:AddRow(function(y)
+            rowWidget:ClearAllPoints()
+            rowWidget:SetPoint("TOPLEFT", card, "TOPLEFT", INNER, y)
+            rowWidget:SetPoint("RIGHT", card, "RIGHT", -INNER, 0)
+        end, 40, rowWidget.slider.complexityLevel, { rowWidget })
+    end
+
+    -- ===== Card: Cache durations (2-column grid) ===========================
     local cacheCard = stackCard(content, TabManager:CreateCard(content, "Cache durations", nil), nil)
     numGrid(cacheCard, {
         { "sendCacheDuration",         "Send cache (s)",       "How long to remember allowed senders.", 0 },
@@ -126,9 +149,7 @@ local function CreateDebugTab(container)
         { "validatedNamesCacheLimit",  "Name entry limit",     "Max persistent entries.", 500, 10000 },
     })
     -- Name TTL: stored in seconds, edited in days; own row + custom save.
-    local W = TRP3FW.Theme.metrics.CARD_W
-    local nameTTL = numRow(cacheCard, "validatedNamesCacheDuration", "Name cache TTL (days)", "TTL for persistent names.",
-        nil, nil, false, INNER, cacheCard:NextY(28), (W - INNER * 2) / 2 - 76)
+    local nameTTL = numRow(cacheCard, "validatedNamesCacheDuration", "Name cache TTL (days)", "TTL for persistent names.")
     uiElements.validatedNamesCacheDuration = nameTTL
     local function saveNameTTL(self)
         local d = tonumber(self:GetText())
@@ -137,35 +158,37 @@ local function CreateDebugTab(container)
     end
     nameTTL:SetScript("OnEnterPressed", function(self) saveNameTTL(self); self:ClearFocus() end)
     nameTTL:SetScript("OnEditFocusLost", saveNameTTL)
-    cacheCard:FitHeight(12)
+    cacheCard:Reflow()
 
     -- ===== Card: WHO prepopulation =========================================
     local prepopCard = stackCard(content, TabManager:CreateCard(content, "WHO prepopulation", nil), cacheCard)
     toggleRow(prepopCard, "prepopulateWhoCache", "Prepopulate WHO cache", "Run WHO queries automatically after area changes.", function(c) TRP3FW.Prefs.prepopulateWhoCache = c; TRP3FW:RefreshUI() end)
     toggleRow(prepopCard, "prepopulateWhoOnPhase", "On phase change", "Warm up cache after scenario updates.", nil, 16)
     toggleRow(prepopCard, "prepopulateWhoOnZone", "On zone change", "Warm up cache after zone changes.", nil, 16)
-    prepopCard:FitHeight(4)
+    prepopCard:Reflow()
 
     -- ===== Card: Batching & rate limiting ==================================
     local batchCard = stackCard(content, TabManager:CreateCard(content, "Batching & rate limiting", nil), prepopCard)
     toggleRow(batchCard, "phaseCheckBatchMode", "Enable phase batching", "Bundle checks into single actions.")
+
     uiElements.phaseCheckBatchSizeSlider = TabManager:CreateSlider(batchCard, "Batch size", "Targets per batch.", "phaseCheckBatchSize", 2, 10, 1, "%d")
-    uiElements.phaseCheckBatchSizeSlider:SetPoint("TOPLEFT", INNER, batchCard:NextY(40)); uiElements.phaseCheckBatchSizeSlider:SetPoint("RIGHT", batchCard, "RIGHT", -INNER, 0)
     uiElements.phaseCheckBatchSizeSlider:SetOnChange(function(v) TRP3FW.Prefs.phaseCheckBatchSize = v end)
+    sliderRow(batchCard, uiElements.phaseCheckBatchSizeSlider)
     uiElements.phaseCheckBatchDelaySlider = TabManager:CreateSlider(batchCard, "Batch delay (s)", "Delay between batches.", "phaseCheckBatchDelay", 0.1, 2.0, 0.1, "%.1f")
-    uiElements.phaseCheckBatchDelaySlider:SetPoint("TOPLEFT", INNER, batchCard:NextY(40)); uiElements.phaseCheckBatchDelaySlider:SetPoint("RIGHT", batchCard, "RIGHT", -INNER, 0)
     uiElements.phaseCheckBatchDelaySlider:SetOnChange(function(v) TRP3FW.Prefs.phaseCheckBatchDelay = v end)
+    sliderRow(batchCard, uiElements.phaseCheckBatchDelaySlider)
     uiElements.phaseCheckBatchMinSizeSlider = TabManager:CreateSlider(batchCard, "Min batch size", "Minimum targets to batch.", "phaseCheckBatchMinSize", 2, 10, 1, "%d")
-    uiElements.phaseCheckBatchMinSizeSlider:SetPoint("TOPLEFT", INNER, batchCard:NextY(40)); uiElements.phaseCheckBatchMinSizeSlider:SetPoint("RIGHT", batchCard, "RIGHT", -INNER, 0)
     uiElements.phaseCheckBatchMinSizeSlider:SetOnChange(function(v) TRP3FW.Prefs.phaseCheckBatchMinSize = v end)
+    sliderRow(batchCard, uiElements.phaseCheckBatchMinSizeSlider)
     -- Inter-target delay is stored in seconds (0.01-0.2) but shown in ms.
     uiElements.phaseCheckInterTargetDelaySlider = TabManager:CreateSlider(batchCard, "Target delay (ms)", "Delay between individual targets.", "phaseCheckInterTargetDelay", 0.01, 0.2, 0.01, "%.0f", 1000)
-    uiElements.phaseCheckInterTargetDelaySlider:SetPoint("TOPLEFT", INNER, batchCard:NextY(40)); uiElements.phaseCheckInterTargetDelaySlider:SetPoint("RIGHT", batchCard, "RIGHT", -INNER, 0)
     uiElements.phaseCheckInterTargetDelaySlider:SetOnChange(function(v) TRP3FW.Prefs.phaseCheckInterTargetDelay = v end)
+    sliderRow(batchCard, uiElements.phaseCheckInterTargetDelaySlider)
+
     numRow(batchCard, "privilegedReservedTokens", "API reserved tokens", "Reserved for HIGH priority.", 0, 5)
     numRow(batchCard, "privilegedLowPriorityThreshold", "API low threshold", "Tokens needed for LOW priority.", 2, 8)
     toggleRow(batchCard, "phaseCheckRefundOnNoChange", "Refund tokens on fail", "Refund if target is missing.")
-    batchCard:FitHeight(4)
+    batchCard:Reflow()
 
     -- ===== Card: Area-change cache clearing ================================
     local clearCard = stackCard(content, TabManager:CreateCard(content, "Area-change cache clearing", nil), batchCard)
@@ -176,7 +199,7 @@ local function CreateDebugTab(container)
     toggleRow(clearCard, "clearCacheOnZoneChange", "Clear all on zone change", "Master toggle for zone changes.", function(c) TRP3FW.Prefs.clearCacheOnZoneChange = c; TRP3FW:RefreshUI() end)
     local zClear = { "clearPhaseCheckOnZoneChange", "clearAllowedSendersOnZoneChange", "clearInteractionOnZoneChange", "clearSuppressionOnZoneChange", "clearRecentBroadcastsOnZoneChange", "clearRecentScansOnZoneChange", "clearWhoZoneOnZoneChange", "clearWhoNameOnZoneChange", "clearSpvpOnZoneChange" }
     for i, k in ipairs(zClear) do toggleRow(clearCard, k, subLabels[i], "Clear on zone change.", nil, 16) end
-    clearCard:FitHeight(4)
+    clearCard:Reflow()
 
     -- ===== Card: History & redaction =======================================
     local histCard = stackCard(content, TabManager:CreateCard(content, "History & redaction", nil), clearCard)
@@ -186,7 +209,7 @@ local function CreateDebugTab(container)
     local rKeys = { "redactNames", "redactLocations", "redactNetwork", "redactSPVP" }
     local rLabels = { "Redact names/IDs", "Redact locations", "Redact IPs/network", "Redact SPVP keys" }
     for i, k in ipairs(rKeys) do toggleRow(histCard, k, rLabels[i], "Mask this category.", nil, 16) end
-    histCard:FitHeight(4)
+    histCard:Reflow()
 
     -- ===== Card: Debug controls ============================================
     local dbgCard = stackCard(content, TabManager:CreateCard(content, "Debug controls", nil), histCard)
@@ -194,7 +217,7 @@ local function CreateDebugTab(container)
     toggleRow(dbgCard, "debugTimestamp", "Prefix timestamps", "Include server time in debug.", nil, 16)
 
     local dOut = TabManager:CreateSkinnedDropdown(dbgCard, "Debug output destination", "Target frame for logs.", 200, "debugOutputBoth")
-    dOut:SetPoint("TOPLEFT", INNER - 16, dbgCard:NextY(52) - 16); uiElements.debugOutputDropdown = dOut
+    uiElements.debugOutputDropdown = dOut
     UIDropDownMenu_Initialize(dOut, function()
         local l = {
             {t="Chat",   f=function() TRP3FW.Prefs.debugOutputChat=true;  TRP3FW.Prefs.debugOutputWindow=false; TRP3FW.Prefs.debugOutputBoth=false end},
@@ -203,33 +226,56 @@ local function CreateDebugTab(container)
         }
         for _, it in ipairs(l) do local info = UIDropDownMenu_CreateInfo(); info.text = it.t; info.func = function() it.f(); UIDropDownMenu_SetText(dOut, it.t) end; UIDropDownMenu_AddButton(info) end
     end)
+    dbgCard:AddRow(function(y)
+        dOut:ClearAllPoints()
+        dOut:SetPoint("TOPLEFT", dbgCard, "TOPLEFT", INNER - 16, y - 16)
+    end, 52, dOut.complexityLevel, { dOut })
 
     local dbgWinBtn = TabManager:CreateButton(dbgCard, "Toggle debug window", 170, false)
-    dbgWinBtn:SetPoint("TOPLEFT", INNER, dbgCard:NextY(30))
     dbgWinBtn:SetOnClick(function()
         if TRP3FW.ToggleDebugWindow then TRP3FW:ToggleDebugWindow() else TRP3FW:Warn("Debug window not loaded yet") end
     end)
+    dbgCard:AddRow(function(y)
+        dbgWinBtn:ClearAllPoints()
+        dbgWinBtn:SetPoint("TOPLEFT", dbgCard, "TOPLEFT", INNER, y)
+    end, 30, 1, { dbgWinBtn })
 
-    -- Debug category verbosity toggles (2 columns to keep the card compact).
+    -- Debug category verbosity toggles: one dynamic 2-column group row.
     local catHdr = dbgCard:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-    catHdr:SetPoint("TOPLEFT", INNER, dbgCard:NextY(20)); catHdr:SetText("Category verbosity"); catHdr:SetTextColor(Theme:Color("TEXT_MUTED"))
+    catHdr:SetText("Category verbosity"); catHdr:SetTextColor(Theme:Color("TEXT_MUTED"))
     local dCats = { "debugChannel", "debugWhisper", "debugWho", "debugPhase", "debugCleanName", "debugLocation", "debugDecision", "debugHooks", "debugCache", "debugSend", "debugUI", "debugUtils", "debugSecurity", "debugGhost", "debugSPVP" }
     local dLabels = { "Channel", "Whisper", "WHO", "Phase", "Names", "Location", "Decision", "Hooks", "Cache", "Send", "UI", "Utils", "Security", "Ghost", "SPVP" }
+    local cats = {}
     local W = Theme.metrics.CARD_W
     local colW = (W - INNER * 2) / 2
-    local baseCatY = dbgCard:NextY(0)
     for i, k in ipairs(dCats) do
-        local col = (i - 1) % 2
-        local rowIdx = math.floor((i - 1) / 2)
         local t = TabManager:CreateToggle(dbgCard, dLabels[i], "Toggle logs.", k)
-        t:SetPoint("TOPLEFT", INNER + col * colW, baseCatY - rowIdx * 28)
-        t.pill:ClearAllPoints()
-        t.pill:SetPoint("LEFT", t, "LEFT", colW - 44, 0)  -- pill after the label, within the column
         t:SetOnToggle(function(c) TRP3FW.Prefs[k] = c end)
         uiElements[k] = t
+        cats[#cats + 1] = t
     end
-    dbgCard._cursorY = baseCatY - math.ceil(#dCats / 2) * 28 - 4
-    dbgCard:FitHeight(12)
+    dbgCard:AddRow(function(y, level)
+        catHdr:ClearAllPoints()
+        catHdr:SetPoint("TOPLEFT", dbgCard, "TOPLEFT", INNER, y)
+        local shown = {}
+        for _, t in ipairs(cats) do
+            local s = t.complexityLevel <= level
+            t:SetShown(s)
+            if s then shown[#shown + 1] = t end
+        end
+        catHdr:SetShown(#shown > 0)
+        for i, t in ipairs(shown) do
+            local col = (i - 1) % 2
+            local rowIdx = math.floor((i - 1) / 2)
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", dbgCard, "TOPLEFT", INNER + col * colW, y - 22 - rowIdx * 28)
+            t.pill:ClearAllPoints()
+            t.pill:SetPoint("LEFT", t, "LEFT", colW - 44, 0)
+        end
+        if #shown == 0 then return 0 end
+        return 22 + math.ceil(#shown / 2) * 28
+    end, 28, 1)
+    dbgCard:Reflow()
 
     -- ===== Card: Addon monitoring ==========================================
     local monCard = stackCard(content, TabManager:CreateCard(content, "Addon monitoring", nil), dbgCard)
@@ -237,7 +283,7 @@ local function CreateDebugTab(container)
     toggleRow(monCard, "monitorMRP", "Monitor MyRolePlay", "Enable protections for MRP.")
     toggleRow(monCard, "monitorXRP", "Monitor XRP", "Enable protections for XRP.")
     toggleRow(monCard, "monitorMSP", "Monitor MSP/other", "Monitor other compatible addons.")
-    monCard:FitHeight(4)
+    monCard:Reflow()
 
     -- ===== Card: Hook safety ===============================================
     local hookCard = stackCard(content, TabManager:CreateCard(content, "Hook safety", nil), monCard)
@@ -245,7 +291,7 @@ local function CreateDebugTab(container)
     toggleRow(hookCard, "logHookConflicts", "Log hook conflicts", "Warn when hooks are already wrapped.")
     toggleRow(hookCard, "abortOnMultipleRPAddons", "Abort on multiple RP addons", "Disable TRP3FW if multiple RP addons detected.")
     toggleRow(hookCard, "disableMapScanOnTRP3", "Disable map scan with TRP3 + RPMapScan", "Skip map-scan hooks in this specific combo.")
-    hookCard:FitHeight(4)
+    hookCard:Reflow()
 
     return scrollFrame
 end

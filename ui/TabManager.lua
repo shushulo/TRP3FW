@@ -462,6 +462,9 @@ function TabManager:CreateCard(parent, captionText, width)
 
     -- Re-stack only the rows whose level <= currentLevel; hide the rest; resize.
     -- Falls back to a no-op if no rows were registered (un-reflowed cards).
+    -- reposition(y, currentLevel) may RETURN a height for dynamic rows (chip
+    -- wraps, grids); otherwise row.height is used. Widgets hidden by the epsilon
+    -- gating (w._epsilonHidden) are never force-shown.
     function card:Reflow(currentLevel)
         if #self._rows == 0 then return end
         currentLevel = currentLevel or (TRP3FW.Prefs and TRP3FW.Prefs.uiComplexityLevel) or 2
@@ -470,12 +473,16 @@ function TabManager:CreateCard(parent, captionText, width)
             local shown = row.level <= currentLevel
             if row.widgets then
                 for _, w in ipairs(row.widgets) do
-                    if w.SetShown then w:SetShown(shown) end
+                    local s = shown and not w._epsilonHidden
+                    if w.SetShown then w:SetShown(s) end
+                    if w.label and w.label.SetShown then w.label:SetShown(s) end
+                    if w.well and w.well.SetShown then w.well:SetShown(s) end
+                    if w.rowFrame and w.rowFrame.SetShown then w.rowFrame:SetShown(s) end
                 end
             end
             if shown then
-                row.reposition(y)
-                y = y - row.height
+                local h = row.reposition(y, currentLevel)
+                y = y - (h or row.height)
             end
         end
         self._cursorY = y
@@ -725,6 +732,9 @@ function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, min
     function row:SetText(v) local n = tonumber(v); if n then slider:SetValue(n) end end
     row.slider = slider
 
+    -- The complexity system registers the inner slider; give it a back-reference
+    -- to the whole row so hide/show takes the label + readout with it.
+    slider.rowFrame = row
     self:_registerSkinned(slider, labelText, tooltipText, settingKey)
     return row
 end

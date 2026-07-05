@@ -93,25 +93,36 @@ local function UpdateUIComplexity()
 
         local hasCustomLogic = widget.settingKey and CUSTOM_LOGIC_KEYS[widget.settingKey]
 
+        -- Companion frames that must show/hide with the widget: the edit box's
+        -- outer well, and the slider's row (label + readout live there).
+        -- Built element-by-element: a nil in a table constructor would truncate
+        -- the array and silently skip later companions under ipairs.
+        local companions = {}
+        if widget.label then companions[#companions + 1] = widget.label end
+        if widget.well then companions[#companions + 1] = widget.well end
+        if widget.rowFrame then companions[#companions + 1] = widget.rowFrame end
         if enabled then
             -- Complexity met: show it. Enable only if RefreshUI doesn't own the
-            -- widget's enabled state (custom-logic keys), and don't force-show
-            -- those -- RefreshUI (which ran first) owns their visibility/gating.
-            if not hasCustomLogic then
+            -- widget's enabled state (custom-logic keys), and never force-show a
+            -- widget the epsilon gating hid (RefreshUI ran first and owns that).
+            if not hasCustomLogic and not widget._epsilonHidden then
                 if widget.Show then widget:Show() end
-                if widget.label and widget.label.Show then widget.label:Show() end
+                for _, c in ipairs(companions) do
+                    if c.Show then c:Show() end
+                end
                 if widget.Enable then widget:Enable() end
                 if widget.EnableDropDown then widget:EnableDropDown() end
             end
             if widget.SetAlpha then widget:SetAlpha(1.0) end
             if widget.label then widget.label:SetAlpha(1.0) end
         else
-            -- Complexity unmet: HIDE it (was: fade/disable, which just greyed it).
-            -- Card Reflow below restacks rows; hiding here also covers widgets
-            -- not wired into a card row. Custom-logic widgets are hidden too --
-            -- complexity outranks their gating when the level isn't met.
+            -- Complexity unmet: HIDE it (was: fade/disable, which just greyed it)
+            -- along with its companions. Card Reflow below restacks rows; hiding
+            -- here also covers widgets not wired into a card row.
             if widget.Hide then widget:Hide() end
-            if widget.label and widget.label.Hide then widget.label:Hide() end
+            for _, c in ipairs(companions) do
+                if c.Hide then c:Hide() end
+            end
         end
     end
 
@@ -782,6 +793,9 @@ function TRP3FW:RefreshUI()
         local hasEpsilon = TRP3FW.hasEpsilonAPI
         for _, control in ipairs(epsilonControls) do
             if control then
+                -- Mark so UpdateUIComplexity/Reflow never force-show a control
+                -- that the epsilon gating hid.
+                control._epsilonHidden = not hasEpsilon
                 if control.SetShown then control:SetShown(hasEpsilon) end
 
                 if hasEpsilon then

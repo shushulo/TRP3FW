@@ -192,7 +192,11 @@ local function CreateAlertsTab(container)
 
     local gpd = TabManager:CreateSkinnedDropdown(ghostCard, "Ghost profile",
         "Choose which profile to send in ghost mode.", 300, "ghostProfileName")
-    gpd:SetPoint("TOPLEFT", -4, ghostCard:NextY(56) - 16); uiElements.ghostProfileDropdown = gpd
+    uiElements.ghostProfileDropdown = gpd
+    ghostCard:AddRow(function(y)
+        gpd:ClearAllPoints()
+        gpd:SetPoint("TOPLEFT", ghostCard, "TOPLEFT", -4, y - 16)
+    end, 60, gpd.complexityLevel, { gpd })
     UIDropDownMenu_Initialize(gpd, function()
         local profiles = TRP3FW:GetAllProfiles()
         if #profiles > 0 then
@@ -209,48 +213,45 @@ local function CreateAlertsTab(container)
         end
     end)
 
+    -- Epsilon warning: RefreshUI owns its visibility (shown when the API is
+    -- MISSING), so the row reserves space but never touches shown state.
     uiElements.epsilonWarning = ghostCard:CreateFontString(nil, "OVERLAY", TRP3FW.Theme.fonts.SUB)
-    uiElements.epsilonWarning:SetPoint("TOPLEFT", 12, ghostCard:NextY(20))
     uiElements.epsilonWarning:SetText("|cffff6600Epsilon-only options hidden (API unavailable)|r")
     uiElements.epsilonWarning:Hide()
+    ghostCard:AddRow(function(y)
+        uiElements.epsilonWarning:ClearAllPoints()
+        uiElements.epsilonWarning:SetPoint("TOPLEFT", ghostCard, "TOPLEFT", 12, y)
+    end, 20, 1)
 
-    uiElements.blockStartPhase = TabManager:CreateToggle(ghostCard,
-        "Block in start phase", "Block transmissions in phase 169.", "blockStartPhase")
-    uiElements.blockStartPhase:SetPoint("TOPLEFT", 12, ghostCard:NextY())
-    uiElements.blockStartPhase:SetPoint("RIGHT", ghostCard, "RIGHT", -12, 0)
-    uiElements.blockStartPhase:SetOnToggle(function(c) TRP3FW.Prefs.blockStartPhase = c; if TRP3FW.Prefs.ghostOnStartPhase and TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end)
-    if epsilonControls then table.insert(epsilonControls, uiElements.blockStartPhase) end
-
-    uiElements.ghostOnStartPhase = TabManager:CreateToggle(ghostCard,
-        "Ghost in start phase", "Send blank profile in phase 169.", "ghostOnStartPhase")
-    uiElements.ghostOnStartPhase:SetPoint("TOPLEFT", 12, ghostCard:NextY())
-    uiElements.ghostOnStartPhase:SetPoint("RIGHT", ghostCard, "RIGHT", -12, 0)
-    uiElements.ghostOnStartPhase:SetOnToggle(function(c) TRP3FW.Prefs.ghostOnStartPhase = c; if TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end)
-    if epsilonControls then table.insert(epsilonControls, uiElements.ghostOnStartPhase) end
-
-    uiElements.ghostProfileSwitch = TabManager:CreateToggle(ghostCard,
-        "Auto-switch to blank profile", "Switch to blank profile in 169/1605.", "ghostProfileSwitch")
-    uiElements.ghostProfileSwitch:SetPoint("TOPLEFT", 12, ghostCard:NextY())
-    uiElements.ghostProfileSwitch:SetPoint("RIGHT", ghostCard, "RIGHT", -12, 0)
-    uiElements.ghostProfileSwitch:SetOnToggle(function(c) TRP3FW.Prefs.ghostProfileSwitch = c; if TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end)
-    if epsilonControls then table.insert(epsilonControls, uiElements.ghostProfileSwitch) end
-
-    uiElements.ghostProfileWhitelistEnabled = TabManager:CreateToggle(ghostCard,
-        "Exclude phases/maps", "Keep real profile in specific areas.", "ghostProfileWhitelistEnabled")
-    uiElements.ghostProfileWhitelistEnabled:SetPoint("TOPLEFT", 12, ghostCard:NextY())
-    uiElements.ghostProfileWhitelistEnabled:SetPoint("RIGHT", ghostCard, "RIGHT", -12, 0)
-    uiElements.ghostProfileWhitelistEnabled:SetOnToggle(function(c)
-        TRP3FW.Prefs.ghostProfileWhitelistEnabled = c
-        if uiElements.ghostProfileWhitelistEdit then if c then uiElements.ghostProfileWhitelistEdit:Enable() else uiElements.ghostProfileWhitelistEdit:Disable() end; uiElements.ghostProfileWhitelistEdit:SetAlpha(c and 1 or 0.5) end
-    end)
-    if epsilonControls then table.insert(epsilonControls, uiElements.ghostProfileWhitelistEnabled) end
+    local function ghostToggleRow(key, label, tip, onToggle)
+        local t = TabManager:CreateToggle(ghostCard, label, tip, key)
+        t:SetOnToggle(onToggle)
+        uiElements[key] = t
+        if epsilonControls then table.insert(epsilonControls, t) end
+        ghostCard:AddRow(function(y)
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", ghostCard, "TOPLEFT", 12, y)
+            t:SetPoint("RIGHT", ghostCard, "RIGHT", -12, 0)
+        end, TRP3FW.Theme.metrics.ROW, t.complexityLevel, { t })
+        return t
+    end
+    ghostToggleRow("blockStartPhase", "Block in start phase", "Block transmissions in phase 169.",
+        function(c) TRP3FW.Prefs.blockStartPhase = c; if TRP3FW.Prefs.ghostOnStartPhase and TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end)
+    ghostToggleRow("ghostOnStartPhase", "Ghost in start phase", "Send blank profile in phase 169.",
+        function(c) TRP3FW.Prefs.ghostOnStartPhase = c; if TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end)
+    ghostToggleRow("ghostProfileSwitch", "Auto-switch to blank profile", "Switch to blank profile in 169/1605.",
+        function(c) TRP3FW.Prefs.ghostProfileSwitch = c; if TRP3FW.EnsureBlankProfilesExist then TRP3FW:EnsureBlankProfilesExist() end end)
+    ghostToggleRow("ghostProfileWhitelistEnabled", "Exclude phases/maps", "Keep real profile in specific areas.",
+        function(c)
+            TRP3FW.Prefs.ghostProfileWhitelistEnabled = c
+            if uiElements.ghostProfileWhitelistEdit then if c then uiElements.ghostProfileWhitelistEdit:Enable() else uiElements.ghostProfileWhitelistEdit:Disable() end; uiElements.ghostProfileWhitelistEdit:SetAlpha(c and 1 or 0.5) end
+        end)
 
     -- Multiline exclusion whitelist, in a slate well. The visual box is the
     -- backdrop (-6 left / +26 right of the scroll). Match the 12px interior inset
     -- box left = 18-6 = 12, box right = 18+(W-56)+26 = W-12.
-    local wlY = ghostCard:NextY(96)
     local wls = CreateFrame("ScrollFrame", nil, ghostCard, "UIPanelScrollFrameTemplate")
-    wls:SetPoint("TOPLEFT", 18, wlY); wls:SetSize(CARD_W - 56, 90); uiElements.ghostProfileWhitelistScroll = wls
+    wls:SetSize(CARD_W - 56, 90); uiElements.ghostProfileWhitelistScroll = wls
     local wle = CreateFrame("EditBox", nil, wls); wle:SetMultiLine(true); wle:SetFontObject(TRP3FW.Theme.fonts.SUB); wle:SetWidth(CARD_W - 76); wle:SetHeight(90); wle:SetAutoFocus(false); wle:SetMaxLetters(3000)
     wle:SetText(TRP3FW.Prefs.ghostProfileWhitelist or ""); wle:SetScript("OnTextChanged", function(self) TRP3FW.Prefs.ghostProfileWhitelist = self:GetText() end)
     wle:SetScript("OnEscapePressed", wle.ClearFocus)
@@ -263,9 +264,11 @@ local function CreateAlertsTab(container)
     wlbg:SetBackdropBorderColor(TRP3FW.Theme:Color("BORDER_STRONG"))
     TabManager:AddComplexityWidget(wle, "ghostProfileWhitelist"); TabManager:AddComplexityWidget(wls, "ghostProfileWhitelist"); TabManager:AddComplexityWidget(wlbg, "ghostProfileWhitelist")
     if epsilonControls then table.insert(epsilonControls, wle); table.insert(epsilonControls, wls); table.insert(epsilonControls, wlbg) end
-    -- Cursor sits at the box backdrop bottom (96 reserve - 90 box = 6 == backdrop
-    -- overhang); +12 = 12px gap below the box, matching the sides.
-    ghostCard:FitHeight(12)
+    ghostCard:AddRow(function(y)
+        wls:ClearAllPoints()
+        wls:SetPoint("TOPLEFT", ghostCard, "TOPLEFT", 18, y)
+    end, 96, wle.complexityLevel, { wls, wle, wlbg })
+    ghostCard:Reflow()
 
     -- ===== Card 4: Overrides ===============================================
     local ovCard = stackCard(content, TabManager:CreateCard(content, "Profile overrides", CARD_W), ghostCard, CARD_W)
@@ -277,17 +280,17 @@ local function CreateAlertsTab(container)
     local renderedRows = 0
     local addRowBtn
 
+    -- Each override row is a reflowable row (level 3 = the overrides feature's
+    -- complexity), so the whole card collapses to its header below Advanced.
     local function RenderOverrideRow(i)
         TRP3FW.Prefs.ghostProfileOverrides[i] = TRP3FW.Prefs.ghostProfileOverrides[i] or {}
         local entry = TRP3FW.Prefs.ghostProfileOverrides[i]
-        local rowY = ovCard:NextY(34)
-        local l = ovCard:CreateFontString(nil, "OVERLAY", TRP3FW.Theme.fonts.SUB); l:SetPoint("TOPLEFT", 12, rowY - 4); l:SetText(string.format("#%02d", i)); l:SetTextColor(TRP3FW.Theme:Color("TEXT_MUTED"))
-        local cb = CreateFrame("EditBox", nil, ovCard, "InputBoxTemplate"); cb:SetSize(130, 20); cb:SetAutoFocus(false); cb:SetPoint("TOPLEFT", 48, rowY - 2); cb:SetText(entry.match or "")
+        local l = ovCard:CreateFontString(nil, "OVERLAY", TRP3FW.Theme.fonts.SUB); l:SetText(string.format("#%02d", i)); l:SetTextColor(TRP3FW.Theme:Color("TEXT_MUTED"))
+        local cb = CreateFrame("EditBox", nil, ovCard, "InputBoxTemplate"); cb:SetSize(130, 20); cb:SetAutoFocus(false); cb:SetText(entry.match or "")
         cb:SetScript("OnTextChanged", function(self) entry.match = self:GetText() end)
         cb:SetScript("OnEscapePressed", cb.ClearFocus)
 
         local od = TabManager:CreateSkinnedDropdown(ovCard, nil, nil, 150, "ghostProfileOverrides")
-        od:SetPoint("TOPLEFT", 182, rowY + 2)
         if od.label then od.label:Hide() end
         UIDropDownMenu_Initialize(od, function()
             local info = UIDropDownMenu_CreateInfo(); info.text = "(Use global)"; info.func = function() entry.profileID = nil; entry.profileName = nil; UIDropDownMenu_SetText(od, "(Use global)") end; UIDropDownMenu_AddButton(info)
@@ -298,6 +301,11 @@ local function CreateAlertsTab(container)
         UIDropDownMenu_SetText(od, entry.profileName or "(Use global)")
         table.insert(uiElements.profileOverrides, { edit = cb, dropdown = od })
         if epsilonControls then table.insert(epsilonControls, cb); table.insert(epsilonControls, od) end
+        return ovCard:AddRow(function(y)
+            l:ClearAllPoints();  l:SetPoint("TOPLEFT", ovCard, "TOPLEFT", 12, y - 4)
+            cb:ClearAllPoints(); cb:SetPoint("TOPLEFT", ovCard, "TOPLEFT", 48, y - 2)
+            od:ClearAllPoints(); od:SetPoint("TOPLEFT", ovCard, "TOPLEFT", 182, y + 2)
+        end, 34, 3, { l, cb, od })
     end
 
     local lastPopulated = 0
@@ -308,26 +316,23 @@ local function CreateAlertsTab(container)
     local startCount = math.min(MAX_ROWS, math.max(INITIAL_ROWS, lastPopulated))
     for i = 1, startCount do RenderOverrideRow(i); renderedRows = i end
 
-    -- Place the Add button at the current cursor; on click, render the next row
-    -- at the button's slot and re-place the button just below it.
-    local function placeAddButton()
-        addRowBtn:ClearAllPoints()
-        addRowBtn:SetPoint("TOPLEFT", 12, ovCard._cursorY)
-    end
     addRowBtn = TabManager:CreateButton(ovCard, "+ Add row", 100, false)
-    placeAddButton()
+    ovCard:AddRow(function(y)
+        addRowBtn:ClearAllPoints()
+        addRowBtn:SetPoint("TOPLEFT", ovCard, "TOPLEFT", 12, y)
+    end, 28, 3, { addRowBtn })
     addRowBtn:SetOnClick(function()
         if renderedRows < MAX_ROWS then
             renderedRows = renderedRows + 1
-            RenderOverrideRow(renderedRows)  -- consumes the slot the button was in
-            placeAddButton()                 -- move button below the new row
-            ovCard:FitHeight(36)  -- 24px button + 12 gap below
+            local newRow = RenderOverrideRow(renderedRows)  -- appended after the button row
+            table.remove(ovCard._rows)                       -- pop it back off
+            table.insert(ovCard._rows, #ovCard._rows, newRow) -- insert before the button row
+            ovCard:Reflow()
             if renderedRows >= MAX_ROWS then addRowBtn:Disable() end
         end
     end)
     if renderedRows >= MAX_ROWS then addRowBtn:Disable() end
-    ovCard._cursorY = ovCard._cursorY - 24  -- reserve the button's own height
-    ovCard:FitHeight(12)
+    ovCard:Reflow()
 
     return scrollFrame
 end
