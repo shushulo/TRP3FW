@@ -587,10 +587,13 @@ end
 
 -- A gold-fill slider with an inline value readout. Replaces raw numeric edit
 -- boxes for ranged tunables. valueFormat is a string.format pattern for the
--- readout (e.g. "%d s"). Exposes :SetValue/:GetValue like a Slider.
-function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, minV, maxV, step, valueFormat)
+-- readout (e.g. "%d s"). displayMul scales the value for DISPLAY only (e.g.
+-- 1000 to show seconds as ms) without changing the stored value. Exposes
+-- :SetValue/:GetValue like a Slider.
+function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, minV, maxV, step, valueFormat, displayMul)
     local Theme = TRP3FW.Theme
     valueFormat = valueFormat or "%d"
+    displayMul = displayMul or 1
 
     local row = CreateFrame("Frame", nil, parent)
     row:SetSize(560, 22)
@@ -650,7 +653,7 @@ function TabManager:CreateSlider(parent, labelText, tooltipText, settingKey, min
     row.fill = fill
 
     slider:SetScript("OnValueChanged", function(self, value)
-        readout:SetText(string.format(valueFormat, value))
+        readout:SetText(string.format(valueFormat, value * displayMul))
         if row._onChange then row._onChange(value) end
     end)
 

@@ -224,7 +224,7 @@ local function CreateSecurityTab(container)
     if epsilonControls then table.insert(epsilonControls, blockSlider) end
 
     local saltSlider = TabManager:CreateSlider(spvpCard, "Salt cache",
-        "How long to cache phase salts.", "spvpSaltCacheDuration", 300, 43200, 300, "%d s")
+        "How long to cache phase salts.", "spvpSaltCacheDuration", 300, 43200, 300, "%.0f m", 1/60)
     saltSlider:SetPoint("TOPLEFT", 12, spvpCard:NextY(40))
     saltSlider:SetPoint("RIGHT", spvpCard, "RIGHT", -12, 0)
     saltSlider:SetOnChange(function(v) TRP3FW.Prefs.spvpSaltCacheDuration = v end)
