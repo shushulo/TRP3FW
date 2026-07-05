@@ -45,24 +45,49 @@ local function CreateDebugTab(container)
         eb:SetScript("OnEditFocusLost", save)
     end
 
-    -- A labelled numeric edit box placed on the right of its row inside a card,
-    -- with the label on the left. IMPORTANT: CreateSkinnedEditBox's outer frame
-    -- is `eb.well` (the editBox is anchored INSIDE it) -- position the WELL, not
-    -- the editBox, or the two conflicting anchor sets mangle the layout.
-    -- Returns the edit box (also stored under uiElements[key]).
-    local function numRow(card, key, label, tip, min, max, pct)
-        local eb, lbl = TabManager:CreateSkinnedEditBox(card, label, tip, 70, key, true)
+    -- A labelled numeric edit box with the value paired to the RIGHT of the
+    -- label (not far-right), so the two read as one unit. IMPORTANT:
+    -- CreateSkinnedEditBox's outer frame is `eb.well` (the editBox sits inside
+    -- it) -- position the WELL, not the editBox.
+    --
+    -- If x/y are given, the row is placed at that offset from the card's
+    -- TOPLEFT (used for the 2-column cache grid). Otherwise it uses the card
+    -- cursor (single column, full width). Label is capped so the value clears it.
+    local function numRow(card, key, label, tip, min, max, pct, x, y, labelW)
+        local eb, lbl = TabManager:CreateSkinnedEditBox(card, label, tip, 64, key, true)
         local well = eb.well
-        local rowY = card:NextY(26)
-        well:ClearAllPoints()
-        well:SetPoint("TOPRIGHT", card, "TOPRIGHT", -INNER, rowY)
-        -- Re-anchor the label to the LEFT of the row, vertically centered on the well.
+        x = x or INNER
+        y = y or card:NextY(26)
         lbl:ClearAllPoints()
-        lbl:SetPoint("LEFT", card, "LEFT", INNER, 0)
-        lbl:SetPoint("TOP", well, "TOP", 0, -4)
+        lbl:SetPoint("TOPLEFT", card, "TOPLEFT", x, y - 4)
+        lbl:SetWidth(labelW or 0)  -- 0 = natural width (single column)
+        lbl:SetJustifyH("LEFT")
+        well:ClearAllPoints()
+        -- Value sits just right of the label's box (paired), not far-right.
+        if labelW then
+            well:SetPoint("TOPLEFT", card, "TOPLEFT", x + labelW + 6, y)
+        else
+            well:SetPoint("TOPLEFT", lbl, "RIGHT", 8, 4)
+        end
         setupEditBox(eb, key, min, max, pct)
         uiElements[key] = eb
         return eb
+    end
+
+    -- Lay out a list of {key,label,tip,min,max,pct} numeric specs in two columns
+    -- inside a card, pairing each value tightly to its label. Advances the card
+    -- cursor past the grid.
+    local function numGrid(card, specs)
+        local W = TRP3FW.Theme.metrics.CARD_W
+        local colW = (W - INNER * 2) / 2
+        local labelW = colW - 76  -- leave room for the 64px value box + gaps
+        local baseY = card:NextY(0)
+        for i, s in ipairs(specs) do
+            local col = (i - 1) % 2
+            local rowIdx = math.floor((i - 1) / 2)
+            numRow(card, s[1], s[2], s[3], s[4], s[5], s[6], INNER + col * colW, baseY - rowIdx * 28, labelW)
+        end
+        card._cursorY = baseY - math.ceil(#specs / 2) * 28
     end
 
     -- A full-width toggle row. indent adds left padding for sub-options.
@@ -75,31 +100,35 @@ local function CreateDebugTab(container)
         return t
     end
 
-    -- ===== Card: Cache durations (all numeric tunables) ====================
+    -- ===== Card: Cache durations (all numeric tunables, 2-column grid) =====
     local cacheCard = stackCard(content, TabManager:CreateCard(content, "Cache durations", nil), nil)
-    numRow(cacheCard, "sendCacheDuration",        "Send cache duration (s)",       "How long to remember allowed senders.", 0)
-    numRow(cacheCard, "sendCacheRefreshRate",     "Send refresh threshold (%)",    "TTL percentage to trigger refresh.", 0, 100, true)
-    numRow(cacheCard, "interactionCacheDuration", "Interaction cache duration (s)","How long to keep interaction records.", 0)
-    numRow(cacheCard, "interactionRefreshRate",   "Interaction refresh threshold (%)","TTL percentage to trigger refresh.", 0, 100, true)
-    numRow(cacheCard, "whoZoneCacheDuration",     "WHO zone cache (s)",            "How long to cache WHO zone results.", 0)
-    numRow(cacheCard, "whoNameCacheDuration",     "WHO name cache (s)",            "How long to cache WHO name results.", 0)
-    numRow(cacheCard, "whoZoneQueryCooldown",     "Zone query cooldown (s)",       "Min seconds between WHO queries.", 0, 120)
-    numRow(cacheCard, "whoCacheRefreshThreshold", "WHO refresh threshold (%)",     "TTL percentage to trigger refresh.", 0, 100, true)
-    numRow(cacheCard, "phaseCacheDuration",       "Phase success TTL (s)",         "Success cache duration.", 0)
-    numRow(cacheCard, "phaseCacheFailureDuration","Phase failure TTL (s)",         "Failure cache duration.", 0)
-    numRow(cacheCard, "scanCacheDuration",        "Scan success TTL (s)",          "Scan result duration.", 0)
-    numRow(cacheCard, "scanCacheFailureDuration", "Scan failure TTL (s)",          "Failure cache duration.", 0)
-    numRow(cacheCard, "mapScanMinInterval",       "Min scan interval (s)",         "Wait time between scans.", 10, 600)
-    numRow(cacheCard, "phaseCacheRefreshThreshold","Phase refresh threshold (%)",  "TTL percentage to refresh.", 0, 100, true)
-    numRow(cacheCard, "spvpVerifiedCacheDuration","SPVP verification TTL (s)",     "How long verification lasts.", 10, 3600)
-    numRow(cacheCard, "spvpVerifiedRefreshRate",  "SPVP verification refresh (%)", "TTL percentage to trigger re-check.", 10, 90, true)
-    numRow(cacheCard, "spvpPhaseSaltRefreshRate", "SPVP phase salt refresh (%)",   "TTL percentage to refetch salt.", 10, 90, true)
-    numRow(cacheCard, "cacheSizeLimit",           "Global cache entry limit",      "Max entries per cache.", 100, 10000)
-    numRow(cacheCard, "phaseInDelay",             "Phase-in delay (s)",            "Wait time after phasing.", 0, 10)
-    numRow(cacheCard, "transitionGracePeriod",    "Transition grace (s)",          "Race condition protection window.", 0, 30)
-    numRow(cacheCard, "validatedNamesCacheLimit", "Name cache entry limit",        "Max persistent entries.", 500, 10000)
-    -- Name TTL is stored in seconds but edited in days; custom save.
-    local nameTTL = numRow(cacheCard, "validatedNamesCacheDuration", "Name cache TTL (days)", "TTL for persistent names.", nil, nil, false)
+    numGrid(cacheCard, {
+        { "sendCacheDuration",         "Send cache (s)",       "How long to remember allowed senders.", 0 },
+        { "sendCacheRefreshRate",      "Send refresh (%)",     "TTL percentage to trigger refresh.", 0, 100, true },
+        { "interactionCacheDuration",  "Interaction (s)",      "How long to keep interaction records.", 0 },
+        { "interactionRefreshRate",    "Interaction refresh (%)","TTL percentage to trigger refresh.", 0, 100, true },
+        { "whoZoneCacheDuration",      "WHO zone (s)",         "How long to cache WHO zone results.", 0 },
+        { "whoNameCacheDuration",      "WHO name (s)",         "How long to cache WHO name results.", 0 },
+        { "whoZoneQueryCooldown",      "Zone cooldown (s)",    "Min seconds between WHO queries.", 0, 120 },
+        { "whoCacheRefreshThreshold",  "WHO refresh (%)",      "TTL percentage to trigger refresh.", 0, 100, true },
+        { "phaseCacheDuration",        "Phase success (s)",    "Success cache duration.", 0 },
+        { "phaseCacheFailureDuration", "Phase failure (s)",    "Failure cache duration.", 0 },
+        { "scanCacheDuration",         "Scan success (s)",     "Scan result duration.", 0 },
+        { "scanCacheFailureDuration",  "Scan failure (s)",     "Failure cache duration.", 0 },
+        { "mapScanMinInterval",        "Min scan interval (s)","Wait time between scans.", 10, 600 },
+        { "phaseCacheRefreshThreshold","Phase refresh (%)",    "TTL percentage to refresh.", 0, 100, true },
+        { "spvpVerifiedCacheDuration", "SPVP verify TTL (s)",  "How long verification lasts.", 10, 3600 },
+        { "spvpVerifiedRefreshRate",   "SPVP verify refresh (%)","TTL percentage to trigger re-check.", 10, 90, true },
+        { "spvpPhaseSaltRefreshRate",  "SPVP salt refresh (%)","TTL percentage to refetch salt.", 10, 90, true },
+        { "cacheSizeLimit",            "Cache entry limit",    "Max entries per cache.", 100, 10000 },
+        { "phaseInDelay",              "Phase-in delay (s)",   "Wait time after phasing.", 0, 10 },
+        { "transitionGracePeriod",     "Transition grace (s)", "Race condition protection window.", 0, 30 },
+        { "validatedNamesCacheLimit",  "Name entry limit",     "Max persistent entries.", 500, 10000 },
+    })
+    -- Name TTL: stored in seconds, edited in days; own row + custom save.
+    local W = TRP3FW.Theme.metrics.CARD_W
+    local nameTTL = numRow(cacheCard, "validatedNamesCacheDuration", "Name cache TTL (days)", "TTL for persistent names.",
+        nil, nil, false, INNER, cacheCard:NextY(28), (W - INNER * 2) / 2 - 76)
     uiElements.validatedNamesCacheDuration = nameTTL
     local function saveNameTTL(self)
         local d = tonumber(self:GetText())
