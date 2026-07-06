@@ -3,7 +3,7 @@
 --
 -- Preserves every uiElements key, epsilon registration, and behavior the old
 -- tab and RefreshUI depend on (phaseCheckModeDropdown, mapCheckModeDropdown,
--- ghostProfileDropdown, notificationModeSummaryNotify, the check toggles, the
+-- ghostProfileDropdown, modeSummary (current-modes grid), the check toggles, the
 -- ghostProfileWhitelist* widgets, epsilonWarning, and profileOverrides), just
 -- reorganized into slate cards with skinned controls.
 
@@ -124,16 +124,29 @@ local function CreateAlertsTab(container)
     end
     presetCard._cursorY = presetY - 34
 
-    -- Current mode summary
-    local sumHdr = presetCard:CreateFontString(nil, "ARTWORK", TRP3FW.Theme.fonts.SUB)
-    sumHdr:SetPoint("TOPLEFT", 12, presetCard:NextY(18))
+    -- Current mode summary: a small key/value grid (label left, value gold)
+    -- rather than a space-padded text blob. RefreshUI fills the .value fields.
+    local Theme = TRP3FW.Theme
+    local sumHdr = presetCard:CreateFontString(nil, "ARTWORK", Theme.fonts.SUB)
+    sumHdr:SetPoint("TOPLEFT", 12, presetCard:NextY(20))
     sumHdr:SetText("Current modes")
-    sumHdr:SetTextColor(TRP3FW.Theme:Color("TEXT_MUTED"))
-    uiElements.notificationModeSummaryNotify = presetCard:CreateFontString(nil, "ARTWORK", TRP3FW.Theme.fonts.SUB)
-    uiElements.notificationModeSummaryNotify:SetPoint("TOPLEFT", 12, presetCard:NextY(44))
-    uiElements.notificationModeSummaryNotify:SetWidth(CARD_W - 24)
-    uiElements.notificationModeSummaryNotify:SetJustifyH("LEFT")
-    uiElements.notificationModeSummaryNotify:SetTextColor(TRP3FW.Theme:Color("TEXT_PRIMARY"))
+    sumHdr:SetTextColor(Theme:Color("TEXT_MUTED"))
+
+    uiElements.modeSummary = {}
+    local function summaryRow(labelText)
+        local rowY = presetCard:NextY(22)
+        local lbl = presetCard:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
+        lbl:SetPoint("TOPLEFT", 12, rowY); lbl:SetWidth(90); lbl:SetJustifyH("LEFT")
+        lbl:SetText(labelText); lbl:SetTextColor(Theme:Color("TEXT_SECONDARY"))
+        local val = presetCard:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
+        val:SetPoint("TOPLEFT", 108, rowY); val:SetPoint("RIGHT", presetCard, "RIGHT", -12, 0)
+        val:SetJustifyH("LEFT"); val:SetTextColor(Theme:Color("GOLD_TEXT"))
+        return val
+    end
+    uiElements.modeSummary.phase = summaryRow("Phase")
+    uiElements.modeSummary.map = summaryRow("Map")
+    uiElements.modeSummary.who = summaryRow("WHO")
+    uiElements.modeSummary.scan = summaryRow("Scan reply")
     presetCard:FitHeight(12)
 
     -- ===== Card 2: Location checking =======================================

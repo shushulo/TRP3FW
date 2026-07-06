@@ -747,7 +747,7 @@ function TRP3FW:RefreshUI()
         uiElements.spvpSaltCacheDurationSlider:SetValue(p.spvpSaltCacheDuration or 10800)
     end
 
-    if uiElements.notificationModeSummaryNotify then
+    if uiElements.modeSummary then
         local function modeText(val)
             local map = dropdownConfig.phaseCheckMode or {}
             return map[val] or "Off"
@@ -757,25 +757,19 @@ function TRP3FW:RefreshUI()
             return map[val] or "Off"
         end
 
-        local phaseMode = p.phaseCheckMode or "alert"
-        local mapMode = p.mapCheckMode or "alert"
-        local whoText = "WHO: Default (user /who via UI; addon auto)"
-
-        local lines = {}
-        table.insert(lines, string.format("Profiles: Phase: %s   Map: %s   %s", modeText(phaseMode), modeText(mapMode), whoText))
+        local S = uiElements.modeSummary
+        S.phase:SetText(modeText(p.phaseCheckMode or "alert"))
+        S.map:SetText(modeText(p.mapCheckMode or "alert"))
+        S.who:SetText("Default (user /who via UI; addon auto)")
 
         local scanPhaseMode = p.scanResponsePhaseMode or "off"
         local scanMapMode = p.scanResponseMapMode or "off"
-
         local gatingActive = hasScanner and (scanPhaseMode ~= "off" or scanMapMode ~= "off")
-
         if gatingActive then
-            table.insert(lines, string.format("Scan reply: Phase: %s   Map: %s", scanModeText(scanPhaseMode), scanModeText(scanMapMode)))
+            S.scan:SetText(string.format("Phase: %s   Map: %s", scanModeText(scanPhaseMode), scanModeText(scanMapMode)))
         else
-            table.insert(lines, "Scan reply: Protections off")
+            S.scan:SetText("Protections off")
         end
-
-        uiElements.notificationModeSummaryNotify:SetText(table.concat(lines, "\n"))
     end
 
     if uiElements.debugOutputDropdown then
