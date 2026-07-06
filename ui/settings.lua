@@ -738,7 +738,7 @@ function TRP3FW:RefreshUI()
         end
     end
 
-    if uiElements.profileOverrides then for i, r in ipairs(uiElements.profileOverrides) do local e = (p.ghostProfileOverrides and p.ghostProfileOverrides[i]) or {}; if r.edit then r.edit:SetText(e.match or "") end; if r.dropdown then UIDropDownMenu_SetText(r.dropdown, e.profileName or "(Global)") end end end
+    if uiElements.profileOverrides then for i, r in ipairs(uiElements.profileOverrides) do local e = (p.ghostProfileOverrides and p.ghostProfileOverrides[i]) or {}; if r.edit then r.edit:SetText(e.match or "") end; if r.dropdown then UIDropDownMenu_SetText(r.dropdown, e.profileName or "(Use global)") end end end
 
     if uiElements.spvpBlockDurationSlider then
         uiElements.spvpBlockDurationSlider:SetValue(p.spvpBlockDuration or 60)

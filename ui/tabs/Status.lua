@@ -93,6 +93,7 @@ local function CreateSection(parent, previousAnchor, title, expandedHeight, defa
         section.open = not section.open
         section:Refresh()
         if onToggle then onToggle(section) end
+        if section.onToggleExtra then section.onToggleExtra(section) end
     end
     toggle:SetScript("OnClick", onClick)
     hitbox:SetScript("OnClick", onClick)
@@ -117,6 +118,22 @@ local function CreateStatusTab(container)
         value:SetPoint("LEFT", label, "RIGHT", 10, 0)
         return value, label
     end
+
+    -- Collect the flow frames (section frames + trailing settings frame) so the
+    -- scroll child can be resized to only the expanded content -- otherwise the
+    -- scrollbar stays sized for the fully-expanded 1400px height.
+    local flowFrames = {}
+    local function recomputeHeight()
+        local total = 10  -- top offset
+        for i, f in ipairs(flowFrames) do
+            total = total + f:GetHeight() + (i > 1 and SECTION_GAP or 0)
+        end
+        total = total + 12  -- bottom padding
+        local minH = scrollFrame:GetHeight() or 0
+        content:SetHeight(math.max(total, minH))
+    end
+    -- Passed as each section's onToggle so collapsing/expanding resizes the scroll.
+    local function onSectionToggle() recomputeHeight() end
 
     -- ============================================================
     -- 1. Session Statistics (cards)
@@ -358,6 +375,16 @@ local function CreateStatusTab(container)
         envSec.open = false; envSec:Refresh()
         perfSec.open = false; perfSec:Refresh()
     end
+
+    -- Register the flow frames (in visual order) and wire each section's toggle
+    -- to resize the scroll child, so the scrollbar matches what's expanded.
+    local sections = { sessionSec, recentSec, requestsSec, detectionSec, envSec, perfSec, cachePerfSec, cacheStatusSec, privSec }
+    for _, sec in ipairs(sections) do
+        sec.onToggleExtra = onSectionToggle
+        flowFrames[#flowFrames + 1] = sec.frame
+    end
+    flowFrames[#flowFrames + 1] = settingsFrame
+    recomputeHeight()
 
     return scrollFrame
 end

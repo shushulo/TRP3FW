@@ -57,7 +57,7 @@ local function CreateFiltersTab(container)
     fCard:AddRow(function(y)
         fsd:ClearAllPoints()
         fsd:SetPoint("TOPLEFT", fCard, "TOPLEFT", -4, y)
-    end, 48, fsd.complexityLevel, { fsd })
+    end, 40, fsd.complexityLevel, { fsd })
     -- RefreshUI sets the text via "...LevelDropdown" (dropdownConfig loop) and
     -- enables/disables via "...Dropdown"; point both at this widget so it both
     -- shows the value and greys out when the toggle is off.

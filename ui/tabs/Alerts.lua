@@ -209,7 +209,7 @@ local function CreateAlertsTab(container)
     ghostCard:AddRow(function(y)
         gpd:ClearAllPoints()
         gpd:SetPoint("TOPLEFT", ghostCard, "TOPLEFT", -4, y - 16)
-    end, 60, gpd.complexityLevel, { gpd })
+    end, 48, gpd.complexityLevel, { gpd })
     UIDropDownMenu_Initialize(gpd, function()
         local profiles = TRP3FW:GetAllProfiles()
         if #profiles > 0 then
