@@ -468,7 +468,9 @@ function TabManager:_registerSkinned(widget, labelText, tooltipText, settingKey)
     table.insert(self.complexityWidgets, widget)
 
     local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
-    self:IndexSearchable(labelText, widget, tip)
+    -- Index a tag-free tip (level=nil): the search result renders its own
+    -- "Requires the X level" line, so the "[X Setting]" tag would be redundant.
+    self:IndexSearchable(labelText, widget, self:AppendDefaultToTooltip(tooltipText, settingKey, nil))
 
     if labelText and (tooltipText or level > 1) then
         widget:HookScript("OnEnter", function(self)
@@ -1007,7 +1009,8 @@ function TabManager:CreateSkinnedEditBox(parent, labelText, tooltipText, width, 
     table.insert(self.complexityWidgets, editBox)
 
     local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
-    self:IndexSearchable(labelText, editBox, tip)
+    -- Tag-free tip for search (see _registerSkinned).
+    self:IndexSearchable(labelText, editBox, self:AppendDefaultToTooltip(tooltipText, settingKey, nil))
 
     if tooltipText or level > 1 then
         editBox:HookScript("OnEnter", function(self)
