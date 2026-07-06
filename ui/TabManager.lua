@@ -955,10 +955,13 @@ function TabManager:CreateButton(parent, text, width, isPrimary)
         insets = { left = 3, right = 3, top = 3, bottom = 3 },
     })
 
+    -- NOTE: do NOT call btn:SetFontString(fs) -- that makes the Button manage
+    -- the label with its own justification and can override our CENTER anchor,
+    -- shifting the text off-center. Keep the FontString independently centered.
     local fs = btn:CreateFontString(nil, "OVERLAY", Theme.fonts.LABEL)
-    fs:SetPoint("CENTER")
+    fs:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    fs:SetJustifyH("CENTER")
     fs:SetText(text)
-    btn:SetFontString(fs)
     btn.text = fs
 
     local function base(self)
@@ -977,8 +980,9 @@ function TabManager:CreateButton(parent, text, width, isPrimary)
         self:SetBackdropBorderColor(Theme:Color("GOLD"))
     end)
     btn:SetScript("OnLeave", base)
-    btn:SetScript("OnMouseDown", function(self) fs:SetPoint("CENTER", 0, -1) end)
-    btn:SetScript("OnMouseUp", function(self) fs:SetPoint("CENTER", 0, 0) end)
+    -- Press nudge: re-anchor cleanly so the label always returns to dead center.
+    btn:SetScript("OnMouseDown", function() fs:ClearAllPoints(); fs:SetPoint("CENTER", btn, "CENTER", 0, -1) end)
+    btn:SetScript("OnMouseUp", function() fs:ClearAllPoints(); fs:SetPoint("CENTER", btn, "CENTER", 0, 0) end)
     base(btn)
 
     function btn:SetOnClick(fn) self:SetScript("OnClick", fn) end
