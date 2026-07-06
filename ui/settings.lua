@@ -960,7 +960,8 @@ function TRP3FW:InitializeUI()
     end
     TRP3FW._highlightNav = highlightNav
 
-    -- Search box (visual placeholder for now; not yet wired to filtering).
+    -- Search box: type to jump to a setting. Matching entries appear in a small
+    -- results popup below; clicking one switches to that tab and flashes it.
     local searchBox = CreateFrame("Frame", nil, sidebar, "BackdropTemplate")
     searchBox:SetPoint("TOPLEFT", 8, -8)
     searchBox:SetPoint("TOPRIGHT", -8, -8)
@@ -972,10 +973,70 @@ function TRP3FW:InitializeUI()
     searchIcon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
     searchIcon:SetSize(14, 14); searchIcon:SetPoint("LEFT", 6, 0)
     searchIcon:SetVertexColor(Theme:Color("TEXT_MUTED"))
-    local searchText = searchBox:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
-    searchText:SetPoint("LEFT", searchIcon, "RIGHT", 5, 0)
-    searchText:SetText("Search settings")
-    searchText:SetTextColor(Theme:Color("TEXT_MUTED"))
+
+    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
+    searchPlaceholder:SetPoint("LEFT", searchIcon, "RIGHT", 5, 0)
+    searchPlaceholder:SetText("Search settings")
+    searchPlaceholder:SetTextColor(Theme:Color("TEXT_MUTED"))
+
+    local searchEdit = CreateFrame("EditBox", nil, searchBox)
+    searchEdit:SetPoint("LEFT", searchIcon, "RIGHT", 5, 0)
+    searchEdit:SetPoint("RIGHT", -6, 0)
+    searchEdit:SetHeight(20)
+    searchEdit:SetAutoFocus(false)
+    searchEdit:SetFontObject(Theme.fonts.SUB)
+    searchEdit:SetTextColor(Theme:Color("TEXT_PRIMARY"))
+
+    -- Results popup: a slate panel of clickable rows, floated over the content.
+    local MAX_RESULTS = 8
+    local results = CreateFrame("Frame", nil, settingsFrame, "BackdropTemplate")
+    results:SetFrameStrata("DIALOG")
+    results:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", 0, -2)
+    results:SetPoint("TOPRIGHT", contentPanel, "TOPRIGHT", 0, 0)  -- wide enough for labels
+    results:SetBackdrop(Theme.BACKDROP_CARD)
+    results:SetBackdropColor(Theme:Color("CARD"))
+    results:SetBackdropBorderColor(Theme:Color("GOLD"))
+    results:Hide()
+    results.rows = {}
+    for i = 1, MAX_RESULTS do
+        local row = CreateFrame("Button", nil, results)
+        row:SetHeight(20)
+        row:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 20)
+        row:SetPoint("TOPRIGHT", -4, -4 - (i - 1) * 20)
+        local hl = row:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints(); hl:SetColorTexture(Theme:Color("CARD_HOVER"))
+        local fs = row:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
+        fs:SetPoint("LEFT", 6, 0); fs:SetPoint("RIGHT", -6, 0); fs:SetJustifyH("LEFT")
+        fs:SetTextColor(Theme:Color("TEXT_PRIMARY"))
+        row.fs = fs
+        results.rows[i] = row
+    end
+
+    local function hideResults() results:Hide() end
+    local function runSearch()
+        local q = searchEdit:GetText()
+        searchPlaceholder:SetShown(q == "")
+        local matches = TRP3FW.TabManager:SearchSettings(q, MAX_RESULTS)
+        if #matches == 0 then results:Hide(); return end
+        for i, row in ipairs(results.rows) do
+            local m = matches[i]
+            if m then
+                row.fs:SetText(m.label)
+                row:SetScript("OnClick", function()
+                    searchEdit:SetText(""); searchPlaceholder:Show(); searchEdit:ClearFocus(); results:Hide()
+                    TRP3FW.TabManager:SearchJump(m)
+                end)
+                row:Show()
+            else
+                row:Hide()
+            end
+        end
+        results:SetHeight(8 + math.min(#matches, MAX_RESULTS) * 20)
+        results:Show()
+    end
+    searchEdit:SetScript("OnTextChanged", runSearch)
+    searchEdit:SetScript("OnEditFocusLost", function() searchPlaceholder:SetShown(searchEdit:GetText() == "") end)
+    searchEdit:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus(); hideResults(); searchPlaceholder:Show() end)
 
     local navY = -38  -- start nav below the search box
     for _, tabInfo in ipairs(TRP3FW.TabManager.orderedTabs) do
@@ -1017,6 +1078,9 @@ function TRP3FW:InitializeUI()
         table.insert(navButtons, nav)
         navY = navY - 30
     end
+    -- Pre-build every tab (hidden) so settings search indexes all of them, then
+    -- open the first tab.
+    TRP3FW.TabManager:PrebuildAllTabs()
     if navButtons[1] then navButtons[1]:GetScript("OnClick")(navButtons[1]) end
 
     -- Complexity control pinned to the sidebar bottom (mockup parity). Visual for

@@ -391,6 +391,70 @@ end
 
 local WHITE8X8 = "Interface\\Buttons\\WHITE8X8"
 
+-- Return search entries whose label contains `query` (case-insensitive), up to
+-- `limit`. Empty/nil query returns nothing.
+function TabManager:SearchSettings(query, limit)
+    local out = {}
+    if not query or query == "" or not self.searchIndex then return out end
+    local q = query:lower()
+    for _, entry in ipairs(self.searchIndex) do
+        if entry.label:lower():find(q, 1, true) then
+            out[#out + 1] = entry
+            if #out >= (limit or 8) then break end
+        end
+    end
+    return out
+end
+
+-- Jump to a search result: switch to its tab, then flash the widget so the eye
+-- lands on it. Bump the complexity so the target isn't hidden by the filter.
+function TabManager:SearchJump(entry)
+    if not entry then return end
+    -- If the target's level is above the current one, raise complexity to reveal
+    -- it (otherwise jumping to a hidden setting would land on nothing).
+    local lvl = entry.widget and entry.widget.complexityLevel or 1
+    if TRP3FW.Prefs and (TRP3FW.Prefs.uiComplexityLevel or 2) < lvl then
+        TRP3FW.Prefs.uiComplexityLevel = lvl
+        if TRP3FW._refreshComplexityLabel then TRP3FW._refreshComplexityLabel() end
+    end
+    if entry.tabId then
+        self:SwitchToTab(entry.tabId)
+        if TRP3FW._highlightNav then TRP3FW._highlightNav(entry.tabId) end
+    end
+    local w = entry.widget
+    if w and w.CreateTexture then
+        -- Gold flash overlay that fades out.
+        local flash = w._searchFlash
+        if not flash then
+            flash = w:CreateTexture(nil, "OVERLAY")
+            flash:SetTexture("Interface\\Buttons\\WHITE8X8")
+            flash:SetPoint("TOPLEFT", -3, 3); flash:SetPoint("BOTTOMRIGHT", 3, -3)
+            flash:SetColorTexture(TRP3FW.Theme:Color("GOLD"))
+            w._searchFlash = flash
+        end
+        flash:SetAlpha(0.5); flash:Show()
+        local ag = flash._ag
+        if not ag then
+            ag = flash:CreateAnimationGroup()
+            local fade = ag:CreateAnimation("Alpha")
+            fade:SetFromAlpha(0.5); fade:SetToAlpha(0); fade:SetDuration(1.2); fade:SetStartDelay(0.3)
+            ag:SetScript("OnFinished", function() flash:Hide() end)
+            flash._ag = ag
+        end
+        ag:Stop(); ag:Play()
+    end
+end
+
+-- Add a searchable entry: {label, widget, tabId}. Called from the skinned
+-- constructors so settings search can jump to any labelled control. tabId is the
+-- tab being built when the widget is created (activeTab during lazy create()).
+function TabManager:IndexSearchable(label, widget)
+    if not label or label == "" then return end
+    self.searchIndex = self.searchIndex or {}
+    local tabId = self._buildingTab or (self.activeTab and self.activeTab.id)
+    table.insert(self.searchIndex, { label = label, widget = widget, tabId = tabId })
+end
+
 -- Register a widget with the complexity system + attach standard tooltip.
 -- Mirrors the bookkeeping the classic CreateCheckbox does.
 function TabManager:_registerSkinned(widget, labelText, tooltipText, settingKey)
@@ -398,6 +462,7 @@ function TabManager:_registerSkinned(widget, labelText, tooltipText, settingKey)
     widget.complexityLevel = level
     widget.settingKey = settingKey
     table.insert(self.complexityWidgets, widget)
+    self:IndexSearchable(labelText, widget)
 
     if labelText and (tooltipText or level > 1) then
         local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
@@ -935,6 +1000,7 @@ function TabManager:CreateSkinnedEditBox(parent, labelText, tooltipText, width, 
     editBox.complexityLevel = level
     editBox.settingKey = settingKey
     table.insert(self.complexityWidgets, editBox)
+    self:IndexSearchable(labelText, editBox)
 
     if tooltipText or level > 1 then
         local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
@@ -948,6 +1014,19 @@ function TabManager:CreateSkinnedEditBox(parent, labelText, tooltipText, width, 
     end
 
     return editBox, label
+end
+
+-- Create (and hide) every tab's frame once, so the search index covers all
+-- settings without requiring the user to visit each tab first. Called at open.
+function TabManager:PrebuildAllTabs()
+    for _, tab in ipairs(self.orderedTabs) do
+        if not tab.frame then
+            self._buildingTab = tab.id
+            tab.frame = tab.create(self.container)
+            self._buildingTab = nil
+            if tab.frame then tab.frame:Hide() end
+        end
+    end
 end
 
 function TabManager:SwitchToTab(id)
@@ -964,7 +1043,10 @@ function TabManager:SwitchToTab(id)
     if not tab.frame then
         -- Important: Ensure the created frame is what we show/hide
         -- If create() returns a scrollFrame, that's what we store and hide.
+        -- Tag the tab being built so IndexSearchable attributes widgets to it.
+        self._buildingTab = id
         tab.frame = tab.create(self.container)
+        self._buildingTab = nil
     end
 
     if tab.frame then
