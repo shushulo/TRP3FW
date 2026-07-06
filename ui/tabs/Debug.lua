@@ -32,6 +32,11 @@ local function CreateDebugTab(container)
     local scrollFrame, content = TabManager:CreateScrollFrame(tab, 3200)
     local uiElements = TabManager:GetUI()
 
+    -- Shared column geometry so single rows, 2-up rows, and the grid all align.
+    local CW = Theme.metrics.CARD_W
+    local COL_W = (CW - INNER * 2) / 2   -- one grid column
+    local GRID_LABEL_W = COL_W - 76      -- label width; leaves room for the 64px box
+
     -- Numeric edit-box save validation (unchanged semantics).
     local function setupEditBox(eb, key, min, max, isPercentage)
         local function save()
@@ -67,22 +72,45 @@ local function CreateDebugTab(container)
         return item
     end
 
-    -- Single-column numeric row. Use a FIXED label width so the value boxes
-    -- line up in a column (nil labelW would anchor each value right after its
-    -- label, leaving the boxes ragged).
-    local SINGLE_LABEL_W = 220
+    -- Single numeric row: left column of the grid layout, so it lines up with the
+    -- rows above it (rather than a different flat width).
     local function numRow(card, key, label, tip, min, max, pct)
         local item = makeNum(card, key, label, tip, min, max, pct)
-        card:AddRow(function(y) item.place(INNER, y, SINGLE_LABEL_W) end, 26, item.eb.complexityLevel, { item.eb })
+        card:AddRow(function(y) item.place(INNER, y, GRID_LABEL_W) end, 26, item.eb.complexityLevel, { item.eb })
         return item.eb
+    end
+
+    -- Full-width numeric row with the value box pinned to the card's RIGHT edge
+    -- and the label filling the space to its left.
+    local function numRowWide(card, key, label, tip, min, max, pct)
+        local item = makeNum(card, key, label, tip, min, max, pct)
+        card:AddRow(function(y)
+            item.lbl:ClearAllPoints()
+            item.lbl:SetPoint("TOPLEFT", card, "TOPLEFT", INNER, y - 4)
+            item.lbl:SetPoint("RIGHT", item.eb.well, "LEFT", -8, 0)
+            item.lbl:SetJustifyH("LEFT")
+            item.eb.well:ClearAllPoints()
+            item.eb.well:SetPoint("TOPRIGHT", card, "TOPRIGHT", -INNER, y)
+        end, 26, item.eb.complexityLevel, { item.eb })
+        return item.eb
+    end
+
+    -- Two numeric items side by side in one row (left + right grid columns).
+    local function numRow2(card, aKey, aLabel, aTip, aMin, aMax, aPct, bKey, bLabel, bTip, bMin, bMax, bPct)
+        local a = makeNum(card, aKey, aLabel, aTip, aMin, aMax, aPct)
+        local b = makeNum(card, bKey, bLabel, bTip, bMin, bMax, bPct)
+        -- Shown together at the higher of the two complexity levels.
+        local lvl = math.max(a.eb.complexityLevel, b.eb.complexityLevel)
+        card:AddRow(function(y)
+            a.place(INNER, y, GRID_LABEL_W)
+            b.place(INNER + COL_W, y, GRID_LABEL_W)
+        end, 26, lvl, { a.eb, b.eb })
+        return a.eb, b.eb
     end
 
     -- 2-column numeric grid as ONE dynamic row: re-grids only the visible items
     -- and returns the height used, so the card shrinks with the filter level.
     local function numGrid(card, specs)
-        local W = Theme.metrics.CARD_W
-        local colW = (W - INNER * 2) / 2
-        local labelW = colW - 76
         local items = {}
         for _, s in ipairs(specs) do
             items[#items + 1] = makeNum(card, s[1], s[2], s[3], s[4], s[5], s[6])
@@ -97,7 +125,7 @@ local function CreateDebugTab(container)
             for i, it in ipairs(shown) do
                 local col = (i - 1) % 2
                 local rowIdx = math.floor((i - 1) / 2)
-                it.place(INNER + col * colW, y - rowIdx * 28, labelW)
+                it.place(INNER + col * COL_W, y - rowIdx * 28, GRID_LABEL_W)
             end
             return math.ceil(#shown / 2) * 28
         end, 28, 1)
@@ -188,18 +216,19 @@ local function CreateDebugTab(container)
     uiElements.phaseCheckInterTargetDelaySlider:SetOnChange(function(v) TRP3FW.Prefs.phaseCheckInterTargetDelay = v end)
     sliderRow(batchCard, uiElements.phaseCheckInterTargetDelaySlider)
 
-    numRow(batchCard, "privilegedReservedTokens", "API reserved tokens", "Reserved for HIGH priority.", 0, 5)
-    numRow(batchCard, "privilegedLowPriorityThreshold", "API low threshold", "Tokens needed for LOW priority.", 2, 8)
+    numRow2(batchCard,
+        "privilegedReservedTokens", "API reserved tokens", "Reserved for HIGH priority.", 0, 5, nil,
+        "privilegedLowPriorityThreshold", "API low threshold", "Tokens needed for LOW priority.", 2, 8, nil)
     toggleRow(batchCard, "phaseCheckRefundOnNoChange", "Refund tokens on fail", "Refund if target is missing.")
     batchCard:Reflow()
 
     -- ===== Card: Area-change cache clearing ================================
     local clearCard = stackCard(content, TabManager:CreateCard(content, "Area-change cache clearing", nil), batchCard)
     local subLabels = { "Phase check cache", "Allowed senders cache", "Interaction cache", "Suppression timers", "Recent broadcasts", "Recent scans", "WHO zone results", "WHO name results", "SPVP handshakes" }
-    toggleRow(clearCard, "clearCacheOnPhaseChange", "Clear all on phase change", "Master toggle for phase changes.", function(c) TRP3FW.Prefs.clearCacheOnPhaseChange = c; TRP3FW:RefreshUI() end)
+    toggleRow(clearCard, "clearCacheOnPhaseChange", "Clear caches on phase change", "Enable cache clearing on phase change, then choose which caches below.", function(c) TRP3FW.Prefs.clearCacheOnPhaseChange = c; TRP3FW:RefreshUI() end)
     local pClear = { "clearPhaseCheckOnPhaseChange", "clearAllowedSendersOnPhaseChange", "clearInteractionOnPhaseChange", "clearSuppressionOnPhaseChange", "clearRecentBroadcastsOnPhaseChange", "clearRecentScansOnPhaseChange", "clearWhoZoneOnPhaseChange", "clearWhoNameOnPhaseChange", "clearSpvpOnPhaseChange" }
     for i, k in ipairs(pClear) do toggleRow(clearCard, k, subLabels[i], "Clear on phase change.", nil, 16) end
-    toggleRow(clearCard, "clearCacheOnZoneChange", "Clear all on zone change", "Master toggle for zone changes.", function(c) TRP3FW.Prefs.clearCacheOnZoneChange = c; TRP3FW:RefreshUI() end)
+    toggleRow(clearCard, "clearCacheOnZoneChange", "Clear caches on zone change", "Enable cache clearing on zone change, then choose which caches below.", function(c) TRP3FW.Prefs.clearCacheOnZoneChange = c; TRP3FW:RefreshUI() end)
     local zClear = { "clearPhaseCheckOnZoneChange", "clearAllowedSendersOnZoneChange", "clearInteractionOnZoneChange", "clearSuppressionOnZoneChange", "clearRecentBroadcastsOnZoneChange", "clearRecentScansOnZoneChange", "clearWhoZoneOnZoneChange", "clearWhoNameOnZoneChange", "clearSpvpOnZoneChange" }
     for i, k in ipairs(zClear) do toggleRow(clearCard, k, subLabels[i], "Clear on zone change.", nil, 16) end
     clearCard:Reflow()
@@ -207,7 +236,7 @@ local function CreateDebugTab(container)
     -- ===== Card: History & redaction =======================================
     local histCard = stackCard(content, TabManager:CreateCard(content, "History & redaction", nil), clearCard)
     toggleRow(histCard, "trackHistory", "Enable event tracking", "Save alerts/blocks to history.")
-    numRow(histCard, "maxHistorySize", "Max event log size", "Max history entries.", 10, 1000)
+    numRowWide(histCard, "maxHistorySize", "Max event log size", "Max history entries.", 10, 1000)
     toggleRow(histCard, "redactEnabled", "Enable global redaction", "Mask sensitive data in output.", function(c) TRP3FW.Prefs.redactEnabled = c; TRP3FW:RefreshUI() end)
     local rKeys = { "redactNames", "redactLocations", "redactNetwork", "redactSPVP" }
     local rLabels = { "Redact names/IDs", "Redact locations", "Redact IPs/network", "Redact SPVP keys" }
