@@ -160,9 +160,32 @@ local function CreateAlertsTab(container)
     -- ===== Card 2: Location checking =======================================
     local locCard = stackCard(content, TabManager:CreateCard(content, "Location checking", CARD_W), presetCard, CARD_W)
 
+    -- Reflowable dropdown row (label sits above the frame; the -16 offset drops
+    -- it into the reserved band). Returns the dropdown.
+    local function locDropdownRow(dropdown, key)
+        uiElements[key.."Dropdown"] = dropdown
+        locCard:AddRow(function(y)
+            dropdown:ClearAllPoints()
+            dropdown:SetPoint("TOPLEFT", locCard, "TOPLEFT", -4, y - 16)
+        end, 56, dropdown.complexityLevel, { dropdown })
+        return dropdown
+    end
+    -- Reflowable toggle row.
+    local function locToggleRow(key, label, tip, onToggle, epsilon)
+        local t = TabManager:CreateToggle(locCard, label, tip, key)
+        t:SetOnToggle(onToggle or function(c) TRP3FW.Prefs[key] = c end)
+        uiElements[key] = t
+        if epsilon and epsilonControls then table.insert(epsilonControls, t) end
+        locCard:AddRow(function(y)
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", locCard, "TOPLEFT", 12, y)
+            t:SetPoint("RIGHT", locCard, "RIGHT", -12, 0)
+        end, Theme.metrics.ROW, t.complexityLevel, { t })
+        return t
+    end
+
     local pcm = TabManager:CreateSkinnedDropdown(locCard, "Phase check mode",
         "How should TRP3FW respond when someone from a different phase requests your profile? Default: Alert.", 220, "phaseCheckMode")
-    pcm:SetPoint("TOPLEFT", -4, locCard:NextY(56) - 16); uiElements.phaseCheckModeDropdown = pcm
     UIDropDownMenu_Initialize(pcm, function()
         for _, it in ipairs(MODE_OPTIONS) do
             local info = UIDropDownMenu_CreateInfo(); info.text = it.t
@@ -175,10 +198,10 @@ local function CreateAlertsTab(container)
             UIDropDownMenu_AddButton(info)
         end
     end)
+    locDropdownRow(pcm, "phaseCheckMode")
 
     local mcm = TabManager:CreateSkinnedDropdown(locCard, "Map check mode",
         "How should TRP3FW respond when someone from a different map requests your profile? Default: Alert.", 220, "mapCheckMode")
-    mcm:SetPoint("TOPLEFT", -4, locCard:NextY(56)); uiElements.mapCheckModeDropdown = mcm
     UIDropDownMenu_Initialize(mcm, function()
         for _, it in ipairs(MODE_OPTIONS) do
             local info = UIDropDownMenu_CreateInfo(); info.text = it.t
@@ -191,39 +214,17 @@ local function CreateAlertsTab(container)
             UIDropDownMenu_AddButton(info)
         end
     end)
+    locDropdownRow(mcm, "mapCheckMode")
 
-    uiElements.allowGroupPhaseBypass = TabManager:CreateToggle(locCard,
-        "Auto-allow party/raid", "Party/raid members skip checks.", "allowGroupPhaseBypass")
-    uiElements.allowGroupPhaseBypass:SetPoint("TOPLEFT", 12, locCard:NextY())
-    uiElements.allowGroupPhaseBypass:SetPoint("RIGHT", locCard, "RIGHT", -12, 0)
-    uiElements.allowGroupPhaseBypass:SetOnToggle(function(c) TRP3FW.Prefs.allowGroupPhaseBypass = c end)
-
-    uiElements.useWhoQuery = TabManager:CreateToggle(locCard,
-        "Use WHO query", "Use WHO queries as a secondary location check (Epsilon only).", "useWhoQuery")
-    uiElements.useWhoQuery:SetPoint("TOPLEFT", 12, locCard:NextY())
-    uiElements.useWhoQuery:SetPoint("RIGHT", locCard, "RIGHT", -12, 0)
-    uiElements.useWhoQuery:SetOnToggle(function(c) TRP3FW.Prefs.useWhoQuery = c end)
-    if epsilonControls then table.insert(epsilonControls, uiElements.useWhoQuery) end
-
-    uiElements.muteTargetSound = TabManager:CreateToggle(locCard,
-        "Mute target sound", "Silence only the target-select sound caused by automated phase checks. Your manual targeting sound and all other audio are unaffected (Epsilon only).", "muteTargetSound")
-    uiElements.muteTargetSound:SetPoint("TOPLEFT", 12, locCard:NextY())
-    uiElements.muteTargetSound:SetPoint("RIGHT", locCard, "RIGHT", -12, 0)
-    uiElements.muteTargetSound:SetOnToggle(function(c) TRP3FW.Prefs.muteTargetSound = c end)
-    if epsilonControls then table.insert(epsilonControls, uiElements.muteTargetSound) end
-
-    uiElements.pausePhaseCheckOnInspect = TabManager:CreateToggle(locCard,
-        "Pause during inspect", "Skip automated phase-check targeting while the armory/inspect window is open, so it doesn't disrupt the view (Epsilon only).", "pausePhaseCheckOnInspect")
-    uiElements.pausePhaseCheckOnInspect:SetPoint("TOPLEFT", 12, locCard:NextY())
-    uiElements.pausePhaseCheckOnInspect:SetPoint("RIGHT", locCard, "RIGHT", -12, 0)
-    uiElements.pausePhaseCheckOnInspect:SetOnToggle(function(c) TRP3FW.Prefs.pausePhaseCheckOnInspect = c end)
-    if epsilonControls then table.insert(epsilonControls, uiElements.pausePhaseCheckOnInspect) end
+    locToggleRow("allowGroupPhaseBypass", "Auto-allow party/raid", "Party/raid members skip checks.")
+    locToggleRow("useWhoQuery", "Use WHO query", "Use WHO queries as a secondary location check (Epsilon only).", nil, true)
+    locToggleRow("muteTargetSound", "Mute target sound", "Silence only the target-select sound caused by automated phase checks. Your manual targeting sound and all other audio are unaffected (Epsilon only).", nil, true)
+    locToggleRow("pausePhaseCheckOnInspect", "Pause during inspect", "Skip automated phase-check targeting while the armory/inspect window is open, so it doesn't disrupt the view (Epsilon only).", nil, true)
 
     -- If inspect stays open past the 10s retry window, resolve the check as this phase
     -- result and let the normal phase/map modes + SPVP fallback decide the action.
     local itr = TabManager:CreateSkinnedDropdown(locCard, "If inspect stays open",
         "When 'Pause during inspect' is on and the inspect window is still open after 10 seconds of retries, treat the player as this phase result. Your Phase/Map check modes (and SPVP) then decide the action.", 220, "inspectTimeoutResolution")
-    itr:SetPoint("TOPLEFT", -4, locCard:NextY(56) - 16); uiElements.inspectTimeoutResolutionDropdown = itr
     UIDropDownMenu_Initialize(itr, function()
         for _, opt in ipairs(INSPECT_TIMEOUT_OPTIONS) do
             local info = UIDropDownMenu_CreateInfo(); info.text = opt.t
@@ -235,9 +236,8 @@ local function CreateAlertsTab(container)
         end
     end)
     if epsilonControls then table.insert(epsilonControls, itr) end
-    -- Last row advanced ROW(30) for a 22-tall pill = 8 residual below it;
-    -- +4 makes the bottom gap 12, matching the 12px side insets.
-    locCard:FitHeight(4)
+    locDropdownRow(itr, "inspectTimeoutResolution")
+    locCard:Reflow()
 
     -- ===== Card 3: Ghost mode ==============================================
     local ghostCard = stackCard(content, TabManager:CreateCard(content, "Ghost mode", CARD_W), locCard, CARD_W)
