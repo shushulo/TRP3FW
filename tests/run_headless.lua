@@ -20,6 +20,9 @@ local specs = {
     "tests.unit.pipeline_spec",
     "tests.unit.start_phase_spec",
     "tests.unit.history_service_spec",
+    "tests.unit.theme_spec",
+    "tests.unit.search_spec",
+    "tests.unit.complexity_preserve_spec",
 }
 
 local T = require("tests.framework")
