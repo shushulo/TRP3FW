@@ -1000,11 +1000,15 @@ function TRP3FW:InitializeUI()
         row:SetHeight(20)
         row:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 20)
         row:SetPoint("TOPRIGHT", -4, -4 - (i - 1) * 20)
-        local hl = row:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetAllPoints(); hl:SetColorTexture(Theme:Color("CARD_HOVER"))
+        -- Hover highlight in the BACKGROUND layer so it sits behind the label
+        -- text (a HIGHLIGHT-layer texture drew over the text as a blue bar).
+        local hl = row:CreateTexture(nil, "BACKGROUND")
+        hl:SetAllPoints(); hl:SetColorTexture(Theme:Color("CARD_HOVER")); hl:Hide()
+        row.hl = hl
+        row:SetScript("OnEnter", function(self) self.hl:Show(); if self._onEnter then self._onEnter(self) end end)
+        row:SetScript("OnLeave", function(self) self.hl:Hide(); GameTooltip:Hide() end)
         local fs = row:CreateFontString(nil, "OVERLAY", Theme.fonts.SUB)
         fs:SetPoint("LEFT", 6, 0); fs:SetPoint("RIGHT", -6, 0); fs:SetJustifyH("LEFT")
-        fs:SetTextColor(Theme:Color("TEXT_PRIMARY"))
         row.fs = fs
         results.rows[i] = row
     end
@@ -1025,24 +1029,34 @@ function TRP3FW:InitializeUI()
         searchPlaceholder:SetShown(q == "")
         local matches = TRP3FW.TabManager:SearchSettings(q, MAX_RESULTS)
         if #matches == 0 then results:Hide(); return end
+        -- Map tabId -> display name for the tooltip's "on <Tab>" line.
+        local tabName = {}
+        for _, ti in ipairs(TRP3FW.TabManager.orderedTabs) do tabName[ti.id] = ti.name end
         for i, row in ipairs(results.rows) do
             local m = matches[i]
             if m then
                 local above = TRP3FW.TabManager:IsAboveLevel(m)
                 local reqLevel = TRP3FW.TabManager:EntryLevel(m)
                 row.fs:SetText(m.label)
-                -- Grey above-level results; a tooltip states the level needed.
-                row.fs:SetTextColor(above and Theme:Color("TEXT_MUTED") or Theme:Color("TEXT_PRIMARY"))
-                row:SetScript("OnEnter", function(self)
-                    if not above then return end
+                -- Readable both ways: in-level = light primary; above-level =
+                -- muted (dimmer but legible), NOT red. Set explicitly each render.
+                if above then row.fs:SetTextColor(Theme:Color("TEXT_MUTED"))
+                else row.fs:SetTextColor(Theme:Color("TEXT_PRIMARY")) end
+                -- Tooltip on EVERY row (the row's OnEnter calls _onEnter after
+                -- showing the highlight, so both still work).
+                row._onEnter = function(self)
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                     GameTooltip:SetText(m.label, 1, 1, 1)
-                    GameTooltip:AddLine("Requires the "..(COMPLEXITY_NAMES[reqLevel] or "higher").." complexity level.", 1, 0.82, 0, true)
+                    if tabName[m.tabId] then
+                        GameTooltip:AddLine("On the "..tabName[m.tabId].." tab.", 0.7, 0.7, 0.7, true)
+                    end
+                    if above then
+                        GameTooltip:AddLine("Requires the "..(COMPLEXITY_NAMES[reqLevel] or "higher").." complexity level.", 1, 0.82, 0, true)
+                    end
                     GameTooltip:Show()
-                end)
-                row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                end
                 row:SetScript("OnClick", function()
-                    searchEdit:SetText(""); searchPlaceholder:Show(); searchEdit:ClearFocus(); results:Hide()
+                    searchEdit:SetText(""); searchPlaceholder:Show(); searchEdit:ClearFocus(); results:Hide(); GameTooltip:Hide()
                     if above then
                         -- Confirm before changing the user's complexity level.
                         local dlg = StaticPopup_Show("TRP3FW_RAISE_COMPLEXITY", COMPLEXITY_NAMES[reqLevel] or "higher")
