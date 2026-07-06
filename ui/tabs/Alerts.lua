@@ -16,6 +16,14 @@ local MODE_OPTIONS = {
     {t="Block (with notification)", v="alert_block"}, {t="Send blank profile (with notification)", v="alert_ghost"},
 }
 
+-- Inspect-timeout fallback: how to resolve the phase check if the inspect window is
+-- still open after the 10s retry window. Resolves to a phase result (not an action),
+-- so the normal phase/map modes and SPVP fallback still decide what happens.
+local INSPECT_TIMEOUT_OPTIONS = {
+    {t="Assume in phase", v="in_phase"},
+    {t="Assume out of phase", v="out_of_phase"},
+}
+
 -- Stack a card below the previous one (or at the top). Cards inset 8px on each
 -- side of the scroll viewport, matching the shell's structural gap. The CARD_W
 -- callers use for internal layout must equal this anchored width.
@@ -196,7 +204,38 @@ local function CreateAlertsTab(container)
     uiElements.useWhoQuery:SetPoint("RIGHT", locCard, "RIGHT", -12, 0)
     uiElements.useWhoQuery:SetOnToggle(function(c) TRP3FW.Prefs.useWhoQuery = c end)
     if epsilonControls then table.insert(epsilonControls, uiElements.useWhoQuery) end
-    -- Last toggle row advanced ROW(30) for a 22-tall pill = 8 residual below it;
+
+    uiElements.muteTargetSound = TabManager:CreateToggle(locCard,
+        "Mute target sound", "Silence only the target-select sound caused by automated phase checks. Your manual targeting sound and all other audio are unaffected (Epsilon only).", "muteTargetSound")
+    uiElements.muteTargetSound:SetPoint("TOPLEFT", 12, locCard:NextY())
+    uiElements.muteTargetSound:SetPoint("RIGHT", locCard, "RIGHT", -12, 0)
+    uiElements.muteTargetSound:SetOnToggle(function(c) TRP3FW.Prefs.muteTargetSound = c end)
+    if epsilonControls then table.insert(epsilonControls, uiElements.muteTargetSound) end
+
+    uiElements.pausePhaseCheckOnInspect = TabManager:CreateToggle(locCard,
+        "Pause during inspect", "Skip automated phase-check targeting while the armory/inspect window is open, so it doesn't disrupt the view (Epsilon only).", "pausePhaseCheckOnInspect")
+    uiElements.pausePhaseCheckOnInspect:SetPoint("TOPLEFT", 12, locCard:NextY())
+    uiElements.pausePhaseCheckOnInspect:SetPoint("RIGHT", locCard, "RIGHT", -12, 0)
+    uiElements.pausePhaseCheckOnInspect:SetOnToggle(function(c) TRP3FW.Prefs.pausePhaseCheckOnInspect = c end)
+    if epsilonControls then table.insert(epsilonControls, uiElements.pausePhaseCheckOnInspect) end
+
+    -- If inspect stays open past the 10s retry window, resolve the check as this phase
+    -- result and let the normal phase/map modes + SPVP fallback decide the action.
+    local itr = TabManager:CreateSkinnedDropdown(locCard, "If inspect stays open",
+        "When 'Pause during inspect' is on and the inspect window is still open after 10 seconds of retries, treat the player as this phase result. Your Phase/Map check modes (and SPVP) then decide the action.", 220, "inspectTimeoutResolution")
+    itr:SetPoint("TOPLEFT", -4, locCard:NextY(56) - 16); uiElements.inspectTimeoutResolutionDropdown = itr
+    UIDropDownMenu_Initialize(itr, function()
+        for _, opt in ipairs(INSPECT_TIMEOUT_OPTIONS) do
+            local info = UIDropDownMenu_CreateInfo(); info.text = opt.t
+            info.func = function()
+                TRP3FW.Prefs.inspectTimeoutResolution = opt.v; UIDropDownMenu_SetText(itr, opt.t)
+            end
+            info.checked = (TRP3FW.Prefs.inspectTimeoutResolution == opt.v)
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+    if epsilonControls then table.insert(epsilonControls, itr) end
+    -- Last row advanced ROW(30) for a 22-tall pill = 8 residual below it;
     -- +4 makes the bottom gap 12, matching the 12px side insets.
     locCard:FitHeight(4)
 
