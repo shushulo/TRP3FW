@@ -132,18 +132,12 @@ local function UpdateUIComplexity()
     end
 end
 
+-- Intentionally a no-op. This used to reset every setting above the chosen
+-- complexity back to its default, which silently discarded a user's configured
+-- values when they lowered complexity (and left them reset when they raised it
+-- again). Complexity now only controls VISIBILITY, never the stored values --
+-- kept as a stub so existing callers stay valid.
 function TRP3FW:EnforceComplexityDefaults(newLevel)
-    if not TRP3FW.Prefs or not TRP3FW.defaultSettings then return end
-    for _, widget in ipairs(complexityWidgets) do
-        local wLevel = widget.complexityLevel or 4
-        if wLevel > newLevel and widget.settingKey then
-            local key = widget.settingKey
-            local default = TRP3FW.defaultSettings[key]
-            if default ~= nil and TRP3FW.Prefs[key] ~= default then
-                TRP3FW.Prefs[key] = default
-            end
-        end
-    end
 end
 
 local function EnsureBlankProfilesExist()
@@ -158,6 +152,9 @@ TRP3FW.EnsureBlankProfilesExist = EnsureBlankProfilesExist
 StaticPopupDialogs["TRP3FW_CHANGE_PROFILE_NAME"] = { text = "WARNING: Changing ghost profile name to '%s' is not recommended. Use TRP3FW_BLANK for safety. Continue?", button1 = "Yes", button2 = "Cancel", OnAccept = function(self, data) TRP3FW.Prefs.ghostProfileName = data; TRP3FW:RefreshUI() end, timeout = 0, whileDead = 1, showAlert = 1 }
 StaticPopupDialogs["TRP3FW_RESET_CONFIRM"] = { text = "Reset ALL settings to defaults?", button1 = "Yes", button2 = "Cancel", OnAccept = function() TRP3FW.Prefs = {}; TRP3FW:InitializeSettings(); TRP3FW:RefreshUI() end, timeout = 0, whileDead = 1, showAlert = 1 }
 StaticPopupDialogs["TRP3FW_WHITELIST_CONFIRM"] = { text = "Security warning: Whitelist bypass skips ALL checks. Continue?", button1 = "Allow", button2 = "Cancel", OnAccept = function() TRP3FW.Prefs.whitelistEnabled = true; TRP3FW:RefreshUI() end, OnCancel = function() TRP3FW.Prefs.whitelistEnabled = false; TRP3FW:RefreshUI() end, timeout = 0, whileDead = 1, showAlert = 1 }
+-- Search: confirm raising complexity to reach an above-level setting. `data` is
+-- the search entry; TRP3FW.SearchRaiseAndJump does the raise + navigate + flash.
+StaticPopupDialogs["TRP3FW_RAISE_COMPLEXITY"] = { text = "This setting needs the %s complexity level. Raise your complexity level to access it?", button1 = "Raise", button2 = "Cancel", OnAccept = function(self, data) if TRP3FW.SearchRaiseAndJump then TRP3FW:SearchRaiseAndJump(data) end end, timeout = 0, whileDead = 1 }
 StaticPopupDialogs["TRP3FW_SPVP_ROTATE_CONFIRM"] = { text = "Rotate SPVP key? This invalidates existing verifications for all players in this phase.", button1 = "Rotate", button2 = "Cancel", OnAccept = function() if TRP3FW.SecureCurrentPhase then TRP3FW:SecureCurrentPhase(); TRP3FW:RefreshUI() end end, timeout = 0, whileDead = 1, showAlert = 1 }
 StaticPopupDialogs["TRP3FW_CONFIRM_PROFILE_SWITCH"] = { text = "Switch to profile '%s'?", button1 = "Yes", button2 = "No", OnAccept = function(self, data) TRP3FW:LoadProfile(data); if TRP3FW.RefreshProfilesTab then TRP3FW.RefreshProfilesTab() end; TRP3FW:RefreshUI() end, timeout = 0, whileDead = 1 }
 StaticPopupDialogs["TRP3FW_CREATE_PROFILE"] = { text = "Name for new profile:", button1 = "Create", button2 = "Cancel", hasEditBox = true, OnAccept = function(self) local n = self.editBox:GetText(); if n and n ~= "" then TRP3FW.GlobalDB.profiles[n] = CopyTable(TRP3FW.Prefs); TRP3FW:LoadProfile(n); TRP3FW:RefreshUI() end end, timeout = 0, whileDead = 1 }
@@ -1012,6 +1009,16 @@ function TRP3FW:InitializeUI()
         results.rows[i] = row
     end
 
+    -- Raise complexity to the entry's level, then navigate + flash. Invoked by
+    -- the confirmation popup for above-level search results.
+    function TRP3FW:SearchRaiseAndJump(entry)
+        if not entry then return end
+        TRP3FW.Prefs.uiComplexityLevel = TRP3FW.TabManager:EntryLevel(entry)
+        if TRP3FW._refreshComplexityLabel then TRP3FW._refreshComplexityLabel() end
+        TRP3FW:RefreshUI()  -- re-run hide/reflow at the new level
+        TRP3FW.TabManager:SearchJump(entry)
+    end
+
     local function hideResults() results:Hide() end
     local function runSearch()
         local q = searchEdit:GetText()
@@ -1021,10 +1028,28 @@ function TRP3FW:InitializeUI()
         for i, row in ipairs(results.rows) do
             local m = matches[i]
             if m then
+                local above = TRP3FW.TabManager:IsAboveLevel(m)
+                local reqLevel = TRP3FW.TabManager:EntryLevel(m)
                 row.fs:SetText(m.label)
+                -- Grey above-level results; a tooltip states the level needed.
+                row.fs:SetTextColor(above and Theme:Color("TEXT_MUTED") or Theme:Color("TEXT_PRIMARY"))
+                row:SetScript("OnEnter", function(self)
+                    if not above then return end
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(m.label, 1, 1, 1)
+                    GameTooltip:AddLine("Requires the "..(COMPLEXITY_NAMES[reqLevel] or "higher").." complexity level.", 1, 0.82, 0, true)
+                    GameTooltip:Show()
+                end)
+                row:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 row:SetScript("OnClick", function()
                     searchEdit:SetText(""); searchPlaceholder:Show(); searchEdit:ClearFocus(); results:Hide()
-                    TRP3FW.TabManager:SearchJump(m)
+                    if above then
+                        -- Confirm before changing the user's complexity level.
+                        local dlg = StaticPopup_Show("TRP3FW_RAISE_COMPLEXITY", COMPLEXITY_NAMES[reqLevel] or "higher")
+                        if dlg then dlg.data = m end
+                    else
+                        TRP3FW.TabManager:SearchJump(m)
+                    end
                 end)
                 row:Show()
             else

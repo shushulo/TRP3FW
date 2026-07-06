@@ -406,17 +406,21 @@ function TabManager:SearchSettings(query, limit)
     return out
 end
 
+-- Required complexity level for a search entry (widget's level, default 1).
+function TabManager:EntryLevel(entry)
+    return (entry and entry.widget and entry.widget.complexityLevel) or 1
+end
+
+-- True if the entry's setting is above the current complexity (i.e. hidden).
+function TabManager:IsAboveLevel(entry)
+    return self:EntryLevel(entry) > ((TRP3FW.Prefs and TRP3FW.Prefs.uiComplexityLevel) or 2)
+end
+
 -- Jump to a search result: switch to its tab, then flash the widget so the eye
--- lands on it. Bump the complexity so the target isn't hidden by the filter.
+-- lands on it. Assumes the target is already visible at the current level (the
+-- caller confirms + raises complexity first for above-level settings).
 function TabManager:SearchJump(entry)
     if not entry then return end
-    -- If the target's level is above the current one, raise complexity to reveal
-    -- it (otherwise jumping to a hidden setting would land on nothing).
-    local lvl = entry.widget and entry.widget.complexityLevel or 1
-    if TRP3FW.Prefs and (TRP3FW.Prefs.uiComplexityLevel or 2) < lvl then
-        TRP3FW.Prefs.uiComplexityLevel = lvl
-        if TRP3FW._refreshComplexityLabel then TRP3FW._refreshComplexityLabel() end
-    end
     if entry.tabId then
         self:SwitchToTab(entry.tabId)
         if TRP3FW._highlightNav then TRP3FW._highlightNav(entry.tabId) end
