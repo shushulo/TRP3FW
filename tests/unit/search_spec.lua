@@ -20,6 +20,8 @@ TM.searchIndex = {
     { label = "SPVP salt cache",        widget = widget(3), tabId = "security" },
     { label = "Send cache duration",    widget = widget(4), tabId = "debug" },
     { label = "Notify on whisper",      widget = widget(2), tabId = "notifications" },
+    -- A card heading: no complexityLevel on the widget, so it's never gated.
+    { label = "Ghost mode",             widget = { _isHeading = true }, tabId = "alerts" },
 }
 
 T.describe("TabManager:SearchSettings", function()
@@ -44,6 +46,18 @@ T.describe("TabManager:SearchSettings", function()
         T.eq(#r, 1)
         T.eq(r[1].tabId, "alerts")
         T.not_nil(r[1].widget)
+    end)
+
+    T.it("finds card headings (e.g. 'Ghost mode')", function()
+        local r = TM:SearchSettings("ghost", 8)
+        T.eq(#r, 1)
+        T.eq(r[1].tabId, "alerts")
+        T.truthy(r[1].widget._isHeading, "heading entry")
+    end)
+
+    T.it("headings are never above level (no complexityLevel -> defaults to 1)", function()
+        TRP3FW.Prefs.uiComplexityLevel = 1
+        T.falsy(TM:IsAboveLevel({ widget = { _isHeading = true } }), "headings always visible")
     end)
 end)
 

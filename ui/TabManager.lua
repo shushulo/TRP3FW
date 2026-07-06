@@ -427,12 +427,19 @@ function TabManager:SearchJump(entry)
     end
     local w = entry.widget
     if w and w.CreateTexture then
-        -- Gold flash overlay that fades out.
+        -- Gold flash overlay that fades out. For a heading, scope the overlay to
+        -- the caption text region so the whole card isn't washed gold.
+        local heading = w._isHeading and w.caption
         local flash = w._searchFlash
         if not flash then
             flash = w:CreateTexture(nil, "OVERLAY")
             flash:SetTexture("Interface\\Buttons\\WHITE8X8")
-            flash:SetPoint("TOPLEFT", -3, 3); flash:SetPoint("BOTTOMRIGHT", 3, -3)
+            if heading then
+                flash:SetPoint("TOPLEFT", w.caption, "TOPLEFT", -3, 3)
+                flash:SetPoint("BOTTOMRIGHT", w.caption, "BOTTOMRIGHT", 3, -3)
+            else
+                flash:SetPoint("TOPLEFT", -3, 3); flash:SetPoint("BOTTOMRIGHT", 3, -3)
+            end
             flash:SetColorTexture(TRP3FW.Theme:Color("GOLD"))
             w._searchFlash = flash
         end
@@ -509,6 +516,10 @@ function TabManager:CreateCard(parent, captionText, width)
         cap:SetText(captionText:upper())
         cap:SetTextColor(Theme:Color("GOLD"))
         card.caption = cap
+        -- Index the section heading so search finds cards by name (e.g.
+        -- "Ghost mode"). Headings have no complexity level and no tooltip.
+        self:IndexSearchable(captionText, card)
+        card._isHeading = true
         -- Hairline divider: `gap` below the caption, `gap` above the first row.
         local rule = card:CreateTexture(nil, "ARTWORK")
         rule:SetHeight(1)
