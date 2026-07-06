@@ -986,8 +986,18 @@ function TRP3FW:InitializeUI()
 
     -- Results popup: a slate panel of clickable rows, floated over the content.
     local MAX_RESULTS = 8
+    -- Full-screen click-catcher behind the results popup: any click outside the
+    -- popup dismisses it. Same DIALOG strata as results but a lower frame level,
+    -- so the results (raised above it) still receive their own clicks first.
+    local catcher = CreateFrame("Button", nil, settingsFrame)
+    catcher:SetFrameStrata("DIALOG")
+    catcher:SetFrameLevel(1)
+    catcher:SetAllPoints(UIParent)
+    catcher:Hide()
+
     local results = CreateFrame("Frame", nil, settingsFrame, "BackdropTemplate")
     results:SetFrameStrata("DIALOG")
+    results:SetFrameLevel(10)
     results:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", 0, -2)
     results:SetPoint("TOPRIGHT", contentPanel, "TOPRIGHT", 0, 0)  -- wide enough for labels
     results:SetBackdrop(Theme.BACKDROP_CARD)
@@ -1023,12 +1033,13 @@ function TRP3FW:InitializeUI()
         TRP3FW.TabManager:SearchJump(entry)
     end
 
-    local function hideResults() results:Hide() end
+    local function hideResults() results:Hide(); catcher:Hide() end
+    catcher:SetScript("OnClick", function() hideResults(); searchEdit:ClearFocus() end)
     local function runSearch()
         local q = searchEdit:GetText()
         searchPlaceholder:SetShown(q == "")
         local matches = TRP3FW.TabManager:SearchSettings(q, MAX_RESULTS)
-        if #matches == 0 then results:Hide(); return end
+        if #matches == 0 then hideResults(); return end
         -- Map tabId -> display name for the tooltip's "on <Tab>" line.
         local tabName = {}
         for _, ti in ipairs(TRP3FW.TabManager.orderedTabs) do tabName[ti.id] = ti.name end
@@ -1047,6 +1058,10 @@ function TRP3FW:InitializeUI()
                 row._onEnter = function(self)
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                     GameTooltip:SetText(m.label, 1, 1, 1)
+                    -- The setting's own description (same text as its on-tab tooltip).
+                    if m.tip and m.tip ~= "" then
+                        GameTooltip:AddLine(m.tip, 1, 1, 1, true)
+                    end
                     if tabName[m.tabId] then
                         GameTooltip:AddLine("On the "..tabName[m.tabId].." tab.", 0.7, 0.7, 0.7, true)
                     end
@@ -1056,7 +1071,7 @@ function TRP3FW:InitializeUI()
                     GameTooltip:Show()
                 end
                 row:SetScript("OnClick", function()
-                    searchEdit:SetText(""); searchPlaceholder:Show(); searchEdit:ClearFocus(); results:Hide(); GameTooltip:Hide()
+                    searchEdit:SetText(""); searchPlaceholder:Show(); searchEdit:ClearFocus(); hideResults(); GameTooltip:Hide()
                     if above then
                         -- Confirm before changing the user's complexity level.
                         local dlg = StaticPopup_Show("TRP3FW_RAISE_COMPLEXITY", COMPLEXITY_NAMES[reqLevel] or "higher")
@@ -1072,6 +1087,7 @@ function TRP3FW:InitializeUI()
         end
         results:SetHeight(8 + math.min(#matches, MAX_RESULTS) * 20)
         results:Show()
+        catcher:Show()
     end
     searchEdit:SetScript("OnTextChanged", runSearch)
     searchEdit:SetScript("OnEditFocusLost", function() searchPlaceholder:SetShown(searchEdit:GetText() == "") end)

@@ -452,11 +452,11 @@ end
 -- Add a searchable entry: {label, widget, tabId}. Called from the skinned
 -- constructors so settings search can jump to any labelled control. tabId is the
 -- tab being built when the widget is created (activeTab during lazy create()).
-function TabManager:IndexSearchable(label, widget)
+function TabManager:IndexSearchable(label, widget, tip)
     if not label or label == "" then return end
     self.searchIndex = self.searchIndex or {}
     local tabId = self._buildingTab or (self.activeTab and self.activeTab.id)
-    table.insert(self.searchIndex, { label = label, widget = widget, tabId = tabId })
+    table.insert(self.searchIndex, { label = label, widget = widget, tabId = tabId, tip = tip })
 end
 
 -- Register a widget with the complexity system + attach standard tooltip.
@@ -466,10 +466,11 @@ function TabManager:_registerSkinned(widget, labelText, tooltipText, settingKey)
     widget.complexityLevel = level
     widget.settingKey = settingKey
     table.insert(self.complexityWidgets, widget)
-    self:IndexSearchable(labelText, widget)
+
+    local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
+    self:IndexSearchable(labelText, widget, tip)
 
     if labelText and (tooltipText or level > 1) then
-        local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
         widget:HookScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText(labelText, 1, 1, 1)
@@ -1004,10 +1005,11 @@ function TabManager:CreateSkinnedEditBox(parent, labelText, tooltipText, width, 
     editBox.complexityLevel = level
     editBox.settingKey = settingKey
     table.insert(self.complexityWidgets, editBox)
-    self:IndexSearchable(labelText, editBox)
+
+    local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
+    self:IndexSearchable(labelText, editBox, tip)
 
     if tooltipText or level > 1 then
-        local tip = self:AppendDefaultToTooltip(tooltipText, settingKey, level)
         editBox:HookScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText(labelText, 1, 1, 1)
