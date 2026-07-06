@@ -16,6 +16,8 @@ local specs = {
     "tests.unit.cache_interface_spec",
     "tests.unit.who_fallback_spec",
     "tests.unit.utils_security_spec",
+    "tests.unit.target_sound_mute_spec",
+    "tests.unit.inspect_defer_spec",
     "tests.unit.profile_adapters_spec",
     "tests.unit.pipeline_spec",
     "tests.unit.start_phase_spec",

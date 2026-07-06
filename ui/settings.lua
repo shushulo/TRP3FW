@@ -61,6 +61,7 @@ local SETTING_LEVELS = {
     notifyOnAllow = 2, notifyOnStartPhaseBlock = 2, notifyOnWhisper = 2, showGhostNotifications = 2,
     ghostProfileName = 2, filterMinimumFontSize = 2, minimumFontSizeLevel = 2,
     refreshSuppression = 2, suppressAllWhoOutput = 2, spvpMode = 2,
+    muteTargetSound = 2, pausePhaseCheckOnInspect = 2, inspectTimeoutResolution = 2,
     scanResponsePhaseMode = 2, scanResponseMapMode = 2, notifyOnScanResponse = 2,
     scanResponseAllowGroupBypass = 2, mapScanMinInterval = 2, disableMapScanOnTRP3 = 2,
     -- Level 3 (Advanced): Power-user tuning, cache durations, batching, security details
@@ -622,7 +623,7 @@ function TRP3FW:RefreshUI()
         if uiElements.scanResponseWhitelistScroll then uiElements.scanResponseWhitelistScroll:SetAlpha(wlEnabled and 1 or 0.5) end
     end
 
-    local checks = { "notifyEnabled", "notifyOnAllow", "notifyOnStartPhaseBlock", "notifyOnBroadcast", "notifyOnWhisper", "notifyOnScanResponse", "notifyOnScanAllow", "showInChat", "showGhostNotifications", "showOnScreen", "playSound", "showAddonSource", "showCacheInfo", "showCheckResults", "refreshSuppression", "allowGroupPhaseBypass", "useWhoQuery", "suppressAllWhoOutput", "blockStartPhase", "ghostOnStartPhase", "ghostProfileSwitch", "spvpEnabled", "spvpAutoInitialize", "filterGradients", "filterIcons", "filterMinimumFontSize", "monitorTRP3", "monitorMRP", "monitorXRP", "monitorMSP", "strictHookMode", "logHookConflicts", "abortOnMultipleRPAddons", "disableMapScanOnTRP3", "debug", "debugTimestamp", "redactEnabled", "redactNames", "redactLocations", "redactNetwork", "redactSPVP", "prepopulateWhoCache", "prepopulateWhoOnPhase", "prepopulateWhoOnZone", "phaseCheckBatchMode", "phaseCheckRefundOnNoChange", "trackHistory", "whitelistEnabled",
+    local checks = { "notifyEnabled", "notifyOnAllow", "notifyOnStartPhaseBlock", "notifyOnBroadcast", "notifyOnWhisper", "notifyOnScanResponse", "notifyOnScanAllow", "showInChat", "showGhostNotifications", "showOnScreen", "playSound", "showAddonSource", "showCacheInfo", "showCheckResults", "refreshSuppression", "allowGroupPhaseBypass", "useWhoQuery", "muteTargetSound", "pausePhaseCheckOnInspect", "suppressAllWhoOutput", "blockStartPhase", "ghostOnStartPhase", "ghostProfileSwitch", "spvpEnabled", "spvpAutoInitialize", "filterGradients", "filterIcons", "filterMinimumFontSize", "monitorTRP3", "monitorMRP", "monitorXRP", "monitorMSP", "strictHookMode", "logHookConflicts", "abortOnMultipleRPAddons", "disableMapScanOnTRP3", "debug", "debugTimestamp", "redactEnabled", "redactNames", "redactLocations", "redactNetwork", "redactSPVP", "prepopulateWhoCache", "prepopulateWhoOnPhase", "prepopulateWhoOnZone", "phaseCheckBatchMode", "phaseCheckRefundOnNoChange", "trackHistory", "whitelistEnabled",
     "scanResponseRequireNonce", "scanResponseCacheEnabled", "scanResponseAllowCacheBypass", "scanResponseAllowGroupBypass", "scanResponseWhitelistEnabled",
     "clearCacheOnPhaseChange", "clearPhaseCheckOnPhaseChange", "clearAllowedSendersOnPhaseChange", "clearInteractionOnPhaseChange", "clearSuppressionOnPhaseChange", "clearRecentBroadcastsOnPhaseChange", "clearRecentScansOnPhaseChange", "clearWhoZoneOnPhaseChange", "clearWhoNameOnPhaseChange", "clearSpvpOnPhaseChange",
     "clearCacheOnZoneChange", "clearPhaseCheckOnZoneChange", "clearAllowedSendersOnZoneChange", "clearInteractionOnZoneChange", "clearSuppressionOnZoneChange", "clearRecentBroadcastsOnZoneChange", "clearRecentScansOnZoneChange", "clearWhoZoneOnZoneChange", "clearWhoNameOnZoneChange", "clearSpvpOnZoneChange",
@@ -702,6 +703,9 @@ function TRP3FW:RefreshUI()
         },
         minimumFontSizeLevel = {
             ["h1"] = "H1 (Largest)", ["h2"] = "H2 (Large)", ["h3"] = "H3 (Medium)", ["p"] = "P (Normal)"
+        },
+        inspectTimeoutResolution = {
+            ["in_phase"] = "Assume in phase", ["out_of_phase"] = "Assume out of phase"
         }
     }
 
@@ -709,6 +713,7 @@ function TRP3FW:RefreshUI()
         if uiElements[k.."Dropdown"] then
             local val = p[k] or "off"
             if k == "minimumFontSizeLevel" and not p[k] then val = "h3" end
+            if k == "inspectTimeoutResolution" and not p[k] then val = "out_of_phase" end
             local label = map[val] or val
             UIDropDownMenu_SetText(uiElements[k.."Dropdown"], label)
         end

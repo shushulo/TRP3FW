@@ -9,6 +9,7 @@ local addonName, TRP3FW = ...
 -- Queue state
 TRP3FW.pendingPhaseChecks = {}  -- List of {playerName, sendId, callback, priority, queuedAt}
 TRP3FW.phaseCheckBatchTimer = nil
+TRP3FW.inspectRetryTimer = nil  -- Single shared 1s pump for inspect-open deferrals
 
 -- Priority levels mapping (must match utils.lua)
 local PRIORITY_LEVELS = {
@@ -18,14 +19,17 @@ local PRIORITY_LEVELS = {
 }
 
 -- Helper to queue a phase check with priority sorting
-function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority)
+function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority, inspectDeadline)
     priority = priority or "NORMAL"
     local entry = {
         playerName = playerName,
         sendId = sendId,
         callback = callback,
         priority = priority,
-        queuedAt = TRP3FW:GetCurrentTime()
+        queuedAt = TRP3FW:GetCurrentTime(),
+        -- Absolute deadline (GetCurrentTime seconds) for inspect-open deferral; set on
+        -- the first inspect defer and carried across retries so the 10s window is stable.
+        inspectDeadline = inspectDeadline,
     }
 
     -- Insert sorted by priority (HIGH first, then NORMAL, then LOW)
@@ -78,7 +82,10 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority)
         end
     end
 
-    if shouldFire then
+    -- Suppress immediate firing while the inspect pump is mid-sweep: it re-queues checks
+    -- and would otherwise reenter processing (ProcessPhaseCheckBatch -> ...Queue) and
+    -- double-process an entry the sweep is about to handle. The pump re-arms itself.
+    if shouldFire and not self.inspectPumping then
         self:Debug("[Phase Queue] Immediate fire triggered (Queue: "..#self.pendingPhaseChecks..", Cap: "..immediateCap..")", "phase")
         if self.phaseCheckBatchTimer then
             self.phaseCheckBatchTimer:Cancel()
@@ -127,6 +134,16 @@ function TRP3FW:ProcessPhaseCheckBatch()
         TRP3FW:Debug("[Batch] Deferring batch start - targeting already in progress", "phase")
         return
     end
+
+    -- While the armory/inspect window is open, don't batch (retargeting would corrupt
+    -- inspect data). Route through the individual path, which owns the per-check 10s
+    -- deadline, retry, and forced resolution (inspectTimeoutResolution).
+    if TRP3FW.Prefs.pausePhaseCheckOnInspect and self:IsInspectActive() then
+        TRP3FW:Debug("[Batch] Inspect window open, routing to individual queue", "phase")
+        self:ProcessPhaseCheckQueue()
+        return
+    end
+
     local batch = {}
     local batchIndices = {} -- Map playerName -> batch index
 
@@ -581,6 +598,73 @@ function TRP3FW:ProcessPhaseCheckQueue()
     self:ExecutePhaseCheck(check)
 end
 
+-- ===================== Inspect-open deferral (shared pump) =====================
+-- While the inspect window is open, checks can't target (it corrupts inspect data).
+-- Instead of each deferred check owning its own retry timer (which piles up and
+-- serializes throughput under concurrency), all deferred checks share ONE 1s pump
+-- that sweeps the whole queue: expired checks resolve, the rest stay queued.
+
+-- Resolve a single inspect-deferred check as the user-selected phase result. Resolves
+-- to in/out of phase (not an action) so the normal phase/map modes + SPVP still decide.
+function TRP3FW:ResolveInspectDeferral(check)
+    local assumeInPhase = (TRP3FW.Prefs.inspectTimeoutResolution ~= "out_of_phase")
+    self:Debug("[Phase Check] Inspect still open after 10s, resolving "..tostring(check.playerName)..
+        " as "..(assumeInPhase and "IN PHASE" or "NOT IN PHASE"), "phase")
+
+    -- Support both single-callback and merged-callbacks (batch) entry shapes.
+    if check.callbacks then
+        for _, cb in ipairs(check.callbacks) do
+            if cb then cb(assumeInPhase, "checked", nil, "inspect_timeout") end
+        end
+    elseif check.callback then
+        check.callback(assumeInPhase, "checked", nil, "inspect_timeout")
+    end
+end
+
+-- Ensure exactly one inspect pump timer is scheduled (idempotent).
+function TRP3FW:ScheduleInspectPump()
+    if self.inspectRetryTimer then return end
+    self.inspectRetryTimer = C_Timer.NewTimer(1.0, function()
+        self.inspectRetryTimer = nil
+        self:PumpInspectDeferrals()
+    end)
+end
+
+-- One sweep of the whole queue, giving EVERY queued check a single attempt this tick.
+-- Called once per second while inspect stays open. Each check runs through
+-- ExecutePhaseCheck, which (while inspect is open) either resolves it (deadline passed)
+-- or re-queues it with its deadline; undeadlined fresh checks get stamped on first pass.
+function TRP3FW:PumpInspectDeferrals()
+    -- If inspect has since closed, clear stale inspect deadlines (so a check re-processed
+    -- during a future inspect session gets a fresh 10s window, not an already-expired one)
+    -- and resume normal processing.
+    if not (TRP3FW.Prefs.pausePhaseCheckOnInspect and self:IsInspectActive()) then
+        for _, check in ipairs(self.pendingPhaseChecks) do
+            check.inspectDeadline = nil
+        end
+        if #self.pendingPhaseChecks > 0 then self:ProcessPhaseCheckQueue() end
+        return
+    end
+
+    -- Snapshot-and-drain: ExecutePhaseCheck re-queues deferred checks onto
+    -- pendingPhaseChecks, so we must iterate a detached copy to avoid mutating the
+    -- list we're walking (and to avoid reprocessing a just-re-queued check this tick).
+    -- inspectPumping suppresses QueuePhaseCheck's immediate-fire so re-queues during the
+    -- sweep don't reenter processing; cleared even if a check errors.
+    local snapshot = self.pendingPhaseChecks
+    self.pendingPhaseChecks = {}
+    self.inspectPumping = true
+    for _, check in ipairs(snapshot) do
+        local ok, err = pcall(function() self:ExecutePhaseCheck(check) end)
+        if not ok then self:Debug("[Phase Check] Inspect pump error: "..tostring(err), "phase") end
+    end
+    self.inspectPumping = false
+
+    -- ExecutePhaseCheck already re-armed the pump for any check it re-queued; this is a
+    -- backstop in case the queue is non-empty but nothing re-scheduled.
+    if #self.pendingPhaseChecks > 0 then self:ScheduleInspectPump() end
+end
+
 -- Execute a single phase check (from queue or direct)
 function TRP3FW:ExecutePhaseCheck(check)
     local playerName = check.playerName
@@ -595,6 +679,26 @@ function TRP3FW:ExecutePhaseCheck(check)
         if #self.pendingPhaseChecks > 0 then
             C_Timer.After(0.1, function() self:ProcessPhaseCheckQueue() end)
         end
+        return
+    end
+
+    -- Skip automated targeting while the armory/inspect window is open, otherwise
+    -- retargeting yanks inspect data out from under InspectFrame. Re-queue with a 10s
+    -- deadline and hand off to the shared inspect pump (one timer for ALL deferred
+    -- checks, not one per check) which retries once/second and resolves expired checks.
+    if TRP3FW.Prefs.pausePhaseCheckOnInspect and self:IsInspectActive() then
+        local now = self:GetCurrentTime()
+        local deadline = check.inspectDeadline or (now + 10)
+
+        if now >= deadline then
+            self:ResolveInspectDeferral(check)
+            return
+        end
+
+        self:Debug("[Phase Check] Inspect window open, deferring "..playerName..
+            " (retrying, "..string.format("%.0fs", deadline - now).." left)", "phase")
+        self:QueuePhaseCheck(playerName, check.sendId, callback, priority, deadline)
+        self:ScheduleInspectPump()
         return
     end
 

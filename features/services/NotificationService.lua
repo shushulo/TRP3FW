@@ -517,7 +517,14 @@ function NotificationService:ShowChatNotification(playerName, addon, isFirstTime
             end
         end
 
-        if hasPhaseUnknown then
+        -- The phase result was assumed (not measured) because the inspect/armory window
+        -- blocked targeting for the full retry window. Say so honestly rather than
+        -- claiming a real phase mismatch.
+        local phaseFromInspect = checkDetails and checkDetails.phase and checkDetails.phase.method == "inspect_timeout"
+
+        if phaseFromInspect and hasPhase then
+            msg = msg .. " |cffff0000(Assumed out of phase: inspect window was open)|r"
+        elseif hasPhaseUnknown then
             msg = msg .. " |cffff0000(Phase verification failed/error)|r"
         elseif hasPhase and hasMap then
             -- Both checks failed; only claim different map when we have evidence

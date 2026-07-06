@@ -114,6 +114,14 @@ TRP3FW.defaultSettings = {
     phaseCacheRefreshThreshold = 0.5, -- Refresh when age > 50% of TTL (150s)
     phaseCacheFailureDuration = 10, -- Short cache duration for failed phase checks (allows quick retries)
 
+    -- Phase-check targeting side-effect mitigations
+    muteTargetSound = true,             -- Suppress WoW's target-acquired sound during automated phase-check targeting
+    pausePhaseCheckOnInspect = false,   -- Skip/defer automated phase-check targeting while the armory/inspect frame is open
+    -- When paused for inspect, retry once/second for up to 10s. If inspect is still
+    -- open after that, resolve the check as this phase result (then the normal phase/map
+    -- modes and SPVP fallback decide the action): "in_phase" or "out_of_phase".
+    inspectTimeoutResolution = "out_of_phase",
+
     -- Batch Phase Check Settings (Optimization #2)
     phaseCheckBatchMode = true,         -- Enable batched phase checks
     phaseCheckBatchSize = 5,            -- Max batch size (2-10)

@@ -276,6 +276,57 @@ end
 
 local RATE_LIMIT = 10 -- Max tokens per second for RunPrivileged API
 
+-- Sound kits WoW plays when the target changes (select / lost). We suppress ONLY
+-- these, and ONLY while our automated phase-check targeting is in flight, so manual
+-- targeting keeps its sound and no other SFX is affected. Resolved from the live
+-- SOUNDKIT table at install time; unknown names are skipped. If a build/server plays
+-- a select sound not covered here, add its kit name to this list.
+local TARGET_SELECT_SOUNDKIT_NAMES = {
+    "IG_CREATURE_NEUTRAL_SELECT",
+    "IG_CREATURE_AGGRO_SELECT",
+    "IG_CREATURE_SPECIAL_SELECT",
+    "IG_CHARACTER_NPC_SELECT",
+    "IG_CREATURE_NEUTRAL_LOST",
+    "IG_CREATURE_AGGRO_LOST",
+    "IG_CHARACTER_NPC_LOST",
+}
+
+-- Installs a PlaySound hook (once) that swallows target-select sound kits while
+-- TRP3FW.phaseCheckTargeting is set. Called from addon init. Idempotent.
+function TRP3FW:InstallTargetSoundMute()
+    if self._targetSoundMuteInstalled then return end
+    if type(PlaySound) ~= "function" then return end
+
+    local SK = _G.SOUNDKIT
+    local muted = {}
+    if SK then
+        for _, name in ipairs(TARGET_SELECT_SOUNDKIT_NAMES) do
+            local id = SK[name]
+            if id then muted[id] = true end
+        end
+    end
+    self.mutedTargetSoundKits = muted
+
+    -- PlaySound itself cannot be blocked by a post-hook, so we wrap it: replace the
+    -- global with a guard that drops the call for a muted kit during automated
+    -- targeting, and otherwise forwards to the original.
+    local original = PlaySound
+    _G.PlaySound = function(soundKitID, ...)
+        if self.Prefs and self.Prefs.muteTargetSound
+           and self.phaseCheckTargeting
+           and self.mutedTargetSoundKits[soundKitID] then
+            return  -- swallow only our automated target-select sound
+        end
+        return original(soundKitID, ...)
+    end
+
+    self._targetSoundMuteInstalled = true
+    self:Debug(function()
+        local n = 0; for _ in pairs(muted) do n = n + 1 end
+        return "[Sound] Target-select mute installed ("..n.." kits)"
+    end, "utils")
+end
+
 -- SECURITY: Peek token bucket without consuming (mirrors RunPrivilegedSafe defaults)
 function TRP3FW:GetAvailablePrivilegedTokens()
     if not self.privilegedRate then
@@ -423,6 +474,15 @@ function TRP3FW:RefundToken(category, amount)
     end
 end
 
+-- Returns true when the player has the armory/inspect window open. Automated
+-- phase-check targeting retargets the player, which pulls inspect data out from
+-- under InspectFrame, so callers skip targeting while this is true (gated by the
+-- pausePhaseCheckOnInspect setting at the call sites).
+function TRP3FW:IsInspectActive()
+    local f = _G.InspectFrame
+    return f ~= nil and f:IsShown()
+end
+
 -- SECURITY: Rate-limited wrapper for C_Epsilon.RunPrivileged() calls
 -- FIXED: CRITICAL-3 - Prevents privilege escalation via flooding attacks
 -- Enforces strict rate limit of 10 privileged calls per second using a token bucket.
@@ -522,7 +582,11 @@ function TRP3FW:RunPrivilegedSafe(code, category)
         self.privilegedCallStats.byCategory[category] = (self.privilegedCallStats.byCategory[category] or 0) + 1
     end
 
-    -- Execute privileged code with error handling
+    -- Execute privileged code with error handling.
+    -- Automated phase-check targeting (TargetUnit/ClearTarget/restore) triggers WoW's
+    -- "target acquired" sound. Suppression is handled surgically by the PlaySound hook
+    -- (InstallTargetSoundMute), gated on the phaseCheckTargeting flag, so only OUR
+    -- automated selects are silenced — manual targeting and all other SFX are untouched.
     local success, result = pcall(C_Epsilon.RunPrivileged, code)
 
     if not success then

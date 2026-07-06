@@ -31,6 +31,10 @@ mainFrame:SetScript("OnEvent", function(self, event, arg1)
         -- Initialize Pipeline
         TRP3FW:InitializeDecisionPipeline()
 
+        -- Suppress the target-select sound during automated phase-check targeting
+        -- (surgical PlaySound hook; only affects our own automated selects).
+        TRP3FW:InstallTargetSoundMute()
+
         -- Install hooks (delay to ensure other addons are loaded)
         C_Timer.After(1, function()
             TRP3FW:InstallHooks()
