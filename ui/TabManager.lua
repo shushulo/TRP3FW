@@ -49,12 +49,32 @@ function TabManager:GetUI()
     return self.uiElements
 end
 
--- Reflow every card created so far (hide filtered rows, restack, resize). Safe
--- for cards that never registered rows -- their Reflow is a no-op.
+-- Reflow every card created so far (hide filtered rows, restack, resize), then
+-- shrink each scroll child to fit its now-resized cards so the scrollbar tracks
+-- the real content height. Safe for cards that never registered rows.
 function TabManager:ReflowAllCards(currentLevel)
     if not self._cards then return end
     for _, card in ipairs(self._cards) do
         if card.Reflow then card:Reflow(currentLevel) end
+    end
+
+    -- Sum card heights (+ gaps + the 10px top offset) per scroll child so the
+    -- scroll frame recomputes its range and the scrollbar shrinks with content.
+    local perChild = {}
+    for _, card in ipairs(self._cards) do
+        local child = card:GetParent()
+        if child then
+            local e = perChild[child]
+            if not e then e = { total = 10, n = 0 }; perChild[child] = e end
+            e.total = e.total + card:GetHeight() + (e.n > 0 and TRP3FW.Theme.metrics.CARD_GAP or 0)
+            e.n = e.n + 1
+        end
+    end
+    for child, e in pairs(perChild) do
+        -- +12 bottom breathing room; never shorter than the viewport so short
+        -- tabs don't leave the scroll child smaller than the visible area.
+        local minH = child:GetParent() and child:GetParent():GetHeight() or 0
+        child:SetHeight(math.max(e.total + 12, minH))
     end
 end
 
