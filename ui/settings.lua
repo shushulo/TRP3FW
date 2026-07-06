@@ -760,15 +760,20 @@ function TRP3FW:RefreshUI()
         local S = uiElements.modeSummary
         S.phase:SetText(modeText(p.phaseCheckMode or "alert"))
         S.map:SetText(modeText(p.mapCheckMode or "alert"))
-        S.who:SetText("Default (user /who via UI; addon auto)")
+        S.who:SetText(p.useWhoQuery and "On (secondary location check)" or "Off")
 
         local scanPhaseMode = p.scanResponsePhaseMode or "off"
         local scanMapMode = p.scanResponseMapMode or "off"
         local gatingActive = hasScanner and (scanPhaseMode ~= "off" or scanMapMode ~= "off")
         if gatingActive then
-            S.scan:SetText(string.format("Phase: %s   Map: %s", scanModeText(scanPhaseMode), scanModeText(scanMapMode)))
+            -- Both modes usually match; show one value, or both when they differ.
+            if scanPhaseMode == scanMapMode then
+                S.scan:SetText(scanModeText(scanPhaseMode))
+            else
+                S.scan:SetText(string.format("phase %s / map %s", scanModeText(scanPhaseMode):lower(), scanModeText(scanMapMode):lower()))
+            end
         else
-            S.scan:SetText("Protections off")
+            S.scan:SetText("Off")
         end
     end
 

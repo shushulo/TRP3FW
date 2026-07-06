@@ -136,17 +136,17 @@ local function CreateAlertsTab(container)
     local function summaryRow(labelText)
         local rowY = presetCard:NextY(22)
         local lbl = presetCard:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
-        lbl:SetPoint("TOPLEFT", 12, rowY); lbl:SetWidth(90); lbl:SetJustifyH("LEFT")
+        lbl:SetPoint("TOPLEFT", 12, rowY); lbl:SetWidth(120); lbl:SetJustifyH("LEFT")
         lbl:SetText(labelText); lbl:SetTextColor(Theme:Color("TEXT_SECONDARY"))
         local val = presetCard:CreateFontString(nil, "ARTWORK", Theme.fonts.LABEL)
-        val:SetPoint("TOPLEFT", 108, rowY); val:SetPoint("RIGHT", presetCard, "RIGHT", -12, 0)
+        val:SetPoint("TOPLEFT", 140, rowY); val:SetPoint("RIGHT", presetCard, "RIGHT", -12, 0)
         val:SetJustifyH("LEFT"); val:SetTextColor(Theme:Color("GOLD_TEXT"))
         return val
     end
-    uiElements.modeSummary.phase = summaryRow("Phase")
-    uiElements.modeSummary.map = summaryRow("Map")
-    uiElements.modeSummary.who = summaryRow("WHO")
-    uiElements.modeSummary.scan = summaryRow("Scan reply")
+    uiElements.modeSummary.phase = summaryRow("Different phase")
+    uiElements.modeSummary.map = summaryRow("Different map")
+    uiElements.modeSummary.who = summaryRow("WHO query")
+    uiElements.modeSummary.scan = summaryRow("Scan replies")
     presetCard:FitHeight(12)
 
     -- ===== Card 2: Location checking =======================================
