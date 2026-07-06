@@ -67,10 +67,13 @@ local function CreateDebugTab(container)
         return item
     end
 
-    -- Single-column numeric row (label left, value right after it).
+    -- Single-column numeric row. Use a FIXED label width so the value boxes
+    -- line up in a column (nil labelW would anchor each value right after its
+    -- label, leaving the boxes ragged).
+    local SINGLE_LABEL_W = 220
     local function numRow(card, key, label, tip, min, max, pct)
         local item = makeNum(card, key, label, tip, min, max, pct)
-        card:AddRow(function(y) item.place(INNER, y, nil) end, 26, item.eb.complexityLevel, { item.eb })
+        card:AddRow(function(y) item.place(INNER, y, SINGLE_LABEL_W) end, 26, item.eb.complexityLevel, { item.eb })
         return item.eb
     end
 
@@ -267,10 +270,12 @@ local function CreateDebugTab(container)
         for i, t in ipairs(shown) do
             local col = (i - 1) % 2
             local rowIdx = math.floor((i - 1) / 2)
+            -- Give the toggle an explicit column width so its label (anchored to
+            -- LEFT) and pill (anchored to RIGHT) lay out with room between them.
+            -- Without a width the frame is 0-wide and the label overlaps the pill.
             t:ClearAllPoints()
+            t:SetWidth(colW - 12)
             t:SetPoint("TOPLEFT", dbgCard, "TOPLEFT", INNER + col * colW, y - 22 - rowIdx * 28)
-            t.pill:ClearAllPoints()
-            t.pill:SetPoint("LEFT", t, "LEFT", colW - 44, 0)
         end
         if #shown == 0 then return 0 end
         return 22 + math.ceil(#shown / 2) * 28

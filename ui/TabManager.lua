@@ -659,7 +659,8 @@ function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, sub
 
     local function applyVisual(self)
         local on = self:GetChecked()
-        if not self:IsEnabled() then
+        local enabled = self:IsEnabled()
+        if not enabled then
             setTrackColor(Theme:Color("BORDER"))
             pill:SetBackdropBorderColor(Theme:Color("BORDER"))
             knob:SetColorTexture(Theme:Color("TEXT_MUTED"))
@@ -672,6 +673,8 @@ function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, sub
             pill:SetBackdropBorderColor(Theme:Color("BORDER_STRONG"))
             knob:SetColorTexture(Theme:Color("TEXT_SECONDARY"))
         end
+        -- Dim the label + sub-label when disabled so the whole row reads greyed.
+        label:SetTextColor(Theme:Color(enabled and "TEXT_PRIMARY" or "TEXT_MUTED"))
         knob:ClearAllPoints()
         if on then
             knob:SetPoint("RIGHT", pill, "RIGHT", -2, 0)
@@ -683,6 +686,9 @@ function TabManager:CreateToggle(parent, labelText, tooltipText, settingKey, sub
 
     hooksecurefunc(toggle, "SetChecked", function(self) applyVisual(self) end)
     toggle:SetScript("OnClick", function(self)
+        -- Ignore clicks while disabled (belt-and-suspenders; Disable() also
+        -- blocks the click at the widget level).
+        if not self:IsEnabled() then return end
         applyVisual(self)
         if self._onToggle then self._onToggle(self:GetChecked()) end
     end)
