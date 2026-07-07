@@ -11,13 +11,13 @@ local T = require("tests.framework")
 local H = require("tests.harness")
 
 -- Capture MuteSoundFile / UnmuteSoundFile calls.
-local function freshInstall(extraFiles)
+local function freshInstall()
     local muted, unmuted = {}, {}
     _G.MuteSoundFile = function(fid) muted[fid] = (muted[fid] or 0) + 1 end
     _G.UnmuteSoundFile = function(fid) unmuted[fid] = (unmuted[fid] or 0) + 1 end
 
     local fw = H.newNamespace()
-    fw.Prefs = { muteTargetSound = true, extraTargetSoundFiles = extraFiles }
+    fw.Prefs = { muteTargetSound = true }
     H.loadModule("core/utils.lua", fw)
     fw:InstallTargetSoundMute()
     return fw, muted, unmuted
@@ -61,15 +61,6 @@ T.describe("Target-select sound mute (MuteSoundFile-based)", function()
         for fid in pairs(fw.targetSoundFiles) do
             T.eq(muted[fid], 1)        -- muted exactly once, not twice
         end
-    end)
-
-    T.it("includes user-added extra files", function()
-        local fw, muted = freshInstall({ 999001, 999002 })
-        T.truthy(fw.targetSoundFiles[999001])
-        T.truthy(fw.targetSoundFiles[999002])
-        fw:SetTargetSoundMuted(true)
-        T.eq(muted[999001], 1)
-        T.eq(muted[999002], 1)
     end)
 
     T.it("does nothing before install", function()

@@ -286,38 +286,19 @@ local RATE_LIMIT = 10 -- Max tokens per second for RunPrivileged API
 -- FileDataIDs confirmed on Epsilon 9.2.5 (identified with Leatrix Sounds +
 -- MuteSoundFile). The trailing number in a sound path like
 -- "sound/interface/iselecttarget.ogg#567453" is the FileDataID, which is what
--- MuteSoundFile takes. There is no in-game API to resolve a SOUNDKIT to its files, so
--- if a build/server plays a different file, use `/trp3fw soundids` to help locate it and
--- `/trp3fw soundadd <id>` to add it. Empty is safe (mute no-ops).
+-- MuteSoundFile takes. If a build/server plays a different file, edit this list.
 local TARGET_SELECT_SOUND_FILES = {
     567453,  -- sound/interface/iselecttarget.ogg   (target select)
     567520,  -- sound/interface/ideselecttarget.ogg (target deselect)
 }
-
--- Candidate sound-kit NAMES used by the /trp3fw soundids discovery command to help
--- confirm/extend the file list above on servers whose IDs differ.
-local TARGET_SELECT_SOUNDKIT_NAMES = {
-    "IG_CREATURE_NEUTRAL_SELECT",
-    "IG_CREATURE_AGGRO_SELECT",
-    "IG_CREATURE_SPECIAL_SELECT",
-    "IG_CHARACTER_NPC_SELECT",
-}
-TRP3FW.TARGET_SELECT_SOUNDKIT_NAMES = TARGET_SELECT_SOUNDKIT_NAMES
 
 -- Prepare the target-select mute (once). No hooks, no global replacement — just seeds
 -- the file list. Idempotent.
 function TRP3FW:InstallTargetSoundMute()
     if self._targetSoundMuteInstalled then return end
 
-    -- Files we mute during automated targeting: the built-in list plus any the user
-    -- added via saved settings (TRP3FW_Settings.extraTargetSoundFiles).
     local files = {}
     for _, fid in ipairs(TARGET_SELECT_SOUND_FILES) do files[fid] = true end
-    if self.Prefs and type(self.Prefs.extraTargetSoundFiles) == "table" then
-        for _, fid in ipairs(self.Prefs.extraTargetSoundFiles) do
-            if type(fid) == "number" then files[fid] = true end
-        end
-    end
     self.targetSoundFiles = files
     self.targetSoundFilesMuted = false
 
