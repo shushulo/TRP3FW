@@ -283,14 +283,15 @@ local RATE_LIMIT = 10 -- Max tokens per second for RunPrivileged API
 -- TAINT NOTE: we do NOT wrap the global PlaySound (that taints Blizzard's secure
 -- logout/exit path). MuteSoundFile is taint-free and file-scoped.
 --
--- These IDs are the standard Retail 9.x target-select/lost sounds. There is no in-game
--- API to resolve a SOUNDKIT to its files, so if a build/server plays a different file,
--- use `/trp3fw soundids` to discover it and add it here. Empty is safe (mute no-ops).
+-- FileDataIDs confirmed on Epsilon 9.2.5 (identified with Leatrix Sounds +
+-- MuteSoundFile). The trailing number in a sound path like
+-- "sound/interface/iselecttarget.ogg#567453" is the FileDataID, which is what
+-- MuteSoundFile takes. There is no in-game API to resolve a SOUNDKIT to its files, so
+-- if a build/server plays a different file, use `/trp3fw soundids` to help locate it and
+-- `/trp3fw soundadd <id>` to add it. Empty is safe (mute no-ops).
 local TARGET_SELECT_SOUND_FILES = {
-    567458,  -- igCreatureNeutralSelect
-    567430,  -- igCreatureAggroSelect
-    567416,  -- igCreatureSpecialSelect
-    567409,  -- igCharacterNPCSelect
+    567453,  -- sound/interface/iselecttarget.ogg   (target select)
+    567520,  -- sound/interface/ideselecttarget.ogg (target deselect)
 }
 
 -- Candidate sound-kit NAMES used by the /trp3fw soundids discovery command to help
