@@ -28,33 +28,48 @@ SlashCmdList.TRP3FW = function(msg)
         return
 
     elseif cmd == "soundids" then
-        -- Diagnostic: help identify the target-select sound file on this server.
-        -- 1) Print the SOUNDKIT id each candidate kit name resolves to.
-        -- 2) Play each candidate FileDataID so you can hear which matches the sound you
-        --    get when you target a player. Tell the dev which number played that sound.
+        -- Diagnostic: help identify the target-select sound on this server. Plays two
+        -- groups 1s apart so you can hear which matches the sound you get when you target
+        -- a player, then tell the dev the label:
+        --   K# = a SOUNDKIT (engine-resolved; the REAL target sound is guaranteed here)
+        --   F# = one of our candidate FileDataIDs (what MuteSoundFile actually mutes)
         TRP3FW:Info("|cff00ffffTarget-select sound discovery|r")
+        TRP3FW:Info("Target a player first to hear the real sound, then match it below.")
+
+        local step = 0
+        local function schedule(label, playFn, detail)
+            C_Timer.After(step * 1.2, function()
+                local ok = playFn()
+                TRP3FW:Info("  "..label.." "..detail..(ok == false and " |cffff0000(did not play)|r" or ""))
+            end)
+            step = step + 1
+        end
+
+        -- Group 1: sound kits (these DEFINITELY include the real target-select sound).
         local SK = _G.SOUNDKIT
         if SK and TRP3FW.TARGET_SELECT_SOUNDKIT_NAMES then
-            TRP3FW:Info("Sound kits (name = id):")
+            local ki = 0
             for _, name in ipairs(TRP3FW.TARGET_SELECT_SOUNDKIT_NAMES) do
-                TRP3FW:Info("  "..name.." = "..tostring(SK[name] or "|cffff0000missing|r"))
+                local id = SK[name]
+                if id then
+                    ki = ki + 1
+                    schedule("K"..ki, function() return PlaySound and PlaySound(id, "Master") end,
+                        name.." (kit "..id..")")
+                end
             end
         end
+
+        -- Group 2: our candidate files (what the mute list contains right now).
         local files = TRP3FW.targetSoundFiles or {}
         local list = {}
         for fid in pairs(files) do list[#list + 1] = fid end
         table.sort(list)
-        if #list == 0 then
-            TRP3FW:Info("No candidate files configured.")
-        else
-            TRP3FW:Info("Playing "..#list.." candidate file(s), 1s apart. Note which one sounds like the target-select sound:")
-            for i, fid in ipairs(list) do
-                C_Timer.After((i - 1) * 1.0, function()
-                    local willPlay = PlaySoundFile and PlaySoundFile(fid, "Master")
-                    TRP3FW:Info("  ["..i.."] file "..fid..(willPlay and "" or " |cffff0000(did not play)|r"))
-                end)
-            end
+        for i, fid in ipairs(list) do
+            schedule("F"..i, function() return PlaySoundFile and PlaySoundFile(fid, "Master") end,
+                "file "..fid)
         end
+
+        if step == 0 then TRP3FW:Info("|cffff0000No kits or files available to test.|r") end
         return
 
     elseif cmd == "soundadd" or cmd == "soundremove" then
