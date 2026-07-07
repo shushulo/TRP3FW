@@ -27,6 +27,62 @@ SlashCmdList.TRP3FW = function(msg)
         TRP3FW:TestNotifications()
         return
 
+    elseif cmd == "soundids" then
+        -- Diagnostic: help identify the target-select sound file on this server.
+        -- 1) Print the SOUNDKIT id each candidate kit name resolves to.
+        -- 2) Play each candidate FileDataID so you can hear which matches the sound you
+        --    get when you target a player. Tell the dev which number played that sound.
+        TRP3FW:Info("|cff00ffffTarget-select sound discovery|r")
+        local SK = _G.SOUNDKIT
+        if SK and TRP3FW.TARGET_SELECT_SOUNDKIT_NAMES then
+            TRP3FW:Info("Sound kits (name = id):")
+            for _, name in ipairs(TRP3FW.TARGET_SELECT_SOUNDKIT_NAMES) do
+                TRP3FW:Info("  "..name.." = "..tostring(SK[name] or "|cffff0000missing|r"))
+            end
+        end
+        local files = TRP3FW.targetSoundFiles or {}
+        local list = {}
+        for fid in pairs(files) do list[#list + 1] = fid end
+        table.sort(list)
+        if #list == 0 then
+            TRP3FW:Info("No candidate files configured.")
+        else
+            TRP3FW:Info("Playing "..#list.." candidate file(s), 1s apart. Note which one sounds like the target-select sound:")
+            for i, fid in ipairs(list) do
+                C_Timer.After((i - 1) * 1.0, function()
+                    local willPlay = PlaySoundFile and PlaySoundFile(fid, "Master")
+                    TRP3FW:Info("  ["..i.."] file "..fid..(willPlay and "" or " |cffff0000(did not play)|r"))
+                end)
+            end
+        end
+        return
+
+    elseif cmd == "soundadd" or cmd == "soundremove" then
+        local fid = tonumber(rest)
+        if not fid then
+            TRP3FW:Warn("Usage: /trp3fw "..cmd.." <FileDataID>  (find IDs with /trp3fw soundids)")
+            return
+        end
+        if type(TRP3FW.Prefs.extraTargetSoundFiles) ~= "table" then
+            TRP3FW.Prefs.extraTargetSoundFiles = {}
+        end
+        local extra = TRP3FW.Prefs.extraTargetSoundFiles
+        -- Rebuild without fid (handles both add-dedupe and remove).
+        local kept = {}
+        for _, v in ipairs(extra) do if v ~= fid then kept[#kept + 1] = v end end
+        if cmd == "soundadd" then
+            kept[#kept + 1] = fid
+            TRP3FW:Info("Added target-select sound file "..fid..". Reloading mute list...")
+        else
+            TRP3FW:Info("Removed target-select sound file "..fid..". Reloading mute list...")
+        end
+        TRP3FW.Prefs.extraTargetSoundFiles = kept
+        -- Re-seed the live file set (unmute current, reinstall, so removed IDs are freed).
+        if TRP3FW.SetTargetSoundMuted then TRP3FW:SetTargetSoundMuted(false) end
+        TRP3FW._targetSoundMuteInstalled = false
+        if TRP3FW.InstallTargetSoundMute then TRP3FW:InstallTargetSoundMute() end
+        return
+
     elseif cmd == "location" or cmd == "where" then
         -- Show current map ID and zone name
         local mapID = TRP3FW:GetCurrentMapID()

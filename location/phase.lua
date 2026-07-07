@@ -18,6 +18,15 @@ local PRIORITY_LEVELS = {
     LOW = 3
 }
 
+-- Set the automated-targeting flag and keep the target-select sound mute in sync.
+-- Muting is scoped to these windows so manual target selection keeps its sound.
+function TRP3FW:SetPhaseCheckTargeting(active)
+    self.phaseCheckTargeting = active
+    if self.SetTargetSoundMuted then
+        self:SetTargetSoundMuted(active and (self.Prefs and self.Prefs.muteTargetSound) or false)
+    end
+end
+
 -- Helper to queue a phase check with priority sorting
 function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority, inspectDeadline)
     priority = priority or "NORMAL"
@@ -227,7 +236,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
 
     -- FIXED: HIGH-2 - Acquire mutex lock
     self.targetingInProgress = true
-    self.phaseCheckTargeting = true
+    self:SetPhaseCheckTargeting(true)
 
     -- Save current target state ONCE for the whole batch
     local hadTarget = UnitExists("target")
@@ -248,7 +257,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
         -- Delay clearing the flag to ensure CacheService sees it during event propagation
         C_Timer.After(0.1, function()
             TRP3FW.targetingInProgress = false
-            TRP3FW.phaseCheckTargeting = false
+            TRP3FW:SetPhaseCheckTargeting(false)
 
             -- Check if more items pending
             if #self.pendingPhaseChecks > 0 then
@@ -703,7 +712,7 @@ function TRP3FW:ExecutePhaseCheck(check)
     end
 
     self.targetingInProgress = true
-    self.phaseCheckTargeting = true
+    self:SetPhaseCheckTargeting(true)
     self:Debug("[Phase Check] Acquired mutex for "..playerName, "phase")
 
     -- Save current target state
@@ -729,7 +738,7 @@ function TRP3FW:ExecutePhaseCheck(check)
         -- Delay clearing the flag to ensure CacheService sees it during event propagation
         C_Timer.After(0.1, function()
             self.targetingInProgress = false
-            self.phaseCheckTargeting = false
+            self:SetPhaseCheckTargeting(false)
             self:Debug("[Phase Check] Released mutex", "phase")
 
             -- Process next

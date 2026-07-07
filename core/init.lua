@@ -116,6 +116,7 @@ TRP3FW.defaultSettings = {
 
     -- Phase-check targeting side-effect mitigations
     muteTargetSound = true,             -- Suppress WoW's target-acquired sound during automated phase-check targeting
+    extraTargetSoundFiles = {},         -- Extra target-select FileDataIDs to mute (discover via /trp3fw soundids)
     pausePhaseCheckOnInspect = false,   -- Skip/defer automated phase-check targeting while the armory/inspect frame is open
     -- When paused for inspect, retry once/second for up to 10s. If inspect is still
     -- open after that, resolve the check as this phase result (then the normal phase/map
