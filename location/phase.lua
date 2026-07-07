@@ -834,8 +834,8 @@ function TRP3FW:ExecutePhaseCheck(check)
         ES:RegisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
     end
 
-    local timeoutDuration = 2.0
-    if priority == "HIGH" then timeoutDuration = 1.0 end
+    local timeoutDuration = 3.0
+    if priority == "HIGH" then timeoutDuration = 1.5 end
 
     timeoutTimer = C_Timer.NewTimer(timeoutDuration, function()
         -- Fallback: If event didn't fire (e.g. target didn't change), verify manually
