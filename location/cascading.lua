@@ -283,7 +283,14 @@ local function StartStandardChecks(results, priority)
         results.phaseCheckStarted = true
         TRP3FW:CheckPlayerPhase(playerName, sendId, function(inPhase, source, theirMapID, phaseMethod)
             HandlePhaseResult(results, inPhase, source, theirMapID, phaseMethod, priority)
-        end, priority)
+        end, priority, function()
+            -- Targeting just started for real (queue/mutex/token wait is over) - extend the
+            -- deadline to cover the actual per-check timeout (3.0s NORMAL / 1.5s HIGH) plus
+            -- margin for the manual fallback check + cleanup, so the deadline can't preempt
+            -- a check that's genuinely still in flight.
+            local targetingTimeout = (priority == "HIGH") and 1.5 or 3.0
+            if results.ArmDeadline then results.ArmDeadline(targetingTimeout + 1.0) end
+        end)
 
         -- FAST FALLBACK: If high priority (like scan replies), don't wait for the full targeting timeout.
         -- If targeting hasn't finished in 0.2s, start map checks in parallel to meet the 3s window.
@@ -351,7 +358,10 @@ local function OnSPVPResult(results, verified, source)
                         -- This is the SPVP-verified-also-need-map path; NORMAL is correct.
                         StartStandardChecks(results, "NORMAL")
                     end
-                end, "who_map_verification")
+                end, "who_map_verification", function()
+                    -- Falls through to the NORMAL (3.0s) targeting timeout, see H3 above.
+                    if results.ArmDeadline then results.ArmDeadline(3.0 + 1.0) end
+                end)
         else
             EvaluateResults(results)
         end
@@ -439,14 +449,24 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     if mapCheckEnabled then results.expected.map = true end
     if spvpEnabled then results.expected.spvp = true end
 
-    -- DEADLINE HANDLER (N2): Unconditional 2.0s deadline. Without this, a hung phase or
+    -- DEADLINE HANDLER (N2): Unconditional deadline. Without this, a hung phase or
     -- WHO check leaves `results.callback` pending forever; `LocationStage`'s 30s housekeeping
     -- timer then nils the pending state without ever invoking originalFunc, silently dropping
     -- the send. Fast-fallbacks (0.2s phase, 0.3s WHO) remain HIGH-priority-only — those are
     -- latency optimizations; this is a correctness rail.
-    local deadlineTimer = C_Timer.NewTimer(2.0, function()
+    --
+    -- BASE_DEADLINE covers the case where phase targeting never starts at all (queued
+    -- behind a busy mutex/token scarcity indefinitely, or checks that legitimately never
+    -- fire). It intentionally does NOT need to cover the targeting timeout itself
+    -- (currently 3.0s/1.5s) — once TargetUnit() is actually issued, ArmDeadline below
+    -- extends the clock to the real per-check timeout + margin, so this fixed constant
+    -- can stay short without racing the (independently tunable) targeting timeout.
+    local BASE_DEADLINE = 2.0
+    local deadlineTimer = nil
+
+    local function fireDeadline()
         if results.callback and not results.resolved then
-            TRP3FW:Debug("[Deadline] Forcing location evaluation for "..playerName.." (2.0s reached)", "location")
+            TRP3FW:Debug("[Deadline] Forcing location evaluation for "..playerName.." (deadline reached)", "location")
             -- BUG FIX: Only force-fail checks that ACTUALLY STARTED. Forcing checks that
             -- were never started (e.g. SPVP wrongly enabled with no salt, or phase queue
             -- mutex held by a hung prior check) makes the deadline synthesize phantom
@@ -474,7 +494,25 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
             end
             EvaluateResults(results)
         end
-    end)
+    end
+
+    -- Push the deadline out to cover the real targeting timeout once targeting has
+    -- actually started (mutex acquired, TargetUnit() issued). Without this, a check that
+    -- spent most of BASE_DEADLINE queued behind a busy mutex/batch-accumulation delay
+    -- would get force-failed by the deadline before its own (independently tunable)
+    -- targeting timeout ever got a chance to resolve via TARGET_CHANGED or its manual
+    -- fallback check — a phantom "block even though clearly nearby" false negative.
+    local function ArmDeadline(minDuration)
+        if results.resolved then return end
+        if deadlineTimer then deadlineTimer:Cancel() end
+        deadlineTimer = C_Timer.NewTimer(minDuration, fireDeadline)
+    end
+
+    ArmDeadline(BASE_DEADLINE)
+    -- Exposed so StartStandardChecks/OnSPVPResult can push the deadline out once a phase
+    -- check actually starts targeting (see onTargetingStarted below).
+    results.ArmDeadline = ArmDeadline
+
     -- Wrap callback to cancel timer
     local originalCallback = results.callback
     results.callback = function(...)

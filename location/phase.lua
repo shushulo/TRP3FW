@@ -11,6 +11,20 @@ TRP3FW.pendingPhaseChecks = {}  -- List of {playerName, sendId, callback, priori
 TRP3FW.phaseCheckBatchTimer = nil
 TRP3FW.inspectRetryTimer = nil  -- Single shared 1s pump for inspect-open deferrals
 
+-- Cross-request coordination for concurrent phase checks of the SAME player. Two
+-- independent callers (e.g. an MSP send and a TRP3 map-scan reply both racing to
+-- verify the same target within the same second) each used to get their own queue
+-- entry and their own serialized TargetUnit() call - the second one could sit behind
+-- the first's full targeting timeout, long enough that ITS OWN caller's correctness
+-- deadline (see cascading.lua ArmDeadline) expired first, producing a phantom timeout
+-- for a player who was definitely reachable (the first check proved it a moment later).
+-- This registry lets a second caller for the same player attach to the first's
+-- in-flight/queued check instead of starting a fully separate, serialized one: keyed by
+-- sanitized playerName, each entry is { callbacks = {fn...}, onTargetingStartedList =
+-- {fn...}, targetingStarted = bool }. Populated in QueuePhaseCheck for fresh (non-requeue)
+-- calls, drained by whichever of ExecutePhaseCheck/ProcessPhaseCheckBatch resolves first.
+TRP3FW.pendingPhaseCheckWaiters = {}
+
 -- Priority levels mapping (must match utils.lua)
 local PRIORITY_LEVELS = {
     HIGH = 1,
@@ -27,9 +41,41 @@ function TRP3FW:SetPhaseCheckTargeting(active)
     end
 end
 
--- Helper to queue a phase check with priority sorting
-function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority, inspectDeadline)
+-- Helper to queue a phase check with priority sorting.
+-- isRequeue: true when this call is the check's OWN retry (deferred_low_priority,
+-- inspect-defer, batch-merge requeue) continuing its existing waiters entry - NOT a new
+-- external caller. Only non-requeue calls create/merge into pendingPhaseCheckWaiters;
+-- requeues skip that entirely since the entry (and its waiters) already exists.
+function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority, inspectDeadline, onTargetingStarted, isRequeue)
     priority = priority or "NORMAL"
+
+    if not isRequeue and callback then
+        local waiters = self.pendingPhaseCheckWaiters[playerName]
+        if waiters then
+            -- Someone is already checking this player (queued or in-flight): attach this
+            -- caller to that check instead of starting a second, fully serialized one.
+            table.insert(waiters.callbacks, callback)
+            if onTargetingStarted then
+                if waiters.targetingStarted then
+                    -- Targeting already began for the first caller; this caller's own
+                    -- correctness deadline still needs extending, so fire immediately
+                    -- rather than waiting for a signal that already happened.
+                    onTargetingStarted()
+                else
+                    table.insert(waiters.onTargetingStartedList, onTargetingStarted)
+                end
+            end
+            self:Debug("[Phase Queue] "..playerName.." already has a pending check - attached, not re-queued", "phase")
+            return
+        end
+
+        self.pendingPhaseCheckWaiters[playerName] = {
+            callbacks = { callback },
+            onTargetingStartedList = onTargetingStarted and { onTargetingStarted } or {},
+            targetingStarted = false,
+        }
+    end
+
     local entry = {
         playerName = playerName,
         sendId = sendId,
@@ -39,6 +85,10 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority, inspectD
         -- Absolute deadline (GetCurrentTime seconds) for inspect-open deferral; set on
         -- the first inspect defer and carried across retries so the 10s window is stable.
         inspectDeadline = inspectDeadline,
+        -- Fired once TargetUnit() is actually issued for this entry (queueing/mutex/token
+        -- wait is over). Callers use this to extend correctness deadlines that would
+        -- otherwise race against unbounded queue wait rather than just the targeting timeout.
+        onTargetingStarted = onTargetingStarted,
     }
 
     -- Insert sorted by priority (HIGH first, then NORMAL, then LOW)
@@ -101,6 +151,33 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority, inspectD
             self.phaseCheckBatchTimer = nil
         end
         self:ProcessPhaseCheckBatch()
+    end
+end
+
+-- Fire every onTargetingStarted attached to this player's waiters group (the check's
+-- own + any concurrent callers that attached while it was queued) and mark the group so
+-- a caller attaching AFTER this point fires immediately instead of waiting. Safe to call
+-- even if no waiters entry exists (e.g. the LOW-priority background-refresh queue path,
+-- which never creates one since it passes no callback).
+function TRP3FW:FirePhaseCheckTargetingStarted(playerName)
+    local waiters = self.pendingPhaseCheckWaiters[playerName]
+    if not waiters or waiters.targetingStarted then return end
+    waiters.targetingStarted = true
+    for _, fn in ipairs(waiters.onTargetingStartedList) do fn() end
+end
+
+-- Deliver a phase check result to every caller attached to this player's waiters group
+-- (not just the original check's own callback), then clear the group. Call exactly once
+-- per resolved player per check attempt - the same single-flight point that already
+-- exists in ExecutePhaseCheck (handleResult) and ProcessPhaseCheckBatch (finishStep).
+-- Signature matches the standard callback order used everywhere else in this file:
+-- (inPhase, source, theirMapID, phaseMethod).
+function TRP3FW:ResolvePhaseCheckWaiters(playerName, inPhase, source, mapID, method)
+    local waiters = self.pendingPhaseCheckWaiters[playerName]
+    self.pendingPhaseCheckWaiters[playerName] = nil
+    if not waiters then return end
+    for _, cb in ipairs(waiters.callbacks) do
+        if cb then cb(inPhase, source, mapID, method) end
     end
 end
 
@@ -199,6 +276,18 @@ function TRP3FW:ProcessPhaseCheckBatch()
                     existing.callback = nil
                 end
                 table.insert(existing.callbacks, check.callback)
+            end
+
+            -- Merge onTargetingStarted the same way as callbacks: a dropped duplicate's
+            -- caller (e.g. a second concurrent CheckLocationCascading for this player)
+            -- still needs its own deadline extended once targeting actually starts, or it
+            -- reopens the phantom-timeout bug for just that caller.
+            if check.onTargetingStarted then
+                if not existing.onTargetingStartedList then
+                    existing.onTargetingStartedList = existing.onTargetingStarted and { existing.onTargetingStarted } or {}
+                    existing.onTargetingStarted = nil
+                end
+                table.insert(existing.onTargetingStartedList, check.onTargetingStarted)
             end
 
             TRP3FW:Debug("[Batch] Merged duplicate queue entry for "..check.playerName, "phase")
@@ -339,6 +428,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
                          if cb then cb(true, "interaction_cache", nil, "batch") end
                      end
                  end
+                 TRP3FW:ResolvePhaseCheckWaiters(check.playerName, true, "interaction_cache", nil, "batch")
 
                  currentIndex = currentIndex + 1
                  processNext()
@@ -362,6 +452,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
                              if cb then cb(true, "allowed_cache", nil, "batch") end
                          end
                      end
+                     TRP3FW:ResolvePhaseCheckWaiters(check.playerName, true, "allowed_cache", nil, "batch")
                      currentIndex = currentIndex + 1
                      processNext()
                      return
@@ -424,7 +515,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
 
                          end
 
-
+                         TRP3FW:ResolvePhaseCheckWaiters(check.playerName, cached.inPhase, "cached_late", cached.mapID, "batch")
 
                          currentIndex = currentIndex + 1
 
@@ -446,18 +537,13 @@ function TRP3FW:ProcessPhaseCheckBatch()
             category = "phase_check_target_low"
         end
 
-        -- SECURITY: Sanitize name
-        local sanitizedName = TRP3FW:SanitizePlayerName(check.playerName)
-        if not sanitizedName then
-            if check.callbacks then
-                for _, cb in ipairs(check.callbacks) do
-                    if cb then cb(nil, "invalid_name") end
-                end
-            end
-            currentIndex = currentIndex + 1
-            processNext()
-            return
-        end
+        -- check.playerName was ALREADY sanitized once by CheckPlayerPhase before being
+        -- queued (see QueuePhaseCheck callers) - do not re-sanitize here. SanitizePlayerName
+        -- escapes quotes/backslashes for safe embedding in the TargetUnit() code string it
+        -- returns; running it a SECOND time on its own escaped output (e.g. "Shi\'kala")
+        -- fails, because a literal backslash isn't a valid raw player-name character. That
+        -- previously rejected every apostrophe-containing name here with "invalid_name".
+        local sanitizedName = check.playerName
 
         -- Handler for result processing
         local function finishStep(result, reason, mapID)
@@ -501,6 +587,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
                      if cb then cb(result, reason, mapID, "batch") end
                  end
             end
+            TRP3FW:ResolvePhaseCheckWaiters(check.playerName, result, reason, mapID, "batch")
 
             currentIndex = currentIndex + 1
             processNext()
@@ -524,6 +611,12 @@ function TRP3FW:ProcessPhaseCheckBatch()
         local success, err, waitTime = TRP3FW:RunPrivilegedSafe('TargetUnit("'..sanitizedName..'")', category)
 
         if success then
+            if check.onTargetingStarted then check.onTargetingStarted() end
+            if check.onTargetingStartedList then
+                for _, fn in ipairs(check.onTargetingStartedList) do fn() end
+            end
+            TRP3FW:FirePhaseCheckTargetingStarted(check.playerName)
+
             -- Set timeout timer
             local interDelay = TRP3FW.Prefs.phaseCheckInterTargetDelay or 0.1
             batchTimer = C_Timer.NewTimer(interDelay, function()
@@ -564,7 +657,27 @@ function TRP3FW:ProcessPhaseCheckBatch()
             -- RunPrivileged failed
             if err == "deferred_low_priority" then
                 TRP3FW:Debug("[Batch] "..check.playerName.." deferred (LOW priority), requeuing...", "phase")
-                TRP3FW:QueuePhaseCheck(check.playerName, check.sendId, check.callbacks and check.callbacks[1] or check.callback, check.priority)
+                local combinedStarted = check.onTargetingStarted
+                if check.onTargetingStartedList then
+                    combinedStarted = function()
+                        if check.onTargetingStarted then check.onTargetingStarted() end
+                        for _, fn in ipairs(check.onTargetingStartedList) do fn() end
+                    end
+                end
+                -- BUG FIX: previously passed only check.callbacks[1], silently dropping
+                -- every other merged caller (a batch entry that picked up duplicates
+                -- before hitting deferred_low_priority). Fan out to a single closure that
+                -- calls ALL of them, so the requeued entry's one `callback` slot still
+                -- reaches every original caller once it resolves.
+                local combinedCallback = check.callback
+                if check.callbacks then
+                    combinedCallback = function(...)
+                        for _, cb in ipairs(check.callbacks) do
+                            if cb then cb(...) end
+                        end
+                    end
+                end
+                TRP3FW:QueuePhaseCheck(check.playerName, check.sendId, combinedCallback, check.priority, nil, combinedStarted, true)
             else
                 TRP3FW:Debug("[Batch] "..check.playerName.." - FAILED ("..tostring(err)..")", "phase")
                 if check.callbacks then
@@ -574,6 +687,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
                         if cb then cb(false, "api_error", nil, "batch") end
                     end
                 end
+                TRP3FW:ResolvePhaseCheckWaiters(check.playerName, false, "api_error", nil, "batch")
             end
             currentIndex = currentIndex + 1
             processNext()
@@ -628,6 +742,7 @@ function TRP3FW:ResolveInspectDeferral(check)
     elseif check.callback then
         check.callback(assumeInPhase, "checked", nil, "inspect_timeout")
     end
+    self:ResolvePhaseCheckWaiters(check.playerName, assumeInPhase, "checked", nil, "inspect_timeout")
 end
 
 -- Ensure exactly one inspect pump timer is scheduled (idempotent).
@@ -677,19 +792,27 @@ end
 -- Execute a single phase check (from queue or direct)
 function TRP3FW:ExecutePhaseCheck(check)
     local playerName = check.playerName
-    local callback = check.callback
     local priority = check.priority
 
-    -- Sanitize
-    local sanitizedName = self:SanitizePlayerName(playerName)
-    if not sanitizedName then
-        if callback then callback(nil, "invalid_name") end
-        -- Process next
-        if #self.pendingPhaseChecks > 0 then
-            C_Timer.After(0.1, function() self:ProcessPhaseCheckQueue() end)
+    -- check.callback may itself be a fan-out closure covering several original callers
+    -- (see ProcessPhaseCheckBatch's deferred_low_priority requeue, which combines
+    -- multiple merged callbacks into one function rather than dropping all but one).
+    -- Defensively also honor a raw check.callbacks list if one is ever present.
+    local callbacks = check.callbacks or (check.callback and { check.callback }) or nil
+    local function callback(...)
+        if not callbacks then return end
+        for _, cb in ipairs(callbacks) do
+            if cb then cb(...) end
         end
-        return
     end
+
+    -- playerName was ALREADY sanitized once by CheckPlayerPhase before being queued (see
+    -- QueuePhaseCheck callers) - do not re-sanitize here. SanitizePlayerName escapes
+    -- quotes/backslashes for safe embedding in the TargetUnit() code string it returns;
+    -- running it a SECOND time on its own escaped output (e.g. "Shi\'kala") fails, because
+    -- a literal backslash isn't a valid raw player-name character. That previously
+    -- rejected every apostrophe-containing name here with "invalid_name".
+    local sanitizedName = playerName
 
     -- Skip automated targeting while the armory/inspect window is open, otherwise
     -- retargeting yanks inspect data out from under InspectFrame. Re-queue with a 10s
@@ -706,7 +829,7 @@ function TRP3FW:ExecutePhaseCheck(check)
 
         self:Debug("[Phase Check] Inspect window open, deferring "..playerName..
             " (retrying, "..string.format("%.0fs", deadline - now).." left)", "phase")
-        self:QueuePhaseCheck(playerName, check.sendId, callback, priority, deadline)
+        self:QueuePhaseCheck(playerName, check.sendId, callback, priority, deadline, check.onTargetingStarted, true)
         self:ScheduleInspectPump()
         return
     end
@@ -821,6 +944,7 @@ function TRP3FW:ExecutePhaseCheck(check)
 
         cleanup()
         if callback then callback(success, "checked", mapID, reason) end
+        self:ResolvePhaseCheckWaiters(playerName, success, "checked", mapID, reason)
     end
 
     onTargetChanged = function()
@@ -849,13 +973,18 @@ function TRP3FW:ExecutePhaseCheck(check)
     local category = (priority == "LOW") and "phase_check_target_low" or "phase_check_target"
     local success, err, waitTime = self:RunPrivilegedSafe('TargetUnit("'..sanitizedName..'")', category)
 
+    if success then
+        if check.onTargetingStarted then check.onTargetingStarted() end
+        self:FirePhaseCheckTargetingStarted(playerName)
+    end
+
     if not success then
         if err == "deferred_low_priority" then
             -- Defer execution
             cleanup() -- Release mutex
             self:Debug("[Phase Check] Deferred "..playerName.." for "..tostring(waitTime).."s", "phase")
             C_Timer.After(waitTime, function()
-                self:QueuePhaseCheck(playerName, check.sendId, callback, priority)
+                self:QueuePhaseCheck(playerName, check.sendId, callback, priority, nil, check.onTargetingStarted, true)
                 if not self.phaseCheckBatchTimer then
                      -- NewTimer (cancelable), not After (nil) — keep the field a real timer object.
                      self.phaseCheckBatchTimer = C_Timer.NewTimer(0.1, function()
@@ -867,12 +996,17 @@ function TRP3FW:ExecutePhaseCheck(check)
         else
             cleanup()
             if callback then callback(nil, "error") end
+            self:ResolvePhaseCheckWaiters(playerName, nil, "error")
         end
     end
 end
 
 -- Main entry point
-function TRP3FW:CheckPlayerPhase(playerName, sendId, callback, priority)
+-- onTargetingStarted (optional): fired once TargetUnit() is actually issued for this
+-- request, i.e. queueing/mutex/token wait is over and the real timeout clock has started.
+-- Callers with their own correctness deadlines (e.g. cascading.lua) use this to extend
+-- those deadlines so they never race against unbounded queue depth.
+function TRP3FW:CheckPlayerPhase(playerName, sendId, callback, priority, onTargetingStarted)
     self:Debug("CheckPlayerPhase called for: "..tostring(playerName), "phase")
 
     if not self.hasEpsilonAPI or not self:IsPhaseCheckEnabled() then
@@ -939,7 +1073,7 @@ function TRP3FW:CheckPlayerPhase(playerName, sendId, callback, priority)
     if hs then hs:IncrementStat("cacheStats", "phaseCacheMisses") end
 
     -- Queue the request
-    self:QueuePhaseCheck(sanitizedName, sendId, callback, priority or "NORMAL")
+    self:QueuePhaseCheck(sanitizedName, sendId, callback, priority or "NORMAL", nil, onTargetingStarted)
 
     -- Start batch timer if not running
     self:SchedulePhaseCheckProcessing()

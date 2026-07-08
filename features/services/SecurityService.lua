@@ -24,6 +24,12 @@ end
 -- "\128-%255" was malformed: %2 is not a valid range endpoint, so the intended
 -- 128-255 accented-character range was broken AND digits 2/5 leaked into the class
 -- (letting names like "Bob2" pass). Mirrors the correct SANITIZE_ZONE_PATTERN below.
+--
+-- NOTE: This pattern has no digit class (%d) by design - player names are assumed
+-- letters/space/apostrophe/hyphen/high-byte only (confirmed for Epsilon as of 2026-07).
+-- If that assumption turns out wrong (server allows digits in character names, e.g.
+-- "Bob2"), every profile exchange with such a player silently fails sanitization here
+-- AND in CleanPlayerName's reject-class below (same missing %d) - add %d to both.
 local SANITIZE_NAME_PATTERN = "^([%a_%s%'\128-\255]+%-?[%a_%s%'\128-\255]*)$"
 local SANITIZE_ZONE_PATTERN = "^([%w%s'%-\128-\255]+)$"
 local CONTROL_CHAR_PATTERN = "%z"
@@ -125,6 +131,8 @@ function SecurityService:CleanPlayerName(name)
     local cleanName = name:match("^([^%-]+)") or name
     local normalized = cleanName -- Epsilon allows spaces in names, do not replace with underscores
 
+    -- NOTE: no %d here either - see SANITIZE_NAME_PATTERN comment above. Add %d to this
+    -- reject-class too if digit-containing character names ever turn out to be valid.
     if normalized:find("[^%a_%s_%-%'\128-\255]") then
         TRP3FW:Debug("[SECURITY] Rejected malformed player name in CleanPlayerName: "..tostring(name).." (invalid characters)", "security")
         return nil

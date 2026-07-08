@@ -39,9 +39,29 @@ local function CheckCache(self, playerName)
     end
 
     -- Check phase cache
+    local now = self:GetCurrentTime()
     local phaseCache = CI:Get("phaseCheck", playerName)
+
+    -- BUG FIX: A fresh, explicit phase FAILURE must veto the independent WHO-cache
+    -- allow-fast-path below. Previously each cache (phase, WHO) only ever said "allow"
+    -- or "continue" - a known phaseCheck.inPhase == false (e.g. the player changed phase
+    -- after an earlier WHO/zone hit was cached) never prevented the WHO cache hit further
+    -- down from allowing anyway. Only applies when phase checking is actually meaningful
+    -- for scan replies (scanResponsePhaseCheckEnabled + scanResponsePhaseMode ~= "off");
+    -- otherwise phase isn't a signal this pipeline cares about at all.
+    local phaseCheckMattersForScan = (TRP3FW.Prefs.scanResponsePhaseCheckEnabled ~= false)
+        and (TRP3FW.Prefs.scanResponsePhaseMode and TRP3FW.Prefs.scanResponsePhaseMode ~= "off")
+    local freshPhaseFailure = false
+    if phaseCheckMattersForScan and phaseCache and phaseCache.inPhase == false then
+        local failAge = now - phaseCache.timestamp
+        local failTTL = TRP3FW.Prefs.phaseCacheFailureDuration or 10
+        if failAge < failTTL then
+            freshPhaseFailure = true
+            self:Debug("[Scan Reply] Fresh phase cache FAILURE for "..playerName.." - vetoing WHO/other cache allows, continuing to real check", "hooks")
+        end
+    end
+
     if phaseCache then
-        local now = self:GetCurrentTime()
         local age = now - phaseCache.timestamp
 
         if age < TRP3FW.Prefs.phaseCacheDuration and phaseCache.inPhase then
@@ -62,10 +82,9 @@ local function CheckCache(self, playerName)
         end
     end
 
-    -- Check WHO cache
-    local whoCache = CI:Get("whoName", playerName)
+    -- Check WHO cache (skipped entirely if a fresh phase failure already vetoed this player)
+    local whoCache = not freshPhaseFailure and CI:Get("whoName", playerName)
     if whoCache then
-        local now = self:GetCurrentTime()
         local age = now - whoCache.timestamp
 
         if age < TRP3FW.Prefs.whoNameCacheDuration and whoCache.found then
