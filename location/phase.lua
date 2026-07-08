@@ -1040,12 +1040,20 @@ function TRP3FW:CheckPlayerPhase(playerName, sendId, callback, priority, onTarge
         local now = self:GetCurrentTime()
         local age = now - cached.timestamp
         local ttl = TRP3FW.Prefs.phaseCacheDuration or 300
-        local refreshThreshold = ttl * (TRP3FW.Prefs.phaseCacheRefreshThreshold or 0.2)
 
         -- Short failure TTL
         if cached.inPhase == false then
             ttl = TRP3FW.Prefs.phaseCacheFailureDuration or 10
         end
+
+        -- BUG FIX: refreshThreshold must be computed from the TTL that actually applies
+        -- (success or failure) - it used to be computed from phaseCacheDuration BEFORE the
+        -- failure-ttl reassignment above, so a failed check's "freshness" window was wrongly
+        -- stretched to match the success refresh window (e.g. 60s = 300*0.2) instead of being
+        -- scaled to the much shorter failure ttl (e.g. 10s). That let a stale phase-check
+        -- failure (age between the failure ttl and the success refresh window) still take the
+        -- "fresh, return immediately" branch and get replayed well past its real 10s validity.
+        local refreshThreshold = ttl * (TRP3FW.Prefs.phaseCacheRefreshThreshold or 0.2)
 
         if age < refreshThreshold then
             -- Fresh cache, return immediately

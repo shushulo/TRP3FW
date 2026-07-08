@@ -17,6 +17,27 @@ function CacheStage:Process(context)
     -- entry, including ones cached just after a successful "IN PHASE" check.
     if TRP3FW:IsPhaseCheckEnabled() then
         local phaseResult = CI:Get("phaseCheck", context.playerName)
+
+        -- BUG FIX: This stage never checked the cache entry's age against
+        -- phaseCacheDuration/phaseCacheFailureDuration (every other phaseCheck-cache
+        -- consumer in the codebase does - see CheckPlayerPhase, trp3_scan_pipeline's
+        -- CheckCache). A single stale result - especially a transient timeout from a
+        -- prior check - got replayed indefinitely: a manual /tar minutes after an old
+        -- failed check would still fast-fail here with the OLD "timeout" reason, never
+        -- re-verifying, even though the player was confirmed reachable in the moment.
+        -- Same gap applied to the success branch (stale "in phase" could fast-allow).
+        if phaseResult and phaseResult.inPhase ~= nil then
+            local now = TRP3FW:GetCurrentTime()
+            local age = now - phaseResult.timestamp
+            local ttl = phaseResult.inPhase
+                and (TRP3FW.Prefs.phaseCacheDuration or 300)
+                or (TRP3FW.Prefs.phaseCacheFailureDuration or 10)
+            if age >= ttl then
+                TRP3FW:Debug("Phase cache entry for "..context.playerName.." is stale (age "..string.format("%.1f", age).."s >= ttl "..ttl.."s) - falling through to a real check", "send")
+                phaseResult = nil
+            end
+        end
+
         if phaseResult and phaseResult.inPhase ~= nil then
             if phaseResult.inPhase then
                 TRP3FW:Debug("Phase cache hit: "..context.playerName.." is in same phase", "send")
