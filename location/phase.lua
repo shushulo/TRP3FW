@@ -383,24 +383,57 @@ function TRP3FW:ProcessPhaseCheckBatch()
             pcall(function()
                 if hadTarget then
                     if UnitGUID("target") ~= previousTargetGUID then
-                         -- TargetLastTarget unreliable for batches > 1, use explicit name
-                         if previousTargetName then
+                        -- BUG FIX: A batch can run across several seconds and several
+                        -- players - plenty of time for the player to manually retarget
+                        -- someone during it. If the current target isn't the pre-batch
+                        -- target AND isn't one of the players THIS batch actually
+                        -- targeted, it's most likely a manual retarget - leave it alone
+                        -- instead of overwriting/clearing it.
+                        local currentName = UnitName("target")
+                        local isOneOfOurTargets = false
+                        for _, batchCheck in ipairs(batch) do
+                            if batchCheck.playerName == currentName then
+                                isOneOfOurTargets = true
+                                break
+                            end
+                        end
+
+                        if not isOneOfOurTargets then
+                            TRP3FW:Debug("[Batch] Target changed to someone outside this batch (likely a manual retarget) - leaving it alone", "phase")
+                        -- TargetLastTarget unreliable for batches > 1, use explicit name
+                        elseif previousTargetName then
                              local escapedName = previousTargetName:gsub('"', '\\"') -- Escape quotes
                              local restoreCmd = 'TargetUnit("' .. escapedName .. '")'
                              success, err = TRP3FW:RunPrivilegedSafe(restoreCmd, "phase_restore_target_by_name")
                              if not success then
                                   TRP3FW:Debug("[Batch] Target restore failed (by name): "..tostring(err), "phase")
                              end
-                         else
+                        else
                              -- Fallback (unlikely)
                              success, err = TRP3FW:RunPrivilegedSafe("TargetLastTarget()", "phase_restore_target")
-                         end
+                        end
                     else
                         TRP3FW:Debug("[Batch] Target didn't change from start, skipping restore", "phase")
                     end
                 else
                     if UnitExists("target") then
-                        success, err = TRP3FW:RunPrivilegedSafe("ClearTarget()", "phase_clear_target")
+                        -- Same manual-retarget guard as above: only clear if the current
+                        -- target is one of the players THIS batch targeted, not something
+                        -- the player selected themselves during the batch.
+                        local currentName = UnitName("target")
+                        local isOneOfOurTargets = false
+                        for _, batchCheck in ipairs(batch) do
+                            if batchCheck.playerName == currentName then
+                                isOneOfOurTargets = true
+                                break
+                            end
+                        end
+
+                        if isOneOfOurTargets then
+                            success, err = TRP3FW:RunPrivilegedSafe("ClearTarget()", "phase_clear_target")
+                        else
+                            TRP3FW:Debug("[Batch] Target changed to someone outside this batch (likely a manual retarget) - leaving it alone", "phase")
+                        end
                     end
                 end
             end)
@@ -916,9 +949,23 @@ function TRP3FW:ExecutePhaseCheck(check)
         local currentGUID = UnitGUID("target")
         local targetActuallyChanged = (currentGUID ~= previousTargetGUID)
 
+        -- BUG FIX: If the current target is neither our own check's subject (playerName)
+        -- nor unchanged from before, the most likely explanation is the player manually
+        -- retargeted someone else while this check was in flight (TargetUnit + a 1.5-3s
+        -- window is plenty of time for a manual /tar or click to land). Restoring in that
+        -- case would silently overwrite/clear a target the player just chose on purpose.
+        -- Only restore/clear when we're confident the current selection is ours to clean
+        -- up: either it's still playerName (our TargetUnit() call is what's selected), or
+        -- it never changed at all.
+        local currentName = UnitName("target")
+        local manualRetargetDetected = targetActuallyChanged and currentName ~= playerName
+
         -- Restore target
         pcall(function()
-            if targetActuallyChanged then
+            if manualRetargetDetected then
+                self:Debug("[Phase Check] Target changed to something other than "..playerName..
+                    " during the check (likely a manual retarget) - leaving it alone", "phase")
+            elseif targetActuallyChanged then
                 local restoreSuccess, err
                 if hadTarget then
                     if previousTargetName then

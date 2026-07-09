@@ -22,6 +22,7 @@ local specs = {
     "tests.unit.scan_reply_cache_veto_spec",
     "tests.unit.apostrophe_name_spec",
     "tests.unit.cache_stage_ttl_spec",
+    "tests.unit.manual_retarget_race_spec",
     "tests.unit.phase_check_ttl_spec",
     "tests.unit.cascading_interaction_cache_ttl_spec",
     "tests.unit.interaction_stage_ttl_spec",
