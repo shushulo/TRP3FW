@@ -841,7 +841,9 @@ function TRP3FW:StripAllIcons(text)
     -- Strip WoW texture tags: |Tpath:size...|t
     -- Pattern matches: |T (or |t) followed by anything until |t (or |T)
     -- Non-greedy match (.-) ensures we don't consume multiple icons as one
-    text = text:gsub("|[Tt].-|[Tt]", "")
+    -- Trailing %s* also eats one run of whitespace after the tag, so "|T..|t Name" doesn't
+    -- leave a stray leading space in front of the remaining text.
+    text = text:gsub("|[Tt].-|[Tt]%s*", "")
 
     return text
 end
