@@ -846,6 +846,37 @@ function TRP3FW:StripAllIcons(text)
     return text
 end
 
+-- Strip bare texture-tag payloads that survived with their |T/|t markers stripped off
+-- elsewhere (seen in the wild: a Name field containing literal
+-- "interface\icons\somename:0 Real Name" - the |T...|t was lost upstream but the
+-- "path:height:width:..." payload it wrapped was left behind as plain text).
+-- A real texture path always starts with Interface\ and the payload's numeric args are
+-- the giveaway that this is a lost tag rather than someone's actual chosen text, so this
+-- is safe against false positives on ordinary RP names.
+-- Deliberately NOT folded into StripAllIcons: Description/History are large rich-text
+-- fields where legitimate content is more likely to resemble this shape, and those fields
+-- are meant to keep supporting real icon tags, so this only applies to short Name-shaped fields.
+function TRP3FW:StripBarePathRemnants(text)
+    if not text or type(text) ~= "string" then
+        return text
+    end
+
+    return text:gsub("[Ii]nterface\\[%w_%-\\]+:%d+[%d:]*%s*", "")
+end
+
+-- MSP's IC field is a bare icon name (e.g. "inv_misc_book_09"), not a |T..|t tag - StripAllIcons
+-- is a no-op on it. Addons like MyRolePlay build their own tag around it unvalidated
+-- (string.format("|TInterface\\Icons\\%s:%i:%i|t", filename, w, h)), so a value containing "|",
+-- ":", or other format-breaking characters produces a malformed tag that WoW can't resolve to a
+-- texture and prints literally in chat instead. Restrict to characters a real icon path can contain.
+function TRP3FW:SanitizeIconName(text)
+    if not text or type(text) ~= "string" then
+        return text
+    end
+
+    return text:gsub("[^%w_%-/\\]", "")
+end
+
 -- OPTIMIZATION: Helper function to count table entries efficiently
 function TRP3FW:CountTableEntries(tbl)
     if not tbl or type(tbl) ~= "table" then return 0 end
