@@ -448,8 +448,19 @@ function TRP3FW:ProcessPhaseCheckBatch()
         local CI = TRP3FW.CacheInterface
         local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService") -- Get HS once
 
+        -- These three "late cache hit" reads below are cross-checking caches written by
+        -- OTHER stages/services (InteractionStage, AllowSender) which all key on the
+        -- unescaped/clean name - not check.playerName, which is SanitizePlayerName's
+        -- escaped-for-RunPrivileged output (e.g. "Il\'tar"). Using check.playerName here
+        -- guaranteed a miss for every apostrophe-containing name (harmless: it just skips
+        -- the optimization and falls through to a real check). Unescape (don't re-run
+        -- through CleanPlayerName's whitelist, which rejects the literal backslash and
+        -- would reject every apostrophe name here the same way the historical
+        -- double-sanitize bug did) to get back the same clean key those writers use.
+        local cleanCheckName = check.playerName:gsub("\\(.)", "%1")
+
         -- OPTIMIZATION 1: Check interaction cache (Strongest "In Phase" signal)
-        local interactionCached = CI and CI:Get("interaction", check.playerName)
+        local interactionCached = CI and CI:Get("interaction", cleanCheckName)
         if interactionCached then
              local now = TRP3FW:GetCurrentTime()
              local ttl = TRP3FW.Prefs.interactionCacheDuration or 600
@@ -471,7 +482,7 @@ function TRP3FW:ProcessPhaseCheckBatch()
         if hs then hs:IncrementStat("cacheStats", "interactionCacheMisses") end -- ADDED MISS
 
         -- OPTIMIZATION 2: Check allowed senders cache (Late Cache Hit)
-        local allowedCached = CI and CI:Get("allowedSenders", check.playerName)
+        local allowedCached = CI and CI:Get("allowedSenders", cleanCheckName)
         if allowedCached then
             local now = TRP3FW:GetCurrentTime()
             local ttl = TRP3FW.Prefs.sendCacheDuration or 600

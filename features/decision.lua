@@ -118,7 +118,13 @@ end
 
 function TRP3FW:AllowSender(playerName, reason)
     local now = self:GetCurrentTime()
-    local cleanName = self:SanitizePlayerName(playerName) or self:CleanPlayerName(playerName)
+    -- CacheInterface keys (allowedSenders, etc.) must match the unescaped form every
+    -- reader looks up with (CacheStage, NotificationService, trp3_scan_pipeline all key
+    -- on the raw/clean name). SanitizePlayerName escapes quotes/backslashes for embedding
+    -- in RunPrivileged() code strings - using its output as a cache key made every
+    -- allowedSenders lookup for an apostrophe-containing name (e.g. "Il'tar" -> "Il\'tar")
+    -- a guaranteed miss, since no reader ever escapes before looking up.
+    local cleanName = self:CleanPlayerName(playerName)
     if not cleanName then
         self:Debug("[AllowSender] Rejected invalid player name: "..tostring(playerName), "security")
         return
