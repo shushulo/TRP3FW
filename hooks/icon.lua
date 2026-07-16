@@ -42,9 +42,19 @@ function TRP3FW:InstallIconHooks()
             -- so every user-editable string field needs stripping, not just NA/Name.
             -- DE/HI (Description/History) are deliberately excluded: they're large rich-text
             -- fields meant to keep supporting real icon tags.
+            -- PE (glance/peek slots) is ALSO excluded here, unlike gradient.lua's color-code
+            -- filter: at this point in the pipeline PE is still TRP3's raw serialized wire
+            -- format ("|TInterface\Icons\<name>:32:32|t\n#Title\n\nText"), where the |T..|t
+            -- tag IS the icon selection, not decoration - it's the only thing TRP3's own
+            -- parsePeekString() matches against to read the slot's icon, and stripping it also
+            -- eats the trailing newline that separates the tag from the title/text, breaking
+            -- their pattern matches too. Net effect: every glance from every other player came
+            -- through with a blank/default icon and no title/text - only your own profile
+            -- (built locally, never passed through this filter) looked right. Icon fields
+            -- within PE are covered independently server-side; nothing needs stripping here.
             local fieldsToStrip = {
                 "VA", "NA", "NH", "NI", "NT", "RA", "CU", "FR", "FC", "PX", "RC",
-                "CO", "PE", "AG", "AE", "HB", "AH", "AW", "MO", "TR", "PN",
+                "CO", "AG", "AE", "HB", "AH", "AW", "MO", "TR", "PN",
                 "PH"
             }
 
