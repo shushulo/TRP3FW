@@ -80,6 +80,9 @@ TRP3FW.defaultSettings = {
 
     notifyOnBroadcast = false,
     notifyOnWhisper   = true,
+    -- INERT: declared here but read nowhere (verified repo-wide). Kept so an existing
+    -- SavedVariables entry is not silently dropped; changing it has no effect on behaviour.
+    -- Map-scan handling is gated by disableMapScanOnTRP3 and the scanResponse* settings.
     ignoreMapScan     = true,
     notifyOnScanResponse = false, -- Show notification when TRP3 responds to map scans (only if RPMapScan not installed)
     scanResponsePhaseMode = "alert", -- Phase mismatch behavior for scan replies: "alert" or "block"
@@ -230,6 +233,13 @@ TRP3FW.defaultSettings = {
     debugOutputBoth   = false,  -- Output to both
 
     -- WHO backend selection (Epsilon)
+    --
+    -- INERT: all three are declared here and read NOWHERE (verified repo-wide). They describe a
+    -- configurable WHO backend that was never built -- WhoService has a single code path, and
+    -- its queue ordering is fixed rather than policy-driven. Left in place so existing
+    -- SavedVariables entries survive and so the intent is not lost, but nothing reads them:
+    -- changing any of these has no effect. Wire them up in WhoService before documenting them
+    -- as functional.
     useLibWhoBackend = true,   -- Use UI-bucket WHO queries (LibWho-style) when Epsilon API is available
     whoQueuePolicy = "addon_first", -- addon_first | user_first | fifo
     cacheUserWhoResults = false, -- Cache results from user /who queries (zone/name with map)
