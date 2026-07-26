@@ -182,13 +182,25 @@ function MRPAdapter:GetCharacter(id)
 
     local data = profile.data
 
-    -- Map MRP MSP fields to TRP3-like character structure
+    -- Map MRP MSP fields to TRP3-like character structure.
+    --
+    -- RP and XP were previously hardcoded to 1 with the comment "MRP uses FC differently".
+    -- It does not -- the mapping is well-defined and TRP3 implements both directions itself
+    -- (totalRP3/modules/register/msp/register_msp.lua:437-443 and :450). MRP populates FC
+    -- with "1".."4" from /mrp ic, /mrp ooc etc (MyRolePlay/Command.lua:173-208), so the data
+    -- is live.
+    --
+    -- The RP case is the one that mattered: a ghosted MRP profile always reported
+    -- IN-CHARACTER even when the source profile was explicitly flagged OOC.
     return {
         v = 1,
         CU = data.CU or "",      -- Currently IC
         CO = data.CO or "",      -- Currently OOC
-        RP = 1,                  -- RP status (1=IC) - MRP uses FC field differently
-        XP = 1,                  -- Experience level (MRP doesn't have this)
+        -- FC == "1" is OOC -> RP = 2; anything else (including absent) -> RP = 1 (IC).
+        RP = (data.FC == "1") and 2 or 1,
+        -- FR == "4" is the "not looking for RP" end -> XP = 1; otherwise XP = 2.
+        -- Note this reads INVERSE to intuition; it matches TRP3's own conversion.
+        XP = (data.FR == "4") and 1 or 2,
     }
 end
 

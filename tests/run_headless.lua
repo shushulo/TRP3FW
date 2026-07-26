@@ -59,6 +59,7 @@ local specs = {
     "tests.unit.scan_nonce_disabled_spec",
     "tests.unit.privileged_tokens_spec",
     "tests.unit.spvp_queue_bounds_spec",
+    "tests.unit.alert_fastpath_dedup_spec",
 }
 
 local T = require("tests.framework")

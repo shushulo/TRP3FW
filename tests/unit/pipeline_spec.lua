@@ -1,6 +1,6 @@
 -- tests/unit/pipeline_spec.lua
 -- Headless tests for the decision-pipeline engine itself (core/Pipeline.lua,
--- core/Stage.lua, core/Context.lua) using fake stages. This covers the runner
+-- core/Stage.lua) using fake stages. This covers the runner
 -- contract that every real stage relies on: stages run in insertion order, the
 -- first stage returning { handled = true } short-circuits the rest, and a
 -- malformed stage (no :Process) is logged but doesn't halt the pipeline.
@@ -9,7 +9,6 @@ local T = require("tests.framework")
 local H = require("tests.harness")
 
 local TRP3FW = H.newNamespace()
-H.loadModule("core/Context.lua", TRP3FW)
 H.loadModule("core/Stage.lua", TRP3FW)
 H.loadModule("core/Pipeline.lua", TRP3FW)
 local mock = H.mock
@@ -32,7 +31,7 @@ T.describe("Pipeline ordering and pass-through", function()
         p:AddStage(recordingStage("b", trace, nil))  -- nil result == not handled
         p:AddStage(recordingStage("c", trace, { handled = false }))
 
-        local result = p:Run(TRP3FW.Context:New({}))
+        local result = p:Run({})
         T.eq(table.concat(trace, ","), "a,b,c")
         T.falsy(result.handled, "unhandled pipeline reports handled=false")
     end)
@@ -46,7 +45,7 @@ T.describe("Pipeline early-exit on handled", function()
         p:AddStage(recordingStage("decider", trace, { handled = true, allowed = true, reason = "ok" }))
         p:AddStage(recordingStage("never", trace, { handled = false }))
 
-        local result = p:Run(TRP3FW.Context:New({}))
+        local result = p:Run({})
         T.eq(table.concat(trace, ","), "first,decider", "stage after the decider must not run")
         T.truthy(result.handled)
         T.truthy(result.allowed)
@@ -65,7 +64,7 @@ T.describe("Pipeline malformed-stage tolerance", function()
         p:AddStage({ name = "broken" })  -- no :Process method
         p:AddStage(recordingStage("after", trace, { handled = false }))
 
-        T.no_raise(function() p:Run(TRP3FW.Context:New({})) end)
+        T.no_raise(function() p:Run({}) end)
         T.eq(table.concat(trace, ","), "after", "valid stage after the broken one still runs")
         T.truthy(#errors >= 1, "the malformed stage was logged")
 
@@ -73,47 +72,11 @@ T.describe("Pipeline malformed-stage tolerance", function()
     end)
 end)
 
-T.describe("Context", function()
-    T.it("New wraps the provided data table in place", function()
-        local data = { playerName = "Bob", allowed = nil }
-        local ctx = TRP3FW.Context:New(data)
-        T.eq(ctx.playerName, "Bob")
-        -- A stage mutating the context is visible on the original table.
-        ctx.allowed = true
-        T.truthy(data.allowed)
-    end)
-
-    T.it("GetTimestamp returns the stored timestamp when present", function()
-        local ctx = TRP3FW.Context:New({ timestamp = 12345 })
-        T.eq(ctx:GetTimestamp(), 12345)
-    end)
-
-    -- Real decision contexts name their clock snapshot `now`, not `timestamp`
-    -- (TRP3FW:CreateDecisionContext). Reading `now` is what keeps GetTimestamp
-    -- from defeating the TOCTOU snapshot if a live context is ever wrapped.
-    T.it("GetTimestamp reads the decision-context `now` snapshot", function()
-        mock.setClock(999)
-        local ctx = TRP3FW.Context:New({ now = 12345 })
-        T.eq(ctx:GetTimestamp(), 12345)
-    end)
-
-    T.it("GetTimestamp prefers `now` over a stale `timestamp`", function()
-        local ctx = TRP3FW.Context:New({ now = 12345, timestamp = 500 })
-        T.eq(ctx:GetTimestamp(), 12345)
-    end)
-
-    T.it("GetTimestamp falls back to the clock when unset", function()
-        mock.setClock(777)
-        local ctx = TRP3FW.Context:New({})
-        T.eq(ctx:GetTimestamp(), 777)
-    end)
-
-    T.it("New() with no data still produces a usable context", function()
-        T.no_raise(function()
-            local ctx = TRP3FW.Context:New()
-            ctx:GetTimestamp()
-        end)
-    end)
-end)
+-- NOTE: a "Context" describe block lived here, covering TRP3FW.Context (core/Context.lua).
+-- That class was instantiated ONLY by these tests -- production contexts are plain tables from
+-- TRP3FW:CreateDecisionContext, and no production line ever called Context:New or
+-- GetTimestamp. The class and its tests were removed rather than adopted: CreateDecisionContext
+-- already produces everything the pipeline needs, and keeping both meant two ways to build one
+-- thing. The Pipeline tests above now pass plain tables, matching what Run actually receives.
 
 return T

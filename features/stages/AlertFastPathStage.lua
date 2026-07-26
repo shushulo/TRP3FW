@@ -35,6 +35,31 @@ function AlertFastPathStage:Process(context)
 
     TRP3FW:AllowSender(context.playerName, "alert_only_allow")
 
+    -- DEDUP the async alert check.
+    --
+    -- This stage sits BEFORE BurstStage and returns handled, so a burst of N requests from one
+    -- player never reaches the queue: it used to start N independent CheckLocationCascading
+    -- runs, each spending its own WHO query and map scan, all answering the same question
+    -- about the same player at the same moment.
+    --
+    -- Only the CHECK is deduplicated -- the send above already happened for every request, and
+    -- must, because alert-only mode gates nothing. Skipping the duplicate check costs at most
+    -- a slightly staler alert; running it costs real addon-channel traffic during exactly the
+    -- traffic spike that produced the burst.
+    --
+    -- Keyed by player with a short window rather than a strict in-flight flag: a cascading run
+    -- that never resolves (its callback dropped) would otherwise latch the flag and suppress
+    -- that player's alerts for the rest of the session.
+    TRP3FW.alertOnlyChecksInFlight = TRP3FW.alertOnlyChecksInFlight or {}
+    local inFlightSince = TRP3FW.alertOnlyChecksInFlight[context.playerName]
+    local DEDUP_WINDOW = 5  -- seconds; comfortably covers cascading's ~2s deadline
+    if inFlightSince and (context.now - inFlightSince) < DEDUP_WINDOW then
+        TRP3FW:Debug("[Fast Allow] Alert check already in flight for "..context.playerName
+            .." - sent, skipping duplicate check", "send")
+        return {handled = true, allowed = true, reason = "alert_fast_path"}
+    end
+    TRP3FW.alertOnlyChecksInFlight[context.playerName] = context.now
+
     -- Perform Check with SPVP context
     local options = {
         spvpEnabled = context.spvpEnabled,
@@ -48,6 +73,12 @@ function AlertFastPathStage:Process(context)
     -- cascading's late-resolution re-derived `spvpEnabled` from live prefs - running SPVP
     -- in phases the user had explicitly opted out of.
     TRP3FW:CheckLocationCascading(context.playerName, context.sendId, function(locationOK, alertType, source, mapCacheAge, theirZone, myZone, cacheInfo, recentTransition, timeSinceTransition, checkDetails)
+        -- Release the dedup marker: this check has answered, so a later request should be
+        -- free to start a fresh one rather than waiting out the window.
+        if TRP3FW.alertOnlyChecksInFlight then
+            TRP3FW.alertOnlyChecksInFlight[context.playerName] = nil
+        end
+
         -- Process alerts only
         local shouldAlert = (locationOK == false) and (source ~= "disabled")
         local notificationService = TRP3FW.ServiceContainer:Get("NotificationService")

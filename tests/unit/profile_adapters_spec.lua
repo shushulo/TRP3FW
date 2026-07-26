@@ -227,6 +227,105 @@ T.describe("XRPAdapter", function()
     end)
 end)
 
+-- ===================== FC/FR -> RP/XP mapping =====================
+-- Both MSP adapters hardcoded RP = 1 and XP = 1 with the comment "MRP/XRP uses FC
+-- differently". They don't -- the mapping is standard MSP and TRP3 implements both directions
+-- itself (totalRP3/modules/register/msp/register_msp.lua:437-443 and :450):
+--
+--   FC == "1"  -> RP = 2 (OOC),  anything else -> RP = 1 (IC)
+--   FR == "4"  -> XP = 1,        anything else -> XP = 2
+--
+-- The RP case is the one that mattered: a ghosted profile always reported IN-CHARACTER even
+-- when the source profile was explicitly flagged OOC -- the one direction where being wrong is
+-- user-visible and arguably a privacy signal.
+--
+-- The reverse conversion in hooks/msp_exchange.lua:428-441 already used this mapping, so this
+-- also makes the round-trip consistent.
+
+T.describe("MSP FC/FR mapping (MRP)", function()
+    local A = TRP3FW.Adapters.MRP
+
+    local function installWith(fields)
+        _G.mrp = {}
+        local profile = { NA = "Aldric", CU = "Reading", CO = "afk" }
+        for k, v in pairs(fields or {}) do profile[k] = v end
+        _G.mrpSaved = { SelectedProfile = "Default", Profiles = { Default = profile } }
+    end
+
+    T.it("BUG (fixed): FC=1 (OOC) maps to RP=2, not hardcoded 1", function()
+        clearAddonGlobals(); installWith({ FC = "1" })
+        T.eq(A:GetCharacter("Default").RP, 2,
+            "an OOC-flagged profile must not be ghosted as in-character")
+    end)
+
+    T.it("FC=2 (IC) maps to RP=1", function()
+        clearAddonGlobals(); installWith({ FC = "2" })
+        T.eq(A:GetCharacter("Default").RP, 1)
+    end)
+
+    T.it("absent FC defaults to RP=1 (IC)", function()
+        clearAddonGlobals(); installWith({})
+        T.eq(A:GetCharacter("Default").RP, 1, "no flag means in-character, matching TRP3")
+    end)
+
+    T.it("BUG (fixed): FR=4 maps to XP=1", function()
+        clearAddonGlobals(); installWith({ FR = "4" })
+        T.eq(A:GetCharacter("Default").XP, 1)
+    end)
+
+    T.it("other FR values map to XP=2", function()
+        clearAddonGlobals(); installWith({ FR = "2" })
+        T.eq(A:GetCharacter("Default").XP, 2)
+        clearAddonGlobals(); installWith({})
+        T.eq(A:GetCharacter("Default").XP, 2, "absent FR is not the 'not looking' end")
+    end)
+
+    T.it("round-trips through msp_exchange's reverse conversion", function()
+        -- msp_exchange.lua:437 does: RP == 1 -> FC = "2", else FC = "1"
+        -- So FC "1" -> RP 2 -> FC "1" must hold, or a ghost send flips the user's OOC flag.
+        clearAddonGlobals(); installWith({ FC = "1" })
+        local rp = A:GetCharacter("Default").RP
+        local backToFC = (rp == 1) and "2" or "1"
+        T.eq(backToFC, "1", "OOC must survive the round trip")
+
+        clearAddonGlobals(); installWith({ FC = "2" })
+        rp = A:GetCharacter("Default").RP
+        backToFC = (rp == 1) and "2" or "1"
+        T.eq(backToFC, "2", "IC must survive the round trip")
+    end)
+end)
+
+T.describe("MSP FC/FR mapping (XRP)", function()
+    local A = TRP3FW.Adapters.XRP
+
+    local function installWith(f)
+        _G.AddOn_XRP = {}
+        local fields = { NA = "Kael", CU = "Hunting" }
+        for k, v in pairs(f or {}) do fields[k] = v end
+        _G.xrpSaved = {
+            selected = "Main",
+            profiles = { Main = { fields = fields, inherits = {} } },
+        }
+    end
+
+    T.it("BUG (fixed): FC=1 (OOC) maps to RP=2", function()
+        clearAddonGlobals(); installWith({ FC = "1" })
+        T.eq(A:GetCharacter("Main").RP, 2)
+    end)
+
+    T.it("absent FC defaults to RP=1 (IC)", function()
+        clearAddonGlobals(); installWith({})
+        T.eq(A:GetCharacter("Main").RP, 1)
+    end)
+
+    T.it("BUG (fixed): FR=4 maps to XP=1, others to XP=2", function()
+        clearAddonGlobals(); installWith({ FR = "4" })
+        T.eq(A:GetCharacter("Main").XP, 1)
+        clearAddonGlobals(); installWith({ FR = "1" })
+        T.eq(A:GetCharacter("Main").XP, 2)
+    end)
+end)
+
 -- ===================== Factory detection & priority =====================
 
 -- Minimal availability stubs, shared by the factory describe below and the ADDON_LOADED

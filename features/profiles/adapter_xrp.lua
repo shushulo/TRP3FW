@@ -194,13 +194,23 @@ function XRPAdapter:GetCharacter(id)
 
     local fields = profile.data.fields
 
-    -- Map XRP fields to TRP3-like character structure
+    -- Map XRP fields to TRP3-like character structure.
+    --
+    -- Same correction as adapter_mrp: RP/XP were hardcoded to 1 on the claim that XRP "uses FC
+    -- differently". FC/FR are standard MSP fields with a defined mapping, which TRP3 itself
+    -- implements (totalRP3/modules/register/msp/register_msp.lua:437-443 and :450).
+    --
+    -- The RP case is the one that mattered: a ghosted XRP profile always reported
+    -- IN-CHARACTER even when the source profile was explicitly flagged OOC.
     return {
         v = 1,
         CU = fields.CU or "",    -- Currently IC
         CO = fields.CO or "",    -- Currently OOC
-        RP = 1,                  -- RP status (1=IC) - XRP uses FC differently
-        XP = 1,                  -- Experience level (XRP doesn't have this)
+        -- FC == "1" is OOC -> RP = 2; anything else (including absent) -> RP = 1 (IC).
+        RP = (fields.FC == "1") and 2 or 1,
+        -- FR == "4" is the "not looking for RP" end -> XP = 1; otherwise XP = 2.
+        -- Note this reads INVERSE to intuition; it matches TRP3's own conversion.
+        XP = (fields.FR == "4") and 1 or 2,
     }
 end
 

@@ -352,6 +352,14 @@ function CacheService:InitializeCacheCleanup()
                 self:CleanupTimestampCache(TRP3FW.pendingSends, 60, "pendingSends")
             end
 
+            -- Cleanup alertOnlyChecksInFlight (AlertFastPathStage's per-player dedup markers).
+            -- Entries are normally cleared by the cascading callback; this is the backstop for
+            -- a check whose callback never fires, so the table cannot grow with one entry per
+            -- player encountered in alert-only mode.
+            if TRP3FW.alertOnlyChecksInFlight then
+                self:CleanupTimestampCache(TRP3FW.alertOnlyChecksInFlight, 60, "alertOnlyChecksInFlight")
+            end
+
             -- FIX: Cleanup pendingPhaseChecks (phase check priority queue)
             if TRP3FW.pendingPhaseChecks then
                 local now = TRP3FW:GetCurrentTime()

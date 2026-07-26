@@ -12,7 +12,6 @@ core\init.lua
 core\Service.lua
 core\ServiceContainer.lua
 core\EventService.lua
-core\Context.lua
 core\Pipeline.lua
 core\cache_interface.lua
 core\feature_flags.lua

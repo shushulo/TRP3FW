@@ -584,6 +584,11 @@ end
 
 -- Pending sends
 TRP3FW.pendingSends = {}
+
+-- [playerName] = timestamp. AlertFastPathStage's dedup markers: alert-only mode sits before
+-- BurstStage, so a burst never queues and would otherwise start one location check per
+-- request. Cleared by the cascading callback; swept by CacheService as a backstop.
+TRP3FW.alertOnlyChecksInFlight = {}
 TRP3FW.pendingSendId = 0
 
 -- L3: legacy cache table proxies removed. All cache access goes through
