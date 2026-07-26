@@ -26,6 +26,16 @@ spvpFrame:SetScript("OnEvent", function(self, event, prefix, message, channel, s
 
     if prefix ~= "TRP3FW_SPVP" then return end
 
+    -- Feed the entropy pool from packet arrivals. Arrival timing is genuinely unpredictable to
+    -- US, and critically it is a source the SENDER cannot fully observe either: they know when
+    -- they sent, not the network delay or which frame we processed it on. Stirring here keeps
+    -- the pool moving between handshakes rather than only at the moment a peer can bracket.
+    -- Cheap (one FNV-1a round per fold) and this handler is already rate-bounded upstream.
+    if TRP3FW.SPVP_StirEntropy then
+        TRP3FW.SPVP_StirEntropy(message)
+        TRP3FW.SPVP_StirEntropy(sender)
+    end
+
     -- This is our network attack surface: messages arrive from arbitrary players.
     -- CHAT_MSG_ADDON can deliver a nil/empty body, and CleanPlayerName can reject a
     -- malformed sender. Guard both before any :match/concatenation to avoid a nil-index

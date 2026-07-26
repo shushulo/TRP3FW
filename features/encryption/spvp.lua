@@ -15,11 +15,38 @@
 --
 -- CURRENT SECURITY (measured, not estimated):
 --
---   * Discrete log in the group: best generic attack is Pollard's rho at ~sqrt(q) = 6856
---     operations, i.e. ~2^12.7. Verified that 100% of 3000 simulated salts produce a
---     generator of order exactly q, so Pohlig-Hellman gains nothing.
+--   * Discrete log in the group: best generic attack is Pollard's rho at ~1.03*sqrt(q) = 7061
+--     steps, i.e. ~2^12.7. Verified that 100% of 3000 simulated salts produce a generator of
+--     order exactly q, so Pohlig-Hellman gains nothing.
+--   * Private key: GeneratePrivateKey draws ONE value from math.random after seeding from
+--     GUID + microsecond time + cursor. The key is therefore a pure function of that seed,
+--     and the attacker knows our GUID and roughly WHEN we sent the packet. Measured search
+--     space is ~2^10 if send time is known to ~1ms, ~2^17 at ~100ms -- at or below the group
+--     strength. See GeneratePrivateKey for the fix status.
 --   * Verifier collision: HashKey is 64 bits, so the birthday bound is ~2^32.
---   * Binding constraint: ~2^12.7. Low. Hours of compute, not centuries.
+--   * Peer public keys are validated on receipt (IsValidPublicKey), closing a
+--     small-subgroup confinement forgery that cost ZERO work and needed no salt knowledge.
+--   * Binding constraint: ~2^12.7.
+--
+-- WHAT ~2^12.7 ACTUALLY COSTS -- do not read the exponent and stop there.
+--
+-- 2^12.7 is ~21,000 modular multiplications (7061 rho steps at ~3 modmuls each). Measured
+-- throughput in interpreted Lua 5.1 is 4.6e7 modmul/sec, so a full Pollard's rho run finishes
+-- in ~0.46 MILLISECONDS -- in Lua, on one core. That is under a single frame at 60fps.
+--
+-- The practical consequence: an attacker needs no external tooling. An ordinary WoW addon can
+-- complete one honest handshake, recover our private exponent before the next frame draws, and
+-- forge verifiers from then on. Not a rented server, not C -- a .lua file.
+--
+-- CORRECTION: this header previously read "Hours of compute, not centuries." That was a
+-- careless translation from 2^12.7 to wall-clock and overstated the attacker's cost by roughly
+-- seven orders of magnitude. The security exponent was right; the time estimate was not.
+-- thoughts/SPVP_CRYPTO_UPGRADE_SPEC.md has the measurement method.
+--
+-- Note also that RATE LIMITING DOES NOT APPLY to any of this. spvpBlockDuration, replay
+-- detection and the queue caps all bound how often a peer can SEND us packets. Rho is offline:
+-- the attacker completes one legitimate handshake, walks away, and computes against the public
+-- value we already handed them. There is no packet left to throttle.
 --
 -- HISTORY -- what these numbers were before, and why:
 --
@@ -30,17 +57,46 @@
 --     problem; its FACTORISATION was.
 --   * HashKey produced 32 bits, so a colliding verifier cost ~2^16 tries and could be found
 --     WITHOUT touching the group at all. That was the cheapest attack on the protocol.
+--   * Peer public keys were used unvalidated. Sending B = 0, 1 or p (all matched by the
+--     wire pattern (%d+)) forced K = B^a mod p to a CONSTANT independent of the honest
+--     party's secret, so the attacker computed HashKey(K) offline and sent a verifier that
+--     matched every time -- no discrete log, no salt, no phase membership. It defeated the
+--     one thing SPVP proves. Cost: zero, versus ~2^12.7 for the group and ~2^32 for the
+--     verifier, making it by far the cheapest attack until it was closed. Both receive
+--     paths now gate on IsValidPublicKey; measured over 26,000 honest keys the guard
+--     rejects none, so it needed no protocol version bump.
 --
--- WHAT IS STILL WEAK, and cannot be fixed here:
+-- TWO DIFFERENT ADVERSARIES. Conflating them leads to opposite conclusions about whether the
+-- group size matters at all, so keep them separate:
 --
---   * ~2^12.7 is not cryptographic strength. It is enough to deter casual spoofing and a
---     scripted profile scraper acting opportunistically; it is not enough against someone
---     who specifically wants your profile and is willing to spend compute.
+--   (A) ADMITTED MEMBER. Anyone the phase lets in can read the salt directly --
+--       C_Epsilon.GetPhaseAddonData("TRP3FW_SPVP_KEY") is a one-line macro, and this is NOT
+--       limited to owners and officers as this header once claimed. Phase MEMBERSHIP is the
+--       boundary, not rank. A member standing in a different ZONE therefore passes SPVP from
+--       anywhere, without attacking anything -- that is the protocol working as designed.
+--       Group strength is irrelevant to this adversary: they hold the real secret.
+--
+--   (B) EXCLUDED OUTSIDER. Someone blacklisted or never whitelisted is not admitted, so
+--       GetPhaseAddonData gives them nothing. They have NO salt. To pass SPVP they must break
+--       the math -- rho on our public key (~2^12.7) or guessing the private key (~2^10-2^17).
+--       Group strength IS the binding constraint for this adversary, and at present it does
+--       not stop them. This is the case SPVP exists to defeat.
+--
+-- So what SPVP actually proves is: "this peer has, at some point, been admitted to a phase
+-- sharing this salt." NOT "is in my phase" and NOT "is near me." Membership at SOME time --
+-- a salt does not expire when someone leaves or is blacklisted, so a removed member keeps a
+-- working salt until the phase is re-secured. Nothing here rotates it on removal.
+--
+-- WHAT IS STILL WEAK:
+--
+--   * ~2^12.7 is not cryptographic strength, and per the timing note above it is ~0.46ms of
+--     in-game Lua. It does not deter adversary (B) at all.
+--   * The private key may be a cheaper target than the group; see the entropy note above.
 --   * FNV-1a is a hash-TABLE function with no collision resistance. Two rounds give 64 bits
 --     of output but are not equivalent to one round of a real hash.
---   * The whole scheme rests on the phase salt staying secret, and on Epsilon every phase
---     OWNER AND OFFICER can read the phase's addon data. No amount of group strength fixes
---     a shared secret with that distribution.
+--   * Against adversary (A) none of the above matters, and no amount of group strength fixes
+--     a shared secret with that distribution. Proximity is measured by the phase/WHO/map
+--     checks, not by SPVP.
 --
 -- WHY IT CANNOT BE STRONGER. Lua 5.1 has no integer type; numbers are doubles, exact only to
 -- 2^53. ModPow computes base*base BEFORE reducing, so the modulus must satisfy p^2 < 2^53,
@@ -197,6 +253,139 @@ local function SafeRandomSeed(seed)
 end
 
 -- ===================================================================
+-- ENTROPY POOL
+-- ===================================================================
+--
+-- WHY THIS EXISTS. Every secret here used to be produced the same way: build a seed from
+-- (GUID + microsecond time + cursor position), call math.randomseed, draw ONE value. That
+-- makes the output a pure function of the seed, so the real keyspace is the SEED space, not
+-- the nominal [2, p-2].
+--
+-- Decomposed by what the attacker -- who IS the peer -- actually knows:
+--   * GUID: they know it. Constant, not secret.
+--   * Cursor: bounded by screen resolution, and mouse_x*1337 + mouse_y*7331 collapses hard.
+--   * floor(now * 1e6) % 2^31: the dominant term, and they know roughly WHEN we sent the
+--     packet, because they received it.
+--
+-- Measured: 1000 adjacent microsecond seeds give 1000 distinct keys -- no collapse, but no
+-- amplification either. Bound the send time to ~1ms and the search is ~2^10; to ~100ms and it
+-- is ~2^17. Both are at or BELOW the group's own ~2^12.7, so this was plausibly the cheapest
+-- attack on SPVP -- and unlike the group weakness it needs no bignum work to fix.
+--
+-- WHAT THIS DOES. Accumulate entropy across the whole session instead of rebuilding a seed at
+-- each call, and never let a single observable quantity dominate. Each Stir folds a new sample
+-- into a retained 32-bit state via FNV-1a, so the pool's value depends on the ENTIRE history of
+-- samples -- timings, cursor positions, framerates, event arrivals -- not just the latest one.
+-- To predict a draw an attacker must reproduce that whole history, not one timestamp.
+--
+-- WHAT THIS IS NOT. Lua 5.1's math.random is still the underlying generator and its internal
+-- state is still far smaller than the group. This raises a floor that sat well below the
+-- group; it does not lift the ceiling that Pollard's rho sets (~2^12.7), and it cannot -- rho
+-- attacks the GROUP and works regardless of how well the exponent was chosen. Only a larger
+-- prime moves that. See thoughts/SPVP_CRYPTO_UPGRADE_SPEC.md section 4.4.
+
+local entropyPool = 2166136261  -- FNV offset basis; folded, never reset
+local entropyStirCount = 0
+local entropyDrawCounter = 0    -- strictly increasing; guarantees per-draw seed divergence
+
+--- Normalise a 32-bit value to unsigned.
+---
+--- REQUIRED, not cosmetic. bit.band returns a SIGNED 32-bit int on LuaJIT (and on the test
+--- shim), so FNV1aHash yields a negative number whenever the top bit is set -- about half the
+--- time. Feeding a negative value to math.randomseed collapses many distinct pool states onto
+--- the same RNG stream: observed directly, the pool kept landing on -2^31 and successive
+--- private keys repeated the SAME value (33842432) across unrelated draws. That is strictly
+--- worse than the entropy weakness this pool was written to fix, so keep the pool unsigned.
+--- @param n number - Possibly-negative 32-bit value
+--- @return number - Value in [0, 2^32)
+local function ToUnsigned32(n)
+    n = n % 4294967296  -- 2^32
+    if n < 0 then n = n + 4294967296 end
+    return n
+end
+
+--- Fold an arbitrary value into the pool. Cheap enough to call from hot paths.
+--- Order matters: stirring A then B differs from B then A, so the pool encodes history.
+--- @param value any - Any value; stringified before folding
+local function StirEntropy(value)
+    entropyPool = ToUnsigned32(FNV1aHash(tostring(entropyPool) .. ":" .. tostring(value)))
+    entropyStirCount = entropyStirCount + 1
+    return entropyPool
+end
+
+--- Sample every ambient source we can reach and fold them all in.
+--- Called before drawing any secret, and from event hooks so the pool keeps moving between
+--- handshakes rather than only at the moment an attacker can predict.
+local function StirAmbientEntropy()
+    local now = GetTimePreciseSec and GetTimePreciseSec() or GetTime()
+    StirEntropy(now)
+    StirEntropy(GetTime and GetTime() or 0)
+
+    if GetCursorPosition then
+        local mx, my = GetCursorPosition()
+        -- Fold separately: combining them arithmetically (as the old seed did) discards
+        -- information that keeping them distinct preserves.
+        StirEntropy(mx or 0)
+        StirEntropy(my or 0)
+    end
+
+    if GetFramerate then StirEntropy(GetFramerate()) end
+    -- Millisecond-resolution timer on a different epoch from GetTimePreciseSec.
+    if debugprofilestop then StirEntropy(debugprofilestop()) end
+    if UnitGUID then StirEntropy(UnitGUID("player") or "NOGUID") end
+    if math.random then StirEntropy(math.random()) end  -- carries forward existing PRNG state
+
+    return entropyPool
+end
+
+--- Draw an integer in [lo, hi] from the pool.
+---
+--- Reseeds math.random from the POOL rather than from a freshly-built observable seed, then
+--- discards a few outputs. The reseed value depends on every sample ever stirred, so an
+--- attacker who knows the send time to the microsecond still cannot reconstruct it.
+--- @param lo number - Lower bound (inclusive)
+--- @param hi number - Upper bound (inclusive)
+--- @return number - Value in [lo, hi]
+local function DrawFromPool(lo, hi)
+    -- Strictly-increasing counter, stirred FIRST. The ambient sources can all be frozen --
+    -- same frame, motionless cursor, stable framerate -- and on a live client several draws
+    -- routinely happen inside one frame (a salt makes 64 back to back). Without a term that
+    -- cannot repeat, the pool could re-enter a previous state and replay the same value; that
+    -- was observed before this counter existed. This does not ADD entropy (a counter is fully
+    -- predictable) -- it guarantees SEPARATION, so the pool's accumulated entropy is never
+    -- re-used across draws rather than being spread across them.
+    entropyDrawCounter = entropyDrawCounter + 1
+    StirEntropy(entropyDrawCounter)
+
+    StirAmbientEntropy()
+
+    -- Map the pool into a seed that survives math.randomseed's truncation.
+    --
+    -- math.randomseed coerces to a SIGNED 32-bit int, so 0, 2^31, -2^31 and 2^32 all alias to
+    -- seed 0 -- which on this interpreter deterministically produces 33842432 from the private
+    -- key range. Measured before this fold: that single value came up 23 times in 50 draws
+    -- (~46%), because roughly half of all pool states landed on one of those aliases. Two
+    -- handshakes sharing a private key means solving one solves both, so this mattered far
+    -- more than the entropy weakness the pool was written to fix.
+    --
+    -- Reducing modulo 2^31-1 (a prime, and the largest safe positive seed) and shifting off
+    -- zero keeps every distinct pool state mapped to a distinct, non-degenerate seed.
+    local seed = (entropyPool % 2147483647) + 1
+    SafeRandomSeed(seed)
+    for _ = 1, 5 do math.random() end
+
+    local value = math.random(lo, hi)
+    -- Fold the result back in so successive draws in the same tick do not share a seed.
+    StirEntropy(value)
+    return value
+end
+
+-- Exported for tests and diagnostics. GetEntropyStirCount lets a spec assert the pool is
+-- actually being fed; it exposes the COUNT, never the pool value itself.
+TRP3FW.SPVP_StirEntropy = StirEntropy
+TRP3FW.SPVP_GetEntropyStirCount = function() return entropyStirCount end
+
+-- ===================================================================
 -- GENERATOR CALCULATION
 -- ===================================================================
 
@@ -259,27 +448,15 @@ end
 -- KEY GENERATION
 -- ===================================================================
 
---- Generate cryptographically random private key
+--- Generate a random private key from the session entropy pool.
+---
+--- Previously this built a seed from (GUID + microsecond time + cursor) and drew a single
+--- value, which made the key a pure function of quantities the peer largely knows -- measured
+--- at ~2^10 to ~2^17 of real search space, at or below the group's own ~2^12.7. See the
+--- ENTROPY POOL section above for the measurement and the limits of this fix.
 --- @return number - Private key in range [2, DH_PRIME-2]
 local function GeneratePrivateKey()
-    local now = GetTimePreciseSec and GetTimePreciseSec() or GetTime()
-    local guid = UnitGUID("player") or "NOGUID"
-    local mouse_x, mouse_y = GetCursorPosition()
-
-    -- Mix high-resolution entropy sources
-    local seed = (tonumber(guid:sub(-8), 16) or 0) +
-                 (math.floor(now * 1000000) % 2147483647) +
-                 (mouse_x * 1337) + (mouse_y * 7331)
-
-    SafeRandomSeed(seed)
-
-    -- Pre-warm PRNG (discard first few outputs)
-    for i = 1, 5 do math.random() end
-
-    -- Private key in range [2, DH_PRIME-2]
-    local privateKey = math.random(2, DH_PRIME - 2)
-
-    return privateKey
+    return DrawFromPool(2, DH_PRIME - 2)
 end
 
 --- Generate public key: A = G^a mod p
@@ -290,7 +467,40 @@ local function GeneratePublicKey(generator, privateKey)
     return ModPow(generator, privateKey, DH_PRIME)
 end
 
+--- Validate a peer's public key before using it in a key exchange.
+---
+--- Without this check the protocol is trivially forgeable, and the forgery needs NO knowledge
+--- of the phase salt -- which is the one secret SPVP exists to prove possession of.
+---
+--- The attack is small-subgroup confinement. K = B^a mod p, so an attacker who sends a B whose
+--- order is 1 or 2 makes K independent of the honest party's secret exponent `a`:
+---   B = 0    -> K = 0 always      (and B = p is the same element)
+---   B = 1    -> K = 1 always
+---   B = p-1  -> K in {1, p-1}, decided only by the parity of `a` -- one guess, 50%, retryable
+--- The attacker then computes HashKey(K) offline and sends a verifier that matches. Both
+--- HandleSPVPInit (Bob) and HandleSPVPReply (Alice) accept `(%d+)` off the wire and fed it
+--- straight to ModPow, so either side could be spoofed by any player who can whisper an addon
+--- message -- no phase membership, no salt, no discrete log.
+---
+--- The check is the standard one: require 2 <= B <= p-2 (excludes 0, 1, p-1 and anything >= p),
+--- then confirm B is in the order-q subgroup via B^q mod p == 1. The subgroup test is what
+--- GetGenerator already does for its own generator; this applies the same standard to values
+--- that arrive from the network, which is where it matters more.
+---
+--- @param theirPublicKey number|nil - Candidate public key from the wire
+--- @return boolean - true if safe to use in DeriveSharedKey
+local function IsValidPublicKey(theirPublicKey)
+    if type(theirPublicKey) ~= "number" then return false end
+    -- Reject non-integers and NaN (NaN fails every comparison, including == itself).
+    if theirPublicKey ~= math.floor(theirPublicKey) then return false end
+    -- Excludes 0, 1, p-1 and p (and any out-of-range value) in one range test.
+    if theirPublicKey < 2 or theirPublicKey > DH_PRIME - 2 then return false end
+    -- Must live in the large (order-q) subgroup, not a small one.
+    return ModPow(theirPublicKey, DH_SUBGROUP_ORDER, DH_PRIME) == 1
+end
+
 --- Derive shared key: K = B^a mod p
+--- Callers MUST gate on IsValidPublicKey first; see the attack described there.
 --- @param theirPublicKey number - Their public key
 --- @param myPrivateKey number - My private key
 --- @return number - Shared key
@@ -305,23 +515,23 @@ end
 -- SESSION ID GENERATION
 -- ===================================================================
 
---- Generate cryptographically random session ID (8-char hex)
+--- Generate a random session ID (8-char hex) from the session entropy pool.
+---
+--- The per-character re-seed this used to do looked like hardening but was the opposite: every
+--- character was reseeded from the SAME three observable quantities, differing only by the
+--- loop index, so the whole ID collapsed to roughly the entropy of one draw. Drawing from the
+--- pool keeps the characters independent of each other and of the send time.
+---
+--- Session IDs are lower-stakes than private keys -- they are replay/correlation handles, not
+--- secrets -- but they are attacker-visible, so a predictable ID would let a peer anticipate
+--- our next session and pre-place state against it.
 --- @return string - 8-character hex session ID
 local function GenerateSessionID()
-    local guid = UnitGUID("player") or "NOGUID"
     local chars = "0123456789ABCDEF"
     local sessionID = ""
 
-    for i = 1, 8 do
-        -- Re-seed every character for maximum entropy (PRNG hardening)
-        local now = GetTimePreciseSec and GetTimePreciseSec() or GetTime()
-        local mouse_x, mouse_y = GetCursorPosition()
-        local seed = (tonumber(guid:sub(-6), 16) or 0) +
-                     (math.floor(now * 1000000) % 2147483647) +
-                     (mouse_x * i) + (mouse_y * (9-i))
-        SafeRandomSeed(seed)
-
-        local r = math.random(1, 16)
+    for _ = 1, 8 do
+        local r = DrawFromPool(1, 16)
         sessionID = sessionID .. chars:sub(r, r)
     end
 
@@ -336,12 +546,16 @@ end
 --- Format: 64-char-hex:UTC-timestamp
 --- Example: "A3F2E9...D1C4:1704844800"
 ---
---- Entropy Sources (Total: ~100-120 bits):
---- - Player GUID (last 8 hex chars): ~32 bits
---- - GetTimePreciseSec() microsecond precision: ~40 bits
---- - Mouse position (X * Y): ~20-30 bits
---- - Frame count: ~20 bits
---- - Math.random state evolution: ~10-20 bits
+--- ENTROPY. The old implementation reseeded every 2 characters from (GUID + microsecond time +
+--- cursor + framerate) and claimed "~100-120 bits" in this comment. That claim did not hold:
+--- the 64 characters were not independent, because each reseed drew on the same few observable
+--- quantities separated by microseconds, so the salt's real entropy was closer to a single
+--- seed's than to 256 bits of hex. This now draws every character from the session pool, whose
+--- state depends on the entire history of stirred samples. See the ENTROPY POOL section.
+---
+--- This matters more than the private key does. A private key compromise costs one handshake;
+--- the salt is the shared secret the ENTIRE protocol rests on, it is what SPVP proves
+--- possession of, and it persists in phase addon data until someone re-secures the phase.
 --- @return string - Phase salt (64 hex chars + colon + UTC timestamp)
 function TRP3FW:GeneratePhaseSalt()
     TRP3FW.profiler.start("SPVP:GenerateSalt")
@@ -349,23 +563,8 @@ function TRP3FW:GeneratePhaseSalt()
     local chars = "0123456789ABCDEF"
     local salt = ""
 
-    -- Generate 64 characters of hex noise with continuous re-seeding
-    for i = 1, 64 do
-        -- Continuous re-seeding with high-res entropy for every 2 chars
-        if i % 2 == 1 then
-            local guid = UnitGUID("player") or "NOGUID"
-            local now = GetTimePreciseSec and GetTimePreciseSec() or GetTime()
-            local mouse_x, mouse_y = GetCursorPosition()
-
-            local seed = (tonumber(guid:sub(-8), 16) or 0) +
-                         (math.floor(now * 1000000) % 2147483647) +
-                         ((mouse_x or 0) * 100) + ((mouse_y or 0) * i) +
-                         (GetFramerate() * 1000)
-
-            SafeRandomSeed(seed)
-        end
-
-        local r = math.random(1, 16)
+    for _ = 1, 64 do
+        local r = DrawFromPool(1, 16)
         salt = salt .. chars:sub(r, r)
     end
 
@@ -1019,6 +1218,22 @@ function TRP3FW:HandleSPVPInit(message, sender)
         return
     end
 
+    -- Validate their public key BEFORE doing any crypto work.
+    -- An unvalidated small-subgroup element (0, 1, p-1) collapses the shared key to a constant
+    -- the sender can predict without knowing the phase salt, letting them forge a verifier --
+    -- see IsValidPublicKey. Checked here rather than at the point of use so a hostile INIT
+    -- costs us one ModPow instead of a generator derivation plus a keypair. Drop silently: a
+    -- peer sending one of these is attacking, not misconfigured, and a reply would only
+    -- confirm we are listening.
+    local theirPublicKey = tonumber(publicKey)
+    if not IsValidPublicKey(theirPublicKey) then
+        TRP3FW:Debug(string.format(
+            "[SPVP] Rejecting INIT from %s: invalid public key %s (small-subgroup or out of range)",
+            sender, tostring(publicKey)), "spvp")
+        TRP3FW.profiler.stop("SPVP:HandleInit")
+        return
+    end
+
     -- Get our generator
     local generator = GetGenerator(phaseID, salt)
 
@@ -1026,8 +1241,7 @@ function TRP3FW:HandleSPVPInit(message, sender)
     local privateKey = GeneratePrivateKey()
     local myPublicKey = GeneratePublicKey(generator, privateKey)
 
-    -- Derive shared key from their public key
-    local theirPublicKey = tonumber(publicKey)
+    -- Derive shared key from their (now validated) public key
     local sharedKey = DeriveSharedKey(theirPublicKey, privateKey)
 
     -- Store incoming session state for Bob (to verify Alice's upcoming CONFIRM).
@@ -1132,8 +1346,37 @@ function TRP3FW:HandleSPVPReply(message, sender)
     -- Cleanup session (completed)
     TRP3FW.spvpSessions[sessionID] = nil
 
-    -- Derive shared key
+    -- Derive shared key.
+    -- Validate their public key first (see IsValidPublicKey): a small-subgroup element makes
+    -- the shared key predictable without any knowledge of the phase salt, letting an attacker
+    -- forge a matching verifier and be cached as spvpVerified.
+    --
+    -- The session was consumed just above, so this path must still settle the callback or the
+    -- caller waits for its timeout. Treated as a failed verification -- it IS a failed proof --
+    -- but deliberately WITHOUT the salt-cache invalidation and force-refresh the mismatch
+    -- branch does: a malformed public key tells us nothing about our own salt being stale, and
+    -- letting an attacker trigger a forced salt refetch per packet would hand them a cheap way
+    -- to hammer the Epsilon salt API.
     local theirPublicKey = tonumber(publicKey)
+    if not IsValidPublicKey(theirPublicKey) then
+        TRP3FW:Debug(string.format(
+            "[SPVP] Rejecting REPLY from %s: invalid public key %s (small-subgroup or out of range)",
+            sender, tostring(publicKey)), "spvp")
+
+        local now = TRP3FW:GetCurrentTime()
+        local blockDuration = TRP3FW.Prefs.spvpBlockDuration or 60
+        TRP3FW.spvpFailedAttempts[sender] = {
+            count = (TRP3FW.spvpFailedAttempts[sender] and TRP3FW.spvpFailedAttempts[sender].count or 0) + 1,
+            firstFailTime = TRP3FW.spvpFailedAttempts[sender] and TRP3FW.spvpFailedAttempts[sender].firstFailTime or now,
+            blockedUntil = now + blockDuration
+        }
+
+        if session.callback then
+            session.callback(false, "invalid_public_key")
+        end
+        TRP3FW.profiler.stop("SPVP:HandleReply")
+        return
+    end
     local sharedKey = DeriveSharedKey(theirPublicKey, session.privateKey)
 
     -- Verify
@@ -1263,6 +1506,7 @@ TRP3FW.SPVP = {
     GeneratePrivateKey = GeneratePrivateKey,
     GeneratePublicKey = GeneratePublicKey,
     DeriveSharedKey = DeriveSharedKey,
+    IsValidPublicKey = IsValidPublicKey,
     GenerateSessionID = GenerateSessionID
 }
 
