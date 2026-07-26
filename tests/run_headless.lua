@@ -12,6 +12,7 @@ package.path = "./?.lua;" .. package.path
 -- Spec files to run (add new ones here).
 local specs = {
     "tests.unit.spvp_crypto_spec",
+    "tests.unit.spvp_pubkey_validation_spec",
     "tests.unit.spvp_entropy_spec",
     "tests.unit.sanitize_spec",
     "tests.unit.cache_interface_spec",
