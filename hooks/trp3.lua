@@ -409,7 +409,37 @@ function TRP3FW:InstallChompHook()
 
     AddOn_Chomp.SmartAddonMessage = function(prefix, text, chatType, target, priority, queue, callback, callbackArg)
         local start = debugprofilestop()
-        local ret = TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queue, callback, callbackArg, originalSend)
+
+        -- FAIL CLOSED. This function REPLACES AddOn_Chomp.SmartAddonMessage globally, so the
+        -- whole decision pipeline (7 stages, plus the location checks and SPVP beneath them)
+        -- runs inside TRP3's own send call for every profile message.
+        --
+        -- The pcall exists to stop a pipeline error propagating out into TRP3, where it aborts
+        -- TRP3's send mid-flight, leaves Chomp's queue inconsistent, and is reported as a TRP3
+        -- bug against a stack that never mentions TRP3FW.
+        --
+        -- On error we DROP the send. Not passing it through: this is a privacy tool, and the
+        -- code most likely to be executing when the pipeline throws is the code deciding NOT to
+        -- transmit real profile data -- ShouldBlockForStartPhase, EnableGhostForNextSend, the
+        -- location gating. Recovering by calling originalSend would take a crash in exactly
+        -- that logic and turn it into a full unfiltered send of the real profile, to the one
+        -- player the user configured this addon to hide from, with no way for them to know it
+        -- happened. A profile that fails to arrive is visible and recoverable (/reload, retry);
+        -- a disclosure is neither.
+        --
+        -- This also matches the convention already used everywhere else in the addon: the
+        -- sendObject hook aborts the send when the original throws (:620) and blocks it when
+        -- ghost data cannot be obtained (:611); the phase-in replay path (
+        -- trp3_chomp_pipeline.lua:142) pcalls only to restore its guard flag and likewise does
+        -- not re-send. Dropping is also what the UNGUARDED code did -- the error killed the
+        -- send -- so this preserves the original security behaviour and only adds containment.
+        local ok, ret = pcall(TRP3FW.ChompHookPipeline, TRP3FW, prefix, text, chatType, target, priority, queue, callback, callbackArg, originalSend)
+        if not ok then
+            TRP3FW:Error("Chomp hook pipeline error; send dropped (failing closed to avoid "
+                .. "transmitting an unfiltered profile): " .. tostring(ret))
+            ret = nil
+        end
+
         local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService")
         if hs then
             local addon = "TRP3"
