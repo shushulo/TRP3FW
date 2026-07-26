@@ -106,4 +106,90 @@ T.describe("CacheInterface Clear / Remove", function()
     end)
 end)
 
+T.describe("CacheInterface Iterator", function()
+    T.it("walks newest to oldest", function()
+        CI:Register("it1", { maxSize = 10 })
+        CI:Set("it1", "a", 1); CI:Set("it1", "b", 2); CI:Set("it1", "c", 3)
+
+        local seen = {}
+        for key in CI:Iterator("it1") do table.insert(seen, key) end
+        T.eq(table.concat(seen, ","), "c,b,a")
+    end)
+
+    T.it("yields nothing for an unknown or empty cache", function()
+        local n = 0
+        for _ in CI:Iterator("no_such_cache") do n = n + 1 end
+        T.eq(n, 0)
+
+        CI:Register("it2", { maxSize = 10 })
+        for _ in CI:Iterator("it2") do n = n + 1 end
+        T.eq(n, 0)
+    end)
+
+    -- Removing while iterating leaves the cursor pointing at a dead key; the
+    -- iterator must stop rather than index nil.
+    T.it("stops cleanly when the cursor entry is removed mid-iteration", function()
+        CI:Register("it3", { maxSize = 10 })
+        CI:Set("it3", "a", 1); CI:Set("it3", "b", 2); CI:Set("it3", "c", 3)
+
+        T.no_raise(function()
+            for key in CI:Iterator("it3") do
+                CI:Remove("it3", key)
+            end
+        end)
+    end)
+end)
+
+T.describe("CacheInterface list integrity", function()
+    -- Regression: MoveToTail used to detach the previous link and only then bail
+    -- when node.next was nil, orphaning the node. With prev == nil that also set
+    -- head = nil while size stayed > 0, which permanently disables head-based
+    -- eviction in both Set and PruneIncremental (unbounded growth past maxSize).
+    T.it("a desynced node does not null out head or strand the list", function()
+        CI:Register("desync", { maxSize = 10 })
+        CI:Set("desync", "a", 1); CI:Set("desync", "b", 2)
+
+        -- Corrupt the head node's forward link, then touch it via Get (-> MoveToTail).
+        local cache = CI.caches["desync"]
+        cache.data["a"].next = nil
+
+        T.no_raise(function() CI:Get("desync", "a") end)
+        T.not_nil(cache.head, "head survives a MoveToTail on a desynced node")
+        T.eq(CI:GetSize("desync"), 2)
+
+        -- Eviction still works, i.e. the list is not stranded.
+        CI:Register("desync", { maxSize = 1 })
+        CI:PruneIncremental("desync", 100)
+        T.eq(CI:GetSize("desync"), 1, "maxSize is still enforceable afterwards")
+    end)
+end)
+
+T.describe("CacheInterface PruneIncremental", function()
+    T.it("drops expired entries within the budget", function()
+        CI:Register("pi1", { ttl = 60 })
+        mock.setClock(1000)
+        CI:Set("pi1", "old", 1)
+        mock.setClock(1000 + 120)
+        CI:Set("pi1", "fresh", 2)
+
+        local pruned = CI:PruneIncremental("pi1", 100)
+        T.eq(pruned, 1)
+        T.is_nil(CI:Get("pi1", "old"))
+        T.eq(CI:Get("pi1", "fresh"), 2)
+    end)
+
+    T.it("enforces maxSize even when entries have not expired", function()
+        CI:Register("pi2", { maxSize = 5 })
+        for i = 1, 5 do CI:Set("pi2", "k" .. i, i) end
+        -- Shrink the cap the way a re-Register would.
+        CI:Register("pi2", { maxSize = 2 })
+
+        CI:PruneIncremental("pi2", 100)
+        T.eq(CI:GetSize("pi2"), 2)
+        -- Oldest go first, so the two newest survive.
+        T.eq(CI:Get("pi2", "k5"), 5)
+        T.eq(CI:Get("pi2", "k4"), 4)
+    end)
+end)
+
 return T

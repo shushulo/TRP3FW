@@ -37,8 +37,11 @@ local function freshFW(prefs)
     return fw
 end
 
+-- `now` mirrors CreateDecisionContext's clock snapshot: CacheStage does its TTL math
+-- against the context's clock, not a fresh GetCurrentTime() read, so the fixture has to
+-- carry it the same way production does.
 local function ctx(playerName)
-    return { playerName = playerName, addon = "MSP", sendId = 1, isWhisper = true, settings = {}, originalFunc = nil, originalArgs = {} }
+    return { playerName = playerName, addon = "MSP", sendId = 1, isWhisper = true, settings = {}, originalFunc = nil, originalArgs = {}, now = GetTime() }
 end
 
 T.describe("CacheStage phase-cache TTL: fast-FAIL branch (the bug's actual trigger)", function()

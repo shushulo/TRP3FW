@@ -1,5 +1,5 @@
 -- features/stages/CacheStage.lua
--- Stage 5: Cache Check (Phase, Map, WHO)
+-- Stage 3: Cache Check (Phase, Allowed Senders, SPVP Verified)
 
 local addonName, TRP3FW = ...
 
@@ -27,8 +27,9 @@ function CacheStage:Process(context)
         -- re-verifying, even though the player was confirmed reachable in the moment.
         -- Same gap applied to the success branch (stale "in phase" could fast-allow).
         if phaseResult and phaseResult.inPhase ~= nil then
-            local now = TRP3FW:GetCurrentTime()
-            local age = now - phaseResult.timestamp
+            -- Use the context's clock snapshot rather than re-reading the clock: one
+            -- request sees one time, which is the whole point of CreateDecisionContext.
+            local age = context.now - phaseResult.timestamp
             local ttl = phaseResult.inPhase
                 and (TRP3FW.Prefs.phaseCacheDuration or 300)
                 or (TRP3FW.Prefs.phaseCacheFailureDuration or 10)

@@ -220,7 +220,11 @@ function HistoryService:RecordPerformance(duration, context)
             local memKB = GetAddOnMemoryUsage("TRP3FW")
 
             table.insert(self.sessionStats.performanceHistory, {
+                -- See RecordHistory: `timestamp` is monotonic (used for the
+                -- already-rendered? check in historywindow), `wallTime` is the epoch
+                -- value the perf-graph tooltip feeds to date().
                 timestamp = now,
+                wallTime = time(),
                 avgLatency = avgLat,
                 peakLatency = stats.intervalPeakLatency,
                 avgLoad = avgLoad,
@@ -248,17 +252,29 @@ end
 function HistoryService:RecordHistory(playerName, addon, wasAlert, wasBlocked, wasGhost, alertType)
     if not TRP3FW.Prefs.trackHistory then return end
 
-    -- Use SecurityService for sanitization
+    -- Use SecurityService for sanitization.
+    -- CleanPlayerName, NOT SanitizePlayerName: the latter escapes quotes/backslashes so
+    -- the name can be embedded in a RunPrivileged() code string ("Il'tar" -> "Il\'tar",
+    -- literal backslash byte). This value is displayed to the user (Status tab "Recent
+    -- events", history window) and used as a dedup key in ui/settings.lua, so it must be
+    -- the canonical unescaped form every other consumer uses. Same confusion as the
+    -- allowedSenders cache-key bug fixed in 30ee55c.
     local security = TRP3FW.ServiceContainer:Get("SecurityService")
     local cleanPlayer = playerName
     if security then
-        cleanPlayer = security:SanitizePlayerName(playerName) or security:CleanPlayerName(playerName) or playerName
+        cleanPlayer = security:CleanPlayerName(playerName) or playerName
     end
 
     table.insert(self.notificationHistory, 1, {
         player = cleanPlayer,
         addon = addon,
+        -- Two clocks on purpose. `timestamp` is GetCurrentTime() (GetTimePreciseSec:
+        -- seconds since client start) and is what elapsed-time math must use.
+        -- `wallTime` is time() (Unix epoch) and is what the UI must pass to date():
+        -- rendering the monotonic value printed every event as a Jan-1970 time that
+        -- drifted with client uptime.
         timestamp = TRP3FW:GetCurrentTime(),
+        wallTime = time(),
         wasAlert = wasAlert,
         wasBlocked = wasBlocked,
         wasGhost = wasGhost,
@@ -357,9 +373,17 @@ function HistoryService:TrackAddonRequest(addon, sendId)
     local addonKey = addon:upper()
     if not self.sessionStats.requestsByAddon[addonKey] then return end
 
-    -- Deduplicate by sendId
+    -- Deduplicate by sendId.
+    -- A nil sendId can't be deduplicated (and `t[nil] = true` is a hard "table index is
+    -- nil" error, which would propagate out into the intercepting hook), so count the
+    -- request but skip the bookkeeping. Every current caller supplies one - hooks default
+    -- to 0 when CreateVerifiedSendId fails - but this runs inside a hook, where an
+    -- uncaught error is disproportionately expensive. WhoService guards the same pattern.
     TRP3FW.lastAddonRequestSendId = TRP3FW.lastAddonRequestSendId or {}
-    if not TRP3FW.lastAddonRequestSendId[sendId] then
+    if sendId == nil then
+        self.sessionStats.requestsByAddon[addonKey] = self.sessionStats.requestsByAddon[addonKey] + 1
+        TRP3FW:Debug("Tracked addon request: "..addon.." (no sendId - not deduplicated)", "send")
+    elseif not TRP3FW.lastAddonRequestSendId[sendId] then
         self.sessionStats.requestsByAddon[addonKey] = self.sessionStats.requestsByAddon[addonKey] + 1
         TRP3FW.lastAddonRequestSendId[sendId] = true
         TRP3FW.lastAddonRequestSendIdCount = (TRP3FW.lastAddonRequestSendIdCount or 0) + 1

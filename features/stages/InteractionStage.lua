@@ -1,5 +1,6 @@
 -- features/stages/InteractionStage.lua
 -- Stage 4: Interaction Check (Mutual Exchange & Recent Interaction)
+-- Stage numbers here mirror features/pipelines/DecisionPipeline.lua.
 
 local addonName, TRP3FW = ...
 

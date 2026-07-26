@@ -88,6 +88,20 @@ T.describe("Context", function()
         T.eq(ctx:GetTimestamp(), 12345)
     end)
 
+    -- Real decision contexts name their clock snapshot `now`, not `timestamp`
+    -- (TRP3FW:CreateDecisionContext). Reading `now` is what keeps GetTimestamp
+    -- from defeating the TOCTOU snapshot if a live context is ever wrapped.
+    T.it("GetTimestamp reads the decision-context `now` snapshot", function()
+        mock.setClock(999)
+        local ctx = TRP3FW.Context:New({ now = 12345 })
+        T.eq(ctx:GetTimestamp(), 12345)
+    end)
+
+    T.it("GetTimestamp prefers `now` over a stale `timestamp`", function()
+        local ctx = TRP3FW.Context:New({ now = 12345, timestamp = 500 })
+        T.eq(ctx:GetTimestamp(), 12345)
+    end)
+
     T.it("GetTimestamp falls back to the clock when unset", function()
         mock.setClock(777)
         local ctx = TRP3FW.Context:New({})

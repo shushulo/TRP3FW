@@ -122,34 +122,36 @@ function TRP3FW:Debug(msg, category)
     -- SECURITY: Redact sensitive information before output
     debugMsg = RedactSensitiveData(debugMsg)
 
-    -- Determine output destination
+    -- Determine chat output. The debug window buffer is always fed (see below), so the
+    -- destination setting only controls whether messages *also* print to chat.
     local outputToChat = TRP3FW.Prefs.debugOutputChat or TRP3FW.Prefs.debugOutputBoth
-    local outputToWindow = TRP3FW.Prefs.debugOutputWindow or TRP3FW.Prefs.debugOutputBoth
 
     -- Output to chat if enabled
     if outputToChat then
         self:PrintColored("debug", debugMsg)
     end
 
-    -- Output to debug window if enabled
-    if outputToWindow and self.AddDebugMessage then
+    -- Always buffer for the debug window while debug mode is on, whether or not the
+    -- window is open. This lets you open the window after an event and read the backlog
+    -- instead of having to leave it open waiting for a bug to happen.
+    if self.AddDebugMessage then
         self:AddDebugMessage(debugMsg, category)
     end
 end
 
 -- Time utilities
--- OPTIMIZATION: Cache monotonic time per frame (millisecond key) to avoid repeat syscalls in the same frame
--- Uses GetTimePreciseSec when available to stay monotonic and immune to system clock changes
+-- Uses GetTimePreciseSec when available to stay monotonic and immune to system clock changes.
+--
+-- This used to carry a "frame cache" (cachedTime/cachedTimeFrame) that saved nothing: the
+-- clock syscall ran UNCONDITIONALLY on the first line, before the cache was consulted, so the
+-- cache could only add a multiply/floor/compare/two writes on top of a syscall it never
+-- avoided. The key was milliseconds rather than frames besides -- at 60fps a frame is ~16.7ms,
+-- so it missed ~16x per frame even in principle. Removed rather than repaired: a real frame
+-- cache needs a permanent OnUpdate handler whose cost is unconditional, to buy a saving nobody
+-- has measured. If clock reads ever show up under `/trp3fw profile on`, build it then, against
+-- a real number.
 function TRP3FW:GetCurrentTime()
-    local now = (GetTimePreciseSec and GetTimePreciseSec() or GetTime())
-    local frameStamp = math.floor(now * 1000)
-
-    if TRP3FW.cachedTimeFrame ~= frameStamp then
-        TRP3FW.cachedTime = now
-        TRP3FW.cachedTimeFrame = frameStamp
-    end
-
-    return TRP3FW.cachedTime or now
+    return (GetTimePreciseSec and GetTimePreciseSec() or GetTime())
 end
 
 function TRP3FW:FormatTime(s)
@@ -321,19 +323,8 @@ function TRP3FW:SetTargetSoundMuted(muted)
     end
 end
 
--- SECURITY: Peek token bucket without consuming (mirrors RunPrivilegedSafe defaults)
-function TRP3FW:GetAvailablePrivilegedTokens()
-    if not self.privilegedRate then
-        return RATE_LIMIT -- Default max if not initialized
-    end
-
-    local now = self:GetCurrentTime()
-    local elapsed = now - self.privilegedRate.lastRefill
-    local refill = elapsed * RATE_LIMIT
-    local tokens = math.min(RATE_LIMIT, (self.privilegedRate.tokens or RATE_LIMIT) + refill)
-
-    return tokens
-end
+-- NOTE: GetAvailablePrivilegedTokens used to live here, but it needs both RESERVED_TOKENS and
+-- GetCategoryPriority, which are declared further down. It now sits just below them.
 
 -- ===================== Optimization #9: Three-Tier Priority System =====================
 
@@ -432,6 +423,42 @@ function TRP3FW:GetCategoryPriority(category)
     end
     -- Default to NORMAL if category not explicitly defined
     return "NORMAL", PRIORITY_CONFIG.NORMAL
+end
+
+-- SECURITY: Peek token bucket without consuming.
+--
+-- Now actually mirrors RunPrivilegedSafe, which its comment always claimed it did. It used to
+-- return the RAW bucket, ignoring reserved tokens entirely -- but RunPrivilegedSafe subtracts
+-- RESERVED_TOKENS for any priority whose config lacks canUseReserved (see the availableTokens
+-- calculation there). So a NORMAL-priority caller sizing work off this number was optimistic
+-- by exactly RESERVED_TOKENS, and the tail of a batch took rate_limit rejections it had
+-- already "budgeted" for.
+--
+-- Declared HERE rather than up with the other token helpers because it needs both
+-- RESERVED_TOKENS and GetCategoryPriority, which are locals declared above this point --
+-- referencing them any earlier would silently resolve to a nil global.
+--
+-- @param category string|nil - the same category string passed to RunPrivilegedSafe. Omitting
+--        it returns the raw bucket (previous behaviour), which is what a caller wants when it
+--        is reporting bucket health rather than sizing a batch.
+function TRP3FW:GetAvailablePrivilegedTokens(category)
+    if not self.privilegedRate then
+        return RATE_LIMIT -- Default max if not initialized
+    end
+
+    local now = self:GetCurrentTime()
+    local elapsed = now - self.privilegedRate.lastRefill
+    local refill = elapsed * RATE_LIMIT
+    local tokens = math.min(RATE_LIMIT, (self.privilegedRate.tokens or RATE_LIMIT) + refill)
+
+    if category then
+        local _, pConfig = self:GetCategoryPriority(category)
+        if pConfig and not pConfig.canUseReserved then
+            tokens = tokens - RESERVED_TOKENS
+        end
+    end
+
+    return tokens
 end
 
 -- OPTIMIZATION #5: Token Refund
@@ -546,7 +573,7 @@ function TRP3FW:RunPrivilegedSafe(code, category)
         local waitTime = math.max(0.1, tokensNeeded / RATE_LIMIT)
 
         self:Debug(function()
-            return "[PRIORITY - LOW] Deferring '"..category.."' for "..
+            return "[PRIORITY - LOW] Deferring '"..tostring(category).."' for "..
                     string.format("%.2f", waitTime).."s (tokens: "..
                     string.format("%.1f", self.privilegedRate.tokens).."/"..RATE_LIMIT..
                     ", effective: "..string.format("%.1f", availableTokens).."/"..RATE_LIMIT..
@@ -559,7 +586,7 @@ function TRP3FW:RunPrivilegedSafe(code, category)
     -- Enforce rate limit: Check if enough tokens are available for THIS priority level
     if availableTokens < 1 then
         self:Debug(function()
-            return "[SECURITY] RunPrivileged RATE LIMIT EXCEEDED for category '"..category.."' ("..pName.."). Blocking call."..
+            return "[SECURITY] RunPrivileged RATE LIMIT EXCEEDED for category '"..tostring(category).."' ("..pName.."). Blocking call."..
                     " (Tokens: "..string.format("%.1f", self.privilegedRate.tokens).."/"..RATE_LIMIT..
                     ", Effective: "..string.format("%.1f", availableTokens).."/"..RATE_LIMIT..")"
         end, "security")
@@ -587,13 +614,13 @@ function TRP3FW:RunPrivilegedSafe(code, category)
         -- SECURITY: Do NOT log `code` here — it contains interpolated player/zone names
         -- (TargetUnit("Name"), z-"Zone") that the redaction layer does not scrub, partially
         -- defeating debug redaction. The category + error is enough to diagnose failures.
-        self:Debug(function() return "[SECURITY] RunPrivileged FAILED for category '"..category.."': "..tostring(result) end, "security")
+        self:Debug(function() return "[SECURITY] RunPrivileged FAILED for category '"..tostring(category).."': "..tostring(result) end, "security")
         self.privilegedCallStats.errors = self.privilegedCallStats.errors + 1
         return false, "execution_error"
     end
 
     self:Debug(function()
-        return "[RunPrivileged] SUCCESS ("..pName.."): '"..category.."' (Tokens: "..string.format("%.1f", self.privilegedRate.tokens).."/"..RATE_LIMIT..")"
+        return "[RunPrivileged] SUCCESS ("..pName.."): '"..tostring(category).."' (Tokens: "..string.format("%.1f", self.privilegedRate.tokens).."/"..RATE_LIMIT..")"
     end, "security")
 
     return true, result
@@ -649,6 +676,12 @@ function TRP3FW:ValidateSettings()
     -- M7: Bounds only. Defaults are pulled from `TRP3FW.defaultSettings` so there's a
     -- single source of truth — bad input now resets to the documented default rather
     -- than a separate (often stale) value local to this function.
+    --
+    -- Every name here must also exist in defaultSettings. A name that doesn't is read
+    -- as nil, fails the type check, and gets *written into the user's saved profile*
+    -- as a phantom key (falling back to setting.min), plus a misleading
+    -- "[SECURITY] Invalid ..." line every login. `phaseRefreshCooldown` was doing
+    -- exactly that — it existed only in this table and was read nowhere.
     local numericSettings = {
         {name = "suppressionTime", min = 0, max = 3600},
         {name = "scanCacheDuration", min = 10, max = 600},
@@ -662,7 +695,6 @@ function TRP3FW:ValidateSettings()
         {name = "interactionRefreshRate", min = 0, max = 100},
         {name = "sendCacheRefreshRate", min = 0, max = 100},
         {name = "whoCacheRefreshThreshold", min = 0, max = 100},
-        {name = "phaseRefreshCooldown", min = 0, max = 300},
         {name = "statusRefreshRate", min = 2, max = 120},
         {name = "validatedNamesCacheDuration", min = 86400, max = 2592000}, -- 1-30 days (in seconds)
         {name = "validatedNamesCacheLimit", min = 500, max = 10000},        -- 500-10000 entries

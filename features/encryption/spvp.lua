@@ -1,8 +1,32 @@
 -- ===================================================================
 -- TRP3 Firewall - SPVP (Secure Phase Verification Protocol) v2.5
 -- ===================================================================
--- SPEKE-based cryptographic phase verification
--- Uses server-side phase salt + SPEKE handshake to prevent spoofing
+-- SPEKE-based phase verification.
+-- Uses a server-side phase salt + SPEKE handshake to prevent spoofing.
+--
+-- THREAT MODEL -- READ BEFORE RELYING ON THIS.
+--
+-- SPVP raises the cost of *casually* forging phase presence. It is NOT cryptographically
+-- strong and must not be treated as a security boundary:
+--
+--   * DH_PRIME is 90000049 (~2^26.4). Recovering a private exponent is a discrete log in a
+--     26-bit group. Measured: a private key was recovered in 0.16s of plain interpreted Lua
+--     on a single core; an exhaustive sweep of the whole group is ~2s. A determined attacker
+--     with the phase salt breaks a session essentially instantly.
+--   * The shared secret is compressed to 32 bits by FNV-1a (HashKey), which is a
+--     non-cryptographic hash chosen for speed. Collisions are findable by design.
+--   * The whole scheme rests on the phase salt staying secret. Anyone who can read the
+--     phase's addon data -- which on Epsilon includes phase owners and officers -- can
+--     derive the generator and impersonate any member of that phase.
+--
+-- These are inherent to Lua 5.1: doubles give exact integers only to 2^53, so a modmul in a
+-- group large enough to matter overflows. Bignum arithmetic in interpreted Lua on the WoW
+-- client is not viable for a per-send handshake. The design is a deliberate trade, not an
+-- oversight -- but the name says "Secure", so the limitation is stated here rather than
+-- left for a reader to infer from the constant.
+--
+-- Appropriate use: making phase spoofing inconvenient for the casual case.
+-- Inappropriate use: anything where being wrong has real consequences for the user.
 -- ===================================================================
 
 local addonName, TRP3FW = ...
@@ -11,7 +35,9 @@ local addonName, TRP3FW = ...
 -- CONSTANTS
 -- ===================================================================
 
--- Diffie-Hellman prime (26-bit, max safe for Lua 5.1 doubles)
+-- Diffie-Hellman prime (26-bit, max safe for Lua 5.1 doubles).
+-- See the threat-model note above: this size is a hard constraint of the platform, and it
+-- puts SPVP well below cryptographic strength.
 local DH_PRIME = 90000049
 
 -- SPVP protocol version
@@ -558,7 +584,99 @@ TRP3FW.spvpSessions = {}
 TRP3FW.spvpIncomingSessions = {} -- [sessionID] = {sharedKey, sender, timestamp} (Bob's state)
 TRP3FW.spvpFailedAttempts = {}
 TRP3FW.pendingSaltTickets = {} -- [ticket] = phaseID
-TRP3FW.pendingSPVPInits = {}   -- [{sender, message}] - Queued while salt loads
+TRP3FW.pendingSPVPInits = {}   -- [{sender, message, phaseID, queuedAt}] - Queued while salt loads
+
+-- Bound on pendingSPVPInits. This queue is fed DIRECTLY from the CHAT_MSG_ADDON handler --
+-- any player can whisper us an INIT -- and it previously had no cap and no expiry. Replay
+-- detection does not bound it either: it only rejects a REPEATED sessionID, and a sender
+-- picks their own sessionID, so a fresh one per packet queues without limit. If the salt
+-- ticket response never arrives, nothing ever drains the queue.
+TRP3FW.SPVP_PENDING_INIT_LIMIT = 50
+TRP3FW.SPVP_PENDING_INIT_TTL = 30  -- seconds; salt tickets resolve in well under this
+
+--- Drop queued INITs that are too old to be worth answering, and enforce the cap.
+--- @return number - how many entries were discarded
+function TRP3FW:PrunePendingSPVPInits()
+    local queue = self.pendingSPVPInits
+    if not queue or #queue == 0 then return 0 end
+
+    local now = self:GetCurrentTime()
+    local ttl = self.SPVP_PENDING_INIT_TTL or 30
+    local dropped = 0
+
+    for i = #queue, 1, -1 do
+        local age = now - (queue[i].queuedAt or 0)
+        if age >= ttl then
+            table.remove(queue, i)
+            dropped = dropped + 1
+        end
+    end
+
+    -- Cap: drop OLDEST first. The newest INIT is the one whose sender is still waiting.
+    local limit = self.SPVP_PENDING_INIT_LIMIT or 50
+    while #queue > limit do
+        table.remove(queue, 1)
+        dropped = dropped + 1
+    end
+
+    if dropped > 0 then
+        self:Debug("[SPVP] Pruned "..dropped.." stale/overflow pending INIT(s)", "spvp")
+    end
+    return dropped
+end
+
+-- Bound on spvpIncomingSessions (Bob's half-open handshake state).
+--
+-- Same exposure as pendingSPVPInits and it had the same gap: an entry is written for EVERY
+-- valid INIT we answer, but removed only when a matching CONFIRM arrives. An attacker who
+-- sends INITs with fresh session IDs and never confirms leaves one entry per packet, forever
+-- -- and replay detection does not help, because a NEW sessionID is not a replay. Each entry
+-- also pins a derived shared key. The table already carried a `timestamp` that nothing read.
+--
+-- A handshake that has not completed within the protocol's own timeout is dead: Alice gives
+-- up at SPVP_TIMEOUT_SECONDS, so her CONFIRM can never arrive after that.
+TRP3FW.SPVP_INCOMING_SESSION_LIMIT = 100
+
+--- Drop half-open incoming sessions past the handshake timeout, and enforce the cap.
+--- @return number - how many entries were discarded
+function TRP3FW:PruneSPVPIncomingSessions()
+    local sessions = self.spvpIncomingSessions
+    if not sessions then return 0 end
+
+    local now = self:GetCurrentTime()
+    -- Generous multiple of the handshake timeout: this is a backstop against unbounded
+    -- growth, not a second deadline competing with the protocol's own.
+    local ttl = SPVP_TIMEOUT_SECONDS * 4
+    local dropped = 0
+
+    for sessionID, entry in pairs(sessions) do
+        if now - (entry.timestamp or 0) >= ttl then
+            sessions[sessionID] = nil
+            dropped = dropped + 1
+        end
+    end
+
+    -- Hard cap for a flood tight enough to outrun the TTL sweep: evict oldest first.
+    local limit = self.SPVP_INCOMING_SESSION_LIMIT or 100
+    local count = 0
+    for _ in pairs(sessions) do count = count + 1 end
+    while count > limit do
+        local oldestID, oldestTime = nil, math.huge
+        for sessionID, entry in pairs(sessions) do
+            local ts = entry.timestamp or 0
+            if ts < oldestTime then oldestID, oldestTime = sessionID, ts end
+        end
+        if not oldestID then break end
+        sessions[oldestID] = nil
+        count = count - 1
+        dropped = dropped + 1
+    end
+
+    if dropped > 0 then
+        self:Debug("[SPVP] Pruned "..dropped.." stale/overflow incoming session(s)", "spvp")
+    end
+    return dropped
+end
 
 --- Handle asynchronous salt response from Epsilon
 --- @param ticket string - The request ticket (prefix)
@@ -580,15 +698,22 @@ function TRP3FW:HandleSaltResponse(ticket, salt)
             })
         end
 
-        -- Fail any pending INITs for this phase (we can't verify)
-        if #self.pendingSPVPInits > 0 then
-            for _, pending in ipairs(self.pendingSPVPInits) do
+        -- Fail pending INITs FOR THIS PHASE ONLY (we can't verify them).
+        -- This used to walk the whole queue and then wipe it, so a salt response for one
+        -- phase NOSALT'd and discarded entries queued under a different one -- and the
+        -- comment already said "for this phase", which is what it should have been doing.
+        self:PrunePendingSPVPInits()
+        local remaining = {}
+        for _, pending in ipairs(self.pendingSPVPInits) do
+            if pending.phaseID == phaseID then
                 -- Inform sender we have no salt
                 local reply = string.format("NOSALT:%s", pending.message:match("^INIT:.-:(%w+):") or "0")
                 C_ChatInfo.SendAddonMessage("TRP3FW_SPVP", reply, "WHISPER", pending.sender)
+            else
+                table.insert(remaining, pending)
             end
-            self.pendingSPVPInits = {}
         end
+        self.pendingSPVPInits = remaining
 
         return
     end
@@ -609,14 +734,33 @@ function TRP3FW:HandleSaltResponse(ticket, salt)
         end
     end
 
-    -- Process pending INITs that were waiting for this salt
+    -- Process pending INITs that were waiting for THIS phase's salt.
+    -- Entries queued under a different phase are left in place for their own salt response:
+    -- replaying them here would verify them against this phase's salt, since HandleSPVPInit
+    -- re-reads GetCurrentPhaseID() rather than trusting the queued entry.
+    self:PrunePendingSPVPInits()
     if #self.pendingSPVPInits > 0 then
-        self:Debug(string.format("Processing %d pending SPVP INITs for phase %d", #self.pendingSPVPInits, phaseID), "spvp")
+        local ready, remaining = {}, {}
         for _, pending in ipairs(self.pendingSPVPInits) do
-            -- Re-handle the INIT now that we have the salt
-            self:HandleSPVPInit(pending.message, pending.sender)
+            if pending.phaseID == phaseID then
+                table.insert(ready, pending)
+            else
+                table.insert(remaining, pending)
+            end
         end
-        self.pendingSPVPInits = {}
+
+        -- Reassign BEFORE replaying: HandleSPVPInit can re-enter this queue (it re-queues
+        -- when the salt reads as still-loading), and replaying against a list we are about
+        -- to overwrite would discard those new entries.
+        self.pendingSPVPInits = remaining
+
+        if #ready > 0 then
+            self:Debug(string.format("Processing %d pending SPVP INITs for phase %d", #ready, phaseID), "spvp")
+            for _, pending in ipairs(ready) do
+                -- Re-handle the INIT now that we have the salt
+                self:HandleSPVPInit(pending.message, pending.sender)
+            end
+        end
     end
 end
 
@@ -767,8 +911,18 @@ function TRP3FW:HandleSPVPInit(message, sender)
     if salt == nil then
         -- Salt is loading asynchronously (Ticket)
         -- Queue this INIT and wait for HandleSaltResponse to process it
-        table.insert(self.pendingSPVPInits, { sender = sender, message = message })
-        TRP3FW:Debug("Queued SPVP INIT from " .. sender .. " (waiting for salt ticket)", "spvp")
+        -- Record the phase this INIT was queued UNDER. HandleSPVPInit re-reads
+        -- GetCurrentPhaseID() when the entry is replayed, so without this a queued INIT that
+        -- drains after a phase change is verified against the NEW phase's salt.
+        table.insert(self.pendingSPVPInits, {
+            sender = sender,
+            message = message,
+            phaseID = phaseID,
+            queuedAt = TRP3FW:GetCurrentTime(),
+        })
+        TRP3FW:PrunePendingSPVPInits()
+        TRP3FW:Debug("Queued SPVP INIT from " .. sender .. " (waiting for salt ticket, phase "
+            .. tostring(phaseID) .. ")", "spvp")
         TRP3FW.profiler.stop("SPVP:HandleInit")
         return
     elseif salt == "" then
@@ -792,7 +946,10 @@ function TRP3FW:HandleSPVPInit(message, sender)
     local theirPublicKey = tonumber(publicKey)
     local sharedKey = DeriveSharedKey(theirPublicKey, privateKey)
 
-    -- Store incoming session state for Bob (to verify Alice's upcoming CONFIRM)
+    -- Store incoming session state for Bob (to verify Alice's upcoming CONFIRM).
+    -- Prune first: this table is written from a network handler and is only cleared by a
+    -- matching CONFIRM, so without a sweep here a peer that never confirms grows it forever.
+    TRP3FW:PruneSPVPIncomingSessions()
     TRP3FW.spvpIncomingSessions[sessionID] = {
         sharedKey = sharedKey,
         sender = sender,
@@ -901,7 +1058,6 @@ function TRP3FW:HandleSPVPReply(message, sender)
     if verifier == expectedVerifier then
         -- Verification passed!
         TRP3FW:Debug(string.format("SPVP SUCCESS: %s verified (session: %s)", sender, sessionID), "spvp")
-        TRP3FW:Debug(string.format("SPVP verified: %s (session: %s)", sender, sessionID), "spvp")
 
         -- Cache result
         local CI = TRP3FW.CacheInterface
@@ -959,28 +1115,60 @@ end
 -- ===================================================================
 
 --- Get current phase ID (with caching)
+---
+--- Delegates to GetCachedPhaseID (core/utils.lua) rather than keeping its own cache.
+---
+--- BUG FIXED: these were two separate caching implementations that SHARED the
+--- `TRP3FW.cachedPhaseID` value but tracked its freshness independently and incompatibly:
+---
+---   GetCachedPhaseID   TTL 1s, timestamp in `cachedPhaseTimestamp`, clock = time()
+---                      (wall-clock seconds)
+---   GetCurrentPhaseID  TTL 5s, timestamp in `cachedPhaseIDTime`,    clock = GetCurrentTime()
+---                      (monotonic uptime)
+---
+--- Two different epochs, so the timestamps were not comparable quantities at all.
+---
+--- The concrete defect was the 5s TTL: nearly every phase-sensitive caller in the addon uses
+--- GetCurrentPhaseID (SPVPStage, cascading, decision, the salt paths, the UI), and all of them
+--- could act on a phase ID up to 5 seconds out of date, while the addon's stated phase-cache
+--- contract is 1s (PHASE_CACHE_TTL).
+---
+--- Verified by direct execution that the reverse direction was NOT corrupting: because the old
+--- GetCurrentPhaseID never wrote `cachedPhaseTimestamp`, GetCachedPhaseID always saw a huge
+--- apparent age and refetched -- it failed safe. So ghost mode's start-phase check was not
+--- reading stale values; the exposure was confined to GetCurrentPhaseID's own callers.
+---
+--- One cache, one clock, one owner. GetCachedPhaseID is the owner because it holds the tighter
+--- TTL; this stays as the name most callers use.
 --- @return number|nil - Phase ID or nil if unavailable
 function TRP3FW:GetCurrentPhaseID()
     if not C_Epsilon or not C_Epsilon.GetPhaseId then
         return nil
     end
-
-    -- Cache phase ID to avoid repeated API calls
-    local now = TRP3FW:GetCurrentTime()
-    if TRP3FW.cachedPhaseID and TRP3FW.cachedPhaseIDTime and (now - TRP3FW.cachedPhaseIDTime) < 5 then
-        return TRP3FW.cachedPhaseID
+    -- GetCachedPhaseID additionally requires the hasEpsilonAPI detection flag. Keep this
+    -- function's historical contract (API present is enough) by falling back to a direct read
+    -- when the flag has not been set yet -- rather than loosening GetCachedPhaseID's guard,
+    -- which would change behaviour for its own callers (ghost mode's start-phase check).
+    if not self.hasEpsilonAPI then
+        return tonumber(C_Epsilon.GetPhaseId())
     end
-
-    local phaseID = tonumber(C_Epsilon.GetPhaseId())
-    TRP3FW.cachedPhaseID = phaseID
-    TRP3FW.cachedPhaseIDTime = now
-
-    return phaseID
+    return self:GetCachedPhaseID()
 end
 
 -- ===================================================================
 -- PUBLIC API
 -- ===================================================================
+
+--- Short, non-reversible fingerprint of a salt, for DIAGNOSTICS ONLY.
+--- Lets a user answer "is my cached salt the same as the API's?" or "did the salt change?"
+--- without any salt material reaching chat, the debug window, or a pasted support log.
+--- Never use this for verification -- it is a 32-bit hash, not a MAC.
+--- @param salt string|nil
+--- @return string - 8 hex chars, or a descriptive placeholder
+function TRP3FW:GetSaltFingerprint(salt)
+    if type(salt) ~= "string" or salt == "" then return "none" end
+    return string.format("%08x", FNV1aHash(salt))
+end
 
 -- Export functions for external use
 TRP3FW.SPVP = {

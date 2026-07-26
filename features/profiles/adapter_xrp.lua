@@ -51,7 +51,7 @@ function XRPAdapter:GetProfiles()
         end
     end
 
-    if TRP3FW:ShouldLogProfileCount() then
+    if TRP3FW:ShouldLogProfileCount("XRP") then
         TRP3FW:Debug("XRP adapter: Found "..#profiles.." profiles", "hooks")
     end
     return profiles

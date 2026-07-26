@@ -24,7 +24,9 @@ function H.newNamespace()
     -- Profiler stub (spvp.lua calls profiler.start/stop)
     TRP3FW.profiler = { start = function() end, stop = function() end }
 
-    -- Frame-cached time -> mock clock
+    -- Monotonic clock -> mock clock. NOTE: this stub replaces the real GetCurrentTime, so
+    -- nothing in that function is covered by the headless suite; changes to it need in-game
+    -- verification.
     function TRP3FW:GetCurrentTime() return mock.clock end
 
     return TRP3FW

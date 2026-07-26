@@ -75,6 +75,67 @@ _G.UnitFactionGroup = function() return "Alliance" end
 _G.GetCursorPosition = function() return 100, 200 end
 _G.GetFramerate = function() return 60 end
 
+-- WoW exposes Lua's os.date as a bare `date` global. spvp_auto_init formats a salt's
+-- generation timestamp with it; absent here only because no spec had reached that line.
+_G.date = os.date
+
+-- WoW's table-clearing global. Production uses it in CacheService, HistoryService and
+-- msp_exchange; it was absent here only because no spec had reached one of those lines yet.
+_G.wipe = function(t)
+    for k in pairs(t) do t[k] = nil end
+    return t
+end
+_G.table.wipe = _G.wipe
+
+-- Addon memory profiling. HistoryService:RecordPerformance calls these whenever
+-- performanceHistoryEnabled is set, so they must exist for that path to be testable.
+M.addonMemoryKB = 512
+_G.UpdateAddOnMemoryUsage = function() end
+_G.GetAddOnMemoryUsage = function() return M.addonMemoryKB end
+
+-- ===================== Frames =====================
+-- Minimal frame stub. Some modules build an event frame at file scope (e.g.
+-- location/maps.lua's CHAT_MSG_ADDON listener), so CreateFrame has to exist merely to
+-- load them; specs then need to drive the captured handler, hence Fire(). Unknown frame
+-- methods degrade to no-ops rather than erroring - frames collect a lot of incidental
+-- layout calls that specs don't care about.
+M.frames = {}
+
+local FRAME_METHODS = {}
+function FRAME_METHODS:RegisterEvent(event) self.events[event] = true end
+function FRAME_METHODS:UnregisterEvent(event) self.events[event] = nil end
+function FRAME_METHODS:UnregisterAllEvents() self.events = {} end
+function FRAME_METHODS:IsEventRegistered(event) return self.events[event] == true end
+function FRAME_METHODS:SetScript(name, fn) self.scripts[name] = fn end
+function FRAME_METHODS:GetScript(name) return self.scripts[name] end
+function FRAME_METHODS:Show() self.shown = true end
+function FRAME_METHODS:Hide() self.shown = false end
+function FRAME_METHODS:IsShown() return self.shown end
+
+-- Replay an event through this frame's OnEvent handler the way the client would.
+function FRAME_METHODS:Fire(event, ...)
+    if self.scripts.OnEvent then self.scripts.OnEvent(self, event, ...) end
+end
+
+local frameMeta = {
+    __index = function(_, key)
+        return FRAME_METHODS[key] or function() end
+    end
+}
+
+_G.CreateFrame = function(frameType, name)
+    local f = setmetatable({
+        frameType = frameType, frameName = name,
+        events = {}, scripts = {}, shown = false,
+    }, frameMeta)
+    table.insert(M.frames, f)
+    return f
+end
+
+-- The most recently created frame - how a spec gets hold of a module-scoped event frame
+-- it never receives a reference to.
+M.lastFrame = function() return M.frames[#M.frames] end
+
 -- C_Timer: run the callback synchronously-deferred queue (tests can flush).
 M.timers = {}
 _G.C_Timer = {
@@ -101,6 +162,20 @@ _G.C_ChatInfo = {
     end,
     RegisterAddonMessagePrefix = function() return true end,
 }
+
+-- Slash command registry. commands.lua assigns SLASH_TRP3FW1 and
+-- SlashCmdList.TRP3FW at file scope, so the table must exist merely to load it;
+-- specs then invoke SlashCmdList.TRP3FW(msg) to drive a real command.
+_G.SlashCmdList = _G.SlashCmdList or {}
+
+-- Zone/location globals read by the `location` and `phasecheck` commands.
+M.zone = "Elwynn Forest"
+M.subZone = ""
+M.minimapZone = ""
+_G.GetRealZoneText = function() return M.zone end
+_G.GetZoneText = function() return M.zone end
+_G.GetSubZoneText = function() return M.subZone end
+_G.GetMinimapZoneText = function() return M.minimapZone end
 
 -- No Epsilon API by default (tests opt in by setting _G.C_Epsilon)
 _G.C_Epsilon = nil

@@ -25,8 +25,13 @@ function WhoService:Initialize()
     self.cooldownActive = false
 
     self.zoneLimitState = { zoneName = nil, hits = 0, untilTs = 0, lastHit = 0 }
-    self.lastZoneQueryTime = 0
-    self.lastZoneResultCount = 0
+    -- nil, not 0: lastZoneResultCount gates the "that zone scan was complete, so this
+    -- player really isn't here" shortcut in CheckPlayer. 0 is a legitimate result count
+    -- (an empty zone) and so reads as a complete scan; nil is the only value that means
+    -- "no scan has produced a count yet". Kept in lockstep with lastZoneQueryTime: both
+    -- are reset when a zone query is ISSUED and only lastZoneResultCount is set when
+    -- results arrive, so the pair is never half-updated.
+    self.lastZoneResultCount = nil
 
     self:InitializeSuppression()
 
@@ -249,13 +254,26 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
     -- we can assume a "Not Found" in whoName is a definitive "Not in Zone" without a new query.
     local currentZone = TRP3FW.currentZoneName
     if currentZone and currentZone ~= "" and currentZone ~= "Unknown" then
-        local zoneCache = CI and CI:Get("whoZone", playerName) -- This actually checks if PLAYER is in zone cache
+        -- (There used to be a `CI:Get("whoZone", playerName)` read here whose result was
+        -- never used. Besides being dead, CI:Get is not side-effect free - it counts a
+        -- hit/miss against the whoZone cache and reorders its LRU - so it was skewing
+        -- the stats the Status tab reports.)
+        --
         -- We need to know if the ZONE ITSELF was scanned recently.
-        -- WhoService tracks this via self.lastZoneQueryTime and self.lastZoneResultCount
+        -- WhoService tracks this via self.lastZoneQueryTime and self.lastZoneResultCount.
+        --
+        -- The `lastZoneQueryTime > 0` guard is load-bearing, not defensive. Both fields
+        -- start at 0, and 0 otherwise reads as "scanned at t=0, found 0 players, so the
+        -- scan was complete". Our clock is client uptime, so for the first 60 seconds of
+        -- uptime `now - 0 < 60` held and this branch answered EVERY WHO check with
+        -- not-found without ever querying - location checks failed shut for anyone who
+        -- reached the world quickly. 0 means "never scanned", and never-scanned proves
+        -- nothing.
         local zoneAge = now - (self.lastZoneQueryTime or 0)
         local zoneTTL = 60 -- Only trust "completeness" of a zone scan for 60 seconds
 
-        if zoneAge < zoneTTL and self.lastZoneResultCount and self.lastZoneResultCount < WHO_RESULT_LIMIT then
+        if (self.lastZoneQueryTime or 0) > 0 and zoneAge < zoneTTL
+           and self.lastZoneResultCount and self.lastZoneResultCount < WHO_RESULT_LIMIT then
              -- The last zone scan was recent and complete. If they aren't in whoName/whoZone cache, they aren't here.
              TRP3FW:Debug("[WhoService] Zone scan was recent ("..zoneAge.."s) and complete ("..self.lastZoneResultCount.." results). Skipping query for "..playerName, "who")
 
@@ -288,10 +306,27 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
             return
         end
 
-        -- Dedupe existing entry
+        -- Dedupe existing entry.
+        -- Both callers are waiting on the same answer, so collapse them onto one queue
+        -- slot but CHAIN the callbacks. Overwriting the entry outright (as this used to
+        -- do) dropped the earlier caller's callback on the floor: it was never told
+        -- found, not-found, or timed out, so whatever was awaiting it - a pendingSends
+        -- entry, a location check - simply hung.
         for i = self.queueHead, #self.queryQueue do
-            if self.queryQueue[i].playerName == playerName then
-                self.queryQueue[i] = { playerName = playerName, sendId = sendId, callback = callback, trackStats = trackStats, forceNameOnly = forceNameOnly, priority = priority, timestamp = now }
+            local existing = self.queryQueue[i]
+            if existing.playerName == playerName then
+                local previousCallback = existing.callback
+                local mergedCallback = callback
+                if previousCallback and callback and previousCallback ~= callback then
+                    mergedCallback = function(...)
+                        previousCallback(...)
+                        callback(...)
+                    end
+                elseif not callback then
+                    mergedCallback = previousCallback
+                end
+
+                self.queryQueue[i] = { playerName = playerName, sendId = sendId, callback = mergedCallback, trackStats = trackStats, forceNameOnly = forceNameOnly, priority = priority, timestamp = now }
                 return
             end
         end
@@ -390,7 +425,14 @@ function WhoService:CheckPlayer(playerName, sendId, callback, trackStats, forceN
         zoneName = useZoneQuery and zoneName or nil
     }
     self.cooldownActive = true
-    if useZoneQuery then self.lastZoneQueryTime = now end
+    if useZoneQuery then
+        -- Invalidate the previous scan's count as the new query goes out. Stamping the
+        -- time here while leaving the old count in place left the pair describing two
+        -- different scans, and the completeness shortcut would read "scanned just now,
+        -- found N" for the whole in-flight window.
+        self.lastZoneQueryTime = now
+        self.lastZoneResultCount = nil
+    end
 
     TRP3FW.whoQuerySentTime = now -- For suppression
 
@@ -589,16 +631,22 @@ function WhoService:ScanZoneForPlayers(callback)
     }
     self.cooldownActive = true
     self.lastZoneQueryTime = now
+    self.lastZoneResultCount = nil  -- see CheckPlayer: the pair must move together
     TRP3FW.whoQuerySentTime = now
 
     local whoQuery = 'z-"'..sanitizedZone..'"'
     local privilegedCode = 'C_FriendList.SetWhoToUi(false); C_FriendList.SendWho([['..whoQuery..']])'
 
+    -- Both exit paths below must drain the queue. Clearing pendingQuery/cooldownActive
+    -- reopens the gate that made CheckPlayer queue in the first place, but nothing else
+    -- pumps it - so anything queued behind this scan would sit untouched until it aged
+    -- out at 60s as "queue_timeout". Every exit in CheckPlayer already does this.
     local success, err = TRP3FW:RunPrivilegedSafe(privilegedCode, "who_zone_scan")
     if not success then
         self.pendingQuery = nil
         self.cooldownActive = false
         if callback then callback(false, {}, err or "error") end
+        self:ProcessQueue()
         return
     end
 
@@ -608,6 +656,7 @@ function WhoService:ScanZoneForPlayers(callback)
             self.pendingQuery = nil
             self.cooldownActive = false
             if cb then cb(false, {}, "timeout") end
+            self:ProcessQueue()
         end
     end)
 end

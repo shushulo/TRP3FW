@@ -75,7 +75,10 @@ local SETTING_LEVELS = {
     scanCacheDuration = 3, scanCacheFailureDuration = 3,
     whoZoneQueryCooldown = 3, whoZoneCacheDuration = 3, whoNameCacheDuration = 3, whoCacheRefreshThreshold = 3,
     phaseCheckBatchMode = 3, phaseCheckBatchSize = 3, phaseCheckBatchDelay = 3,
-    phaseCheckBatchMinSize = 3, phaseCheckBatchInterDelay = 3,
+    -- phaseCheckInterTargetDelay, NOT phaseCheckBatchInterDelay: the latter is not
+    -- a setting anywhere (core/init.lua:130 defines the former), so the slider fell
+    -- through to the level-4 default and hid below the Everything level.
+    phaseCheckBatchMinSize = 3, phaseCheckInterTargetDelay = 3,
     spvpAutoInitialize = 3, spvpBlockDuration = 3, spvpSaltCacheDuration = 3,
     spvpVerifiedCacheDuration = 3, spvpVerifiedRefreshRate = 3,
     -- Level 4 (Everything): Developer/diagnostic
@@ -321,6 +324,11 @@ function TRP3FW:UpdateStatusTab()
     -- Recent events
     if uiElements.statusRecentEvents then
         local history = TRP3FW.notificationHistory or {}
+        -- Display-only grouping window for the "(xN)" collapse below. Deliberately NOT
+        -- Prefs.suppressionTime: that governs whether a notification FIRES AT ALL (default
+        -- 600s), whereas this only decides how far apart two already-recorded events can be
+        -- and still be shown as one line. Reading the pref here would widen the visual
+        -- grouping twentyfold at the default and collapse unrelated events together.
         local suppressWindow = 30
 
         -- Optimization: Reuse display objects to prevent garbage churn
@@ -337,8 +345,16 @@ function TRP3FW:UpdateStatusTab()
                 local ts = entry.timestamp or 0
                 local index = seen[key]
 
-                -- Check if we've seen this player recently (using index to look up prev timestamp)
-                if index and display[index] and (display[index].ts - ts) <= suppressWindow then
+                -- Check if we've seen this player recently (using index to look up prev
+                -- timestamp). notificationHistory is newest-first (HistoryService:RecordHistory
+                -- inserts at index 1), so for a later entry from the same player `ts` is the
+                -- OLDER value and the difference reads "how much older is this one" -- the
+                -- intended direction. The `>= 0` bound matters though: without it a NEGATIVE
+                -- gap also satisfied `<= 30`, so out-of-order timestamps (clock jitter between
+                -- uptime samples, or any future change to insertion order) would collapse
+                -- arbitrarily distant events into one line.
+                local gap = index and display[index] and (display[index].ts - ts)
+                if gap and gap >= 0 and gap <= suppressWindow then
                     local item = display[index]
                     item.count = (item.count or 1) + 1
                 else
@@ -383,7 +399,10 @@ function TRP3FW:UpdateStatusTab()
             local item = display[i]
             if i <= displayCount and item and item.entry then
                 local entry = item.entry
-                local ts = entry.timestamp and date("%H:%M:%S", entry.timestamp) or "--"
+                -- wallTime, not timestamp: entry.timestamp is client uptime (see
+                -- HistoryService:RecordHistory), and date() reads its argument as a
+                -- Unix epoch - passing uptime rendered every row as a 1970 time.
+                local ts = entry.wallTime and date("%H:%M:%S", entry.wallTime) or "--"
                 local player = entry.player or "Unknown"
                 local addon = entry.addon or "?"
                 local countSuffix = (item.count and item.count > 1) and string.format(" (x%d)", item.count) or ""
@@ -612,7 +631,9 @@ function TRP3FW:RefreshUI()
         setControlEnabled(uiElements.scanResponseWhoModeDropdown, hasEpsilon)
 
         setControlEnabled(uiElements.notifyOnScanAllow, gatingActive)
-        setControlEnabled(uiElements.scanResponseRequireNonce, gatingActive)
+        -- Always disabled: nonce verification is not implemented (nothing transmits the
+        -- nonce), so the control must never look actionable.
+        setControlEnabled(uiElements.scanResponseRequireNonce, false)
         setControlEnabled(uiElements.scanResponseCacheEnabled, gatingActive)
         setControlEnabled(uiElements.scanResponseAllowCacheBypass, gatingActive)
         setControlEnabled(uiElements.scanResponseAllowGroupBypass, gatingActive)
@@ -750,6 +771,22 @@ function TRP3FW:RefreshUI()
     end
     if uiElements.spvpSaltCacheDurationSlider then
         uiElements.spvpSaltCacheDurationSlider:SetValue(p.spvpSaltCacheDuration or 10800)
+    end
+
+    -- Phase-batching sliders (ui/tabs/Debug.lua). These live under "<key>Slider"
+    -- keys, so neither the `checks` nor the `edits` loop above reaches them --
+    -- without these lines they kept whatever value SetMinMaxValues clamped them
+    -- to at construction (the minimum), regardless of the stored pref. Defaults
+    -- match core/init.lua:127-130.
+    local batchSliders = {
+        { "phaseCheckBatchSizeSlider",        "phaseCheckBatchSize",        5   },
+        { "phaseCheckBatchDelaySlider",       "phaseCheckBatchDelay",       1.0 },
+        { "phaseCheckBatchMinSizeSlider",     "phaseCheckBatchMinSize",     3   },
+        { "phaseCheckInterTargetDelaySlider", "phaseCheckInterTargetDelay", 0.1 },
+    }
+    for _, s in ipairs(batchSliders) do
+        local widget, key, default = uiElements[s[1]], s[2], s[3]
+        if widget then widget:SetValue(p[key] or default) end
     end
 
     if uiElements.modeSummary then

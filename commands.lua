@@ -6,9 +6,19 @@ local addonName, TRP3FW = ...
 -- Register slash command
 SLASH_TRP3FW1 = "/trp3fw"
 SlashCmdList.TRP3FW = function(msg)
-    local cmd, rest = msg:match("^(%S+)%s*(.*)$")
+    local cmd, rest = (msg or ""):match("^(%S+)%s*(.*)$")
     cmd = (cmd or ""):lower()
     rest = rest or ""
+
+    -- Whitespace-split arguments of `rest`, available to every branch below.
+    -- The batch/priority/refund handlers read args[1]/args[2] but each of the
+    -- three `local args = {}` declarations further down is scoped to its own
+    -- elseif block, so those reads resolved to a nil global and every one of
+    -- those subcommands errored on its first line. Built once, up here.
+    local args = {}
+    for word in rest:gmatch("%S+") do
+        table.insert(args, word)
+    end
 
     if cmd == "" or cmd == "help" then
         TRP3FW:ShowHelp()
@@ -171,7 +181,7 @@ SlashCmdList.TRP3FW = function(msg)
 				TRP3FW:Info("  Notify: "..(TRP3FW.Prefs.notifyOnScanResponse and "|cff00ff00on|r" or "|cffaaaaaaoff|r"))
 	            TRP3FW:Info("  Phase mode: "..phaseMode)
 	            TRP3FW:Info("  Map mode: "..mapMode)
-                TRP3FW:Info("  Strict nonce: "..(TRP3FW.Prefs.scanResponseRequireNonce and "|cff00ff00on|r (reject missing nonces)" or "|cffaaaaaaoff|r (accept missing for compatibility)"))
+                TRP3FW:Info("  Strict nonce: |cff888888unavailable|r (not implemented - the scan protocol cannot carry a nonce back)")
 	            TRP3FW:Info("  Cache scan WHO results: "..(TRP3FW.Prefs.scanResponseCacheEnabled and "|cff00ff00on|r" or "|cffaaaaaaoff|r").." (only when WHO runs)")
 	            TRP3FW:Info("  Cache bypass (allowed/interaction/phase): "..(TRP3FW.Prefs.scanResponseAllowCacheBypass and "|cff00ff00on|r" or "|cffaaaaaaoff|r"))
                 TRP3FW:Info("Usage: /trp3fw scanreply notify|phasemode <off|alert|block>|mapmode <off|alert|block>|nonce|cache|bypass")
@@ -179,12 +189,10 @@ SlashCmdList.TRP3FW = function(msg)
 	            TRP3FW.Prefs.notifyOnScanResponse = not TRP3FW.Prefs.notifyOnScanResponse
 	            TRP3FW:Info("Scan reply notifications "..(TRP3FW.Prefs.notifyOnScanResponse and "|cff00ff00enabled|r" or "|cffaaaaaadisabled|r"))
         elseif arg == "nonce" then
-            TRP3FW.Prefs.scanResponseRequireNonce = not TRP3FW.Prefs.scanResponseRequireNonce
-            if TRP3FW.Prefs.scanResponseRequireNonce then
-                TRP3FW:Info("Scan replies now require nonce tokens (older scanners without nonce will be ignored)")
-            else
-                TRP3FW:Info("Scan replies accept missing nonce tokens (compatibility mode)")
-            end
+            -- Deliberately does NOT toggle the pref. Nothing transmits the nonce, so turning
+            -- this on would ignore every scan reply and disable map checking outright.
+            TRP3FW:Warn("Strict nonce verification is not implemented and has no effect.")
+            TRP3FW:Info("The scan request is TRP3's own broadcast and reply hooks forward their arguments verbatim, so no responder can echo a nonce back. Enabling it would ignore every scan reply and fail map checking shut, so it is hard-disabled in code.")
         elseif arg:match("^phasemode%s+") then
             local mode = arg:match("^phasemode%s+(%S+)")
             if mode == "alert" or mode == "block" or mode == "off" then
@@ -214,8 +222,8 @@ SlashCmdList.TRP3FW = function(msg)
         elseif arg == "bypass" then
             TRP3FW.Prefs.scanResponseAllowCacheBypass = not TRP3FW.Prefs.scanResponseAllowCacheBypass
             TRP3FW:Info("Scan reply cache bypass "..(TRP3FW.Prefs.scanResponseAllowCacheBypass and "|cff00ff00enabled|r" or "|cffaaaaaadisabled|r"))
-            else
-                TRP3FW:Warn("Usage: /trp3fw scanreply [notify|phasemode <off|alert|block>|mapmode <off|alert|block>|nonce|cache|bypass]")
+        else
+            TRP3FW:Warn("Usage: /trp3fw scanreply [notify|phasemode <off|alert|block>|mapmode <off|alert|block>|nonce|cache|bypass]")
         end
 
     elseif cmd == "mapscaninterval" or cmd == "scaninterval" then
@@ -430,10 +438,6 @@ SlashCmdList.TRP3FW = function(msg)
         end
 
     elseif cmd == "cache" then
-        local args = {}
-        for word in rest:gmatch("%S+") do
-            table.insert(args, word)
-        end
         local cacheType = args[1]
         local secs = tonumber(args[2])
 
@@ -476,10 +480,6 @@ SlashCmdList.TRP3FW = function(msg)
         end
 
     elseif cmd == "clearcache" then
-        local args = {}
-        for word in rest:gmatch("%S+") do
-            table.insert(args, word)
-        end
         local eventType = args[1]  -- "phase" or "zone"
         local cacheType = args[2]  -- "phasecheck", "broadcasts", "scans", "whozone", or "all"
         local value = args[3]      -- "on" or "off"
@@ -934,8 +934,12 @@ SlashCmdList.TRP3FW = function(msg)
         local apiStatus = "Nil"
         if salt then
             if salt == "" then apiStatus = "Empty String"
-            elseif isTicket then apiStatus = "|cffffff00Ticket ID (Async Fetch)|r (Preview: "..salt..")"
-            else apiStatus = "Present (Len: "..#salt..", Preview: "..salt:sub(1,8).."...)"
+            -- A ticket is a transient request handle, not secret material, so it stays visible
+            -- (correlating it with the phase ticket is the point of this readout). The SALT is
+            -- the shared secret the whole handshake rests on -- show a fingerprint instead of
+            -- a prefix, so this output stays safe to paste into a support thread.
+            elseif isTicket then apiStatus = "|cffffff00Ticket ID (Async Fetch)|r (Ticket: "..salt..")"
+            else apiStatus = "Present (Len: "..#salt..", Fingerprint: "..TRP3FW:GetSaltFingerprint(salt)..")"
             end
         end
         TRP3FW:Info("API Salt: " .. apiStatus)
@@ -943,7 +947,10 @@ SlashCmdList.TRP3FW = function(msg)
         if saltMatchesTicket then
             TRP3FW:Info("|cffff0000WARNING: API Salt matches Phase Ticket ID! This is insecure/default behavior.|r")
         end
-        TRP3FW:Info("Cached Salt: " .. (cachedSalt == "Empty" and "Empty String" or (cachedSalt == "None" and "None" or "Present (Preview: "..cachedSalt:sub(1,8).."...)")))
+        -- Fingerprint, not a prefix: comparing this against the API Salt fingerprint above is
+        -- exactly the "do these match?" question this readout exists to answer, and it does
+        -- not require exposing the secret to do it.
+        TRP3FW:Info("Cached Salt: " .. (cachedSalt == "Empty" and "Empty String" or (cachedSalt == "None" and "None" or "Present (Fingerprint: "..TRP3FW:GetSaltFingerprint(cachedSalt)..")")))
         TRP3FW:Info("Cache Age: " .. timestamp)
         TRP3FW:Info("Time Since Phase Change: " .. transitionTime)
 
@@ -975,8 +982,6 @@ SlashCmdList.TRP3FW = function(msg)
             return #parts > 0 and table.concat(parts, ", ") or "table"
         end
 
-        local args = {}
-        for word in rest:gmatch("%S+") do table.insert(args, word) end
         local target = args[1] and args[1]:lower() or ""
         local limit = tonumber(args[2]) or 15
         if limit < 1 then limit = 1 elseif limit > 100 then limit = 100 end
@@ -1065,13 +1070,19 @@ SlashCmdList.TRP3FW = function(msg)
         elseif filter == "security" then
             TRP3FW.Prefs.debugSecurity = not TRP3FW.Prefs.debugSecurity
             TRP3FW:Info("Security debug messages "..(TRP3FW.Prefs.debugSecurity and "|cff00ff00enabled|r" or "|cffaaaaaadisabled|r"))
+        elseif filter == "ghost" then
+            TRP3FW.Prefs.debugGhost = not TRP3FW.Prefs.debugGhost
+            TRP3FW:Info("Ghost mode debug messages "..(TRP3FW.Prefs.debugGhost and "|cff00ff00enabled|r" or "|cffaaaaaadisabled|r"))
+        elseif filter == "spvp" then
+            TRP3FW.Prefs.debugSPVP = not TRP3FW.Prefs.debugSPVP
+            TRP3FW:Info("SPVP debug messages "..(TRP3FW.Prefs.debugSPVP and "|cff00ff00enabled|r" or "|cffaaaaaadisabled|r"))
         else
-            TRP3FW:Warn("Usage: /trp3fw debugfilter <channel | whisper | who | phase | location | decision | hooks | cache | send | ui | utils | cleanname | security>")
+            TRP3FW:Warn("Usage: /trp3fw debugfilter <channel | whisper | who | phase | location | decision | hooks | cache | send | ui | utils | cleanname | security | ghost | spvp>")
             TRP3FW:Info("Current filters:")
             TRP3FW:Info("  channel="..(TRP3FW.Prefs.debugChannel and "ON" or "OFF")..", whisper="..(TRP3FW.Prefs.debugWhisper and "ON" or "OFF")..", who="..(TRP3FW.Prefs.debugWho and "ON" or "OFF")..", phase="..(TRP3FW.Prefs.debugPhase and "ON" or "OFF"))
             TRP3FW:Info("  location="..(TRP3FW.Prefs.debugLocation and "ON" or "OFF")..", decision="..(TRP3FW.Prefs.debugDecision and "ON" or "OFF")..", hooks="..(TRP3FW.Prefs.debugHooks and "ON" or "OFF"))
             TRP3FW:Info("  cache="..(TRP3FW.Prefs.debugCache and "ON" or "OFF")..", send="..(TRP3FW.Prefs.debugSend and "ON" or "OFF")..", ui="..(TRP3FW.Prefs.debugUI and "ON" or "OFF")..", utils="..(TRP3FW.Prefs.debugUtils and "ON" or "OFF")..", cleanname="..(TRP3FW.Prefs.debugCleanName and "ON" or "OFF"))
-            TRP3FW:Info("  security="..(TRP3FW.Prefs.debugSecurity and "ON" or "OFF"))
+            TRP3FW:Info("  security="..(TRP3FW.Prefs.debugSecurity and "ON" or "OFF")..", ghost="..(TRP3FW.Prefs.debugGhost and "ON" or "OFF")..", spvp="..(TRP3FW.Prefs.debugSPVP and "ON" or "OFF"))
         end
 
     elseif cmd == "reloadhooks" or cmd == "reinstall" then
@@ -1081,7 +1092,13 @@ SlashCmdList.TRP3FW = function(msg)
         TRP3FW:Info("Hooks reinstalled")
 
     elseif cmd == "minimap" then
-        TRP3FW:ToggleMinimapButton()
+        -- Defined in ui/settings.lua, which InitializeUI only reaches 2.5s after
+        -- PLAYER_LOGIN; minimapreset below already guards for the same reason.
+        if TRP3FW.ToggleMinimapButton then
+            TRP3FW:ToggleMinimapButton()
+        else
+            TRP3FW:Error("Minimap button not available yet (UI not loaded?)")
+        end
 
     elseif cmd == "minimapreset" then
         if TRP3FW.ResetMinimapButton then
@@ -1091,10 +1108,19 @@ SlashCmdList.TRP3FW = function(msg)
         end
 
     elseif cmd == "reset" then
-        TRP3FW.Prefs = {}
+        -- Clear the ACTIVE PROFILE table, not the Prefs reference. Assigning
+        -- TRP3FW.Prefs = {} only rebound a local name: InitializeSettings ->
+        -- LoadProfile immediately repoints Prefs at db.profiles[name], which
+        -- still held every old value, so the backfill loop found no missing
+        -- keys and "reset" reset nothing at all.
+        local profile = TRP3FW.Prefs
+        if type(profile) == "table" then
+            for k in pairs(profile) do profile[k] = nil end
+        end
         TRP3FW:InitializeSettings()
         TRP3FW:Info("|cff00ff00All settings reset to defaults!|r")
         TRP3FW:Info("Use '/trp3fw status' to see current settings")
+        TRP3FW:Warn("Please /reload so every cache and hook picks up the defaults.")
 
     elseif cmd == "profile" or cmd == "profiler" then
         local arg = rest:lower()
@@ -1142,6 +1168,14 @@ SlashCmdList.TRP3FW = function(msg)
             return
         end
 
+        -- CheckPlayerPhase answers callback(nil, "unavailable") for every player when
+        -- phaseCheckMode is "off". Without this guard the command still spent a
+        -- privileged WHO zone query and then reported "0/N in phase" with no hint why.
+        if not TRP3FW:IsPhaseCheckEnabled() then
+            TRP3FW:Error("Phase check mode is off. Enable it in /trp3fwui before scanning.")
+            return
+        end
+
         -- Parse verbose flag
         local verbose = (rest and rest:match("verbose"))
 
@@ -1180,9 +1214,37 @@ SlashCmdList.TRP3FW = function(msg)
             local passed = 0
             local checked = 0
             local uniqueMaps = {}
+            local finished = false
+
+            -- phaseCheckInProgress is a session-long mutex with exactly one owner (this
+            -- command) and no other release path anywhere in the addon. It used to be
+            -- cleared only from inside `checked >= total`, so a single callback that
+            -- never arrived -- an entry stuck in the phase queue, an error thrown in an
+            -- earlier callback, a name that dedupes onto another -- latched it true for
+            -- the rest of the session and every later /trp3fw phasecheck answered
+            -- "already in progress" until /reload. Finish() is idempotent and is also
+            -- armed on a watchdog so the mutex is always released.
+            local function Finish(timedOut)
+                if finished then return end
+                finished = true
+
+                local mapCount = 0
+                for _ in pairs(uniqueMaps) do
+                    mapCount = mapCount + 1
+                end
+
+                if timedOut then
+                    TRP3FW:Warn("Phase check timed out with " .. checked .. "/" .. total ..
+                                " answered; reporting partial results.")
+                end
+                TRP3FW:Info("Phase check complete. " .. passed .. "/" .. total ..
+                            " in phase. (Maps: " .. mapCount .. ")")
+                TRP3FW.phaseCheckInProgress = false
+            end
 
             for _, name in ipairs(players) do
                 TRP3FW:CheckPlayerPhase(name, nil, function(inPhase, reason, mapID)
+                    if finished then return end
                     checked = checked + 1
 
                     if inPhase then
@@ -1200,19 +1262,15 @@ SlashCmdList.TRP3FW = function(msg)
                         TRP3FW:Info("Progress: " .. checked .. "/" .. total .. " checked...")
                     end
 
-                    -- Final summary
                     if checked >= total then
-                        local mapCount = 0
-                        for _ in pairs(uniqueMaps) do
-                            mapCount = mapCount + 1
-                        end
-
-                        TRP3FW:Info("Phase check complete. " .. passed .. "/" .. total ..
-                                    " in phase. (Maps: " .. mapCount .. ")")
-                        TRP3FW.phaseCheckInProgress = false
+                        Finish(false)
                     end
                 end, "LOW") -- Use LOW priority to avoid blocking active RP
             end
+
+            -- LOW priority checks wait on the token bucket and are batched, so a large
+            -- zone legitimately takes a while; this is a backstop, not a deadline.
+            C_Timer.After(120, function() Finish(true) end)
         end)
 
     -- Batch Phase Check Configuration
@@ -1256,20 +1314,22 @@ SlashCmdList.TRP3FW = function(msg)
             value = math.max(2, math.min(10, math.floor(value)))
             TRP3FW.Prefs.phaseCheckBatchMinSize = value
             TRP3FW:Info("Minimum batch size set to: " .. value)
-       elseif subcommand == "interdelay" then
-           local value = tonumber(args[2])
-           if not value then
-               self:Info("Current inter-target delay: " .. string.format("%dms", (TRP3FW.Prefs.phaseCheckInterTargetDelay or 0.1) * 1000))
-               self:Info("Usage: /trp3fw batch interdelay <10-200> (milliseconds)")
-               return
-           end
+        elseif subcommand == "interdelay" then
+            local value = tonumber(args[2])
+            if not value then
+                -- `self` is nil in this handler (it is a plain function, not a
+                -- method), so the three calls here used to be hard errors.
+                TRP3FW:Info("Current inter-target delay: " .. string.format("%dms", (TRP3FW.Prefs.phaseCheckInterTargetDelay or 0.1) * 1000))
+                TRP3FW:Info("Usage: /trp3fw batch interdelay <10-200> (milliseconds)")
+                return
+            end
 
-           -- Convert ms to seconds
-           value = value / 1000
-           value = math.max(0.01, math.min(0.2, value)) -- Lower bound changed to 0.01
-           value = math.floor(value * 100 + 0.5) / 100  -- Round to 0.01
-           TRP3FW.Prefs.phaseCheckInterTargetDelay = value
-           self:Info("Inter-target delay set to: " .. string.format("%dms", value * 1000))
+            -- Convert ms to seconds
+            value = value / 1000
+            value = math.max(0.01, math.min(0.2, value)) -- Lower bound changed to 0.01
+            value = math.floor(value * 100 + 0.5) / 100  -- Round to 0.01
+            TRP3FW.Prefs.phaseCheckInterTargetDelay = value
+            TRP3FW:Info("Inter-target delay set to: " .. string.format("%dms", value * 1000))
         elseif subcommand == "status" or not subcommand then
             local enabled = TRP3FW.Prefs.phaseCheckBatchMode
             TRP3FW:Info("=== Batch Phase Check Configuration ===")
@@ -1369,12 +1429,6 @@ SlashCmdList.TRP3FW = function(msg)
         else
             TRP3FW:Info(string.format("Memory Usage: |cff00ff00%.0f KB|r", kb))
         end
-
-    elseif cmd == "reset" then
-        TRP3FW.Prefs = {}
-        TRP3FW:InitializeSettings()
-        TRP3FW:Info("|cff00ff00All settings reset to defaults!|r")
-        TRP3FW:Info("Use '/trp3fw status' to see current settings")
 
     else
         TRP3FW:Warn("Unknown command. Use '/trp3fw help' for options.")

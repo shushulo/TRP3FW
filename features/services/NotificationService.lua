@@ -137,6 +137,16 @@ function NotificationService:Notify(playerName, context)
     end
 
     -- 4. Display
+    --
+    -- `count` is how many notifications ShouldSuppress swallowed since the last one we
+    -- actually showed: 0 for a player we've never notified about (or one whose window
+    -- elapsed quietly), >0 for one that spammed us during the window. The display
+    -- functions gate the "(+N suppressed in last Xs)" rollup, the "(again)" marker and
+    -- the repeat colour on `not isFirstTime`, so passing a hardcoded `true` here made
+    -- all three unreachable and threw the count away. Deriving it from the count
+    -- matches ShowStartPhaseBlockNotification, which sets isFirstTime = false exactly
+    -- when it has a prior record to report.
+    local isFirstTime = (count == 0)
     local isAlert = (context.type == "alert")
     local isBlock = (context.type == "block")
     local isGhost = (context.type == "ghost")
@@ -145,7 +155,7 @@ function NotificationService:Notify(playerName, context)
     self:ShowChatNotification(
         playerName,
         context.addon,
-        true, -- isFirstTime (since we passed suppression check)
+        isFirstTime,
         count,
         isAlert,
         location.theirMap,
@@ -167,7 +177,7 @@ function NotificationService:Notify(playerName, context)
         self:ShowOnScreenNotification(
             playerName,
             context.addon,
-            true,
+            isFirstTime,
             isAlert,
             location.theirMap,
             location.ourMap,

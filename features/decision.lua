@@ -339,6 +339,12 @@ function TRP3FW:ProcessBurstBlocks(playerName, useGhostMode)
         { tbl = self.pendingChompSends, orig = self.originalChompSend, label = "Chomp" }
     }
 
+    -- Note on the `useGhostMode` guards below: when ghosting is not possible the queued
+    -- request is intentionally dropped without being sent. Not sending IS the block, so
+    -- the fall-through is fail-closed, not a lost request. The queue is cleared either way.
+    -- This only reads correctly now that `hasTRP3ExchangeHooks` is actually set on install
+    -- (hooks/trp3.lua) - while it was permanently false, every TRP3/Chomp burst sibling
+    -- took the drop path even when ghosting was fully available.
     for _, q in ipairs(queues) do
         if q.tbl and q.tbl[playerName] then
             local queuedRequests = q.tbl[playerName].queuedRequests or {}
@@ -551,11 +557,20 @@ function TRP3FW:ProcessLocationDecision(context, locationResult)
              -- Do NOT attempt rescue, fall through to ApplyLocationDecision (BLOCK)
         -- Hard exclusion: Never use SPVP in Phase 169 (Start Phase)
         elseif currentPhaseID and currentPhaseID ~= 169 then
+            -- N17: honour the per-phase opt-out here too. This rescue path re-derives its
+            -- own SPVP eligibility rather than reading `context.spvpEnabled`, so without
+            -- this check a phase with SPVP explicitly disabled still ran a handshake -
+            -- the exact case the setting exists to prevent.
+            local perPhase = context.settings.spvpPerPhaseOverrides
+            local phaseOptedOut = perPhase and perPhase[currentPhaseID] == false
+
             -- Check if phase has SPVP salt configured (use cached salt)
             local phaseSalt = self:GetPhaseSalt(currentPhaseID, false)
             local hasSalt = (phaseSalt and phaseSalt ~= "")
 
-            if hasSalt then
+            if phaseOptedOut then
+                self:Debug(string.format("SPVP rescue skipped: disabled for phase %d", currentPhaseID), "spvp")
+            elseif hasSalt then
                 self:Debug(string.format("SPVP fallback: Location failed for %s, trying crypto", context.playerName), "spvp")
 
                 -- Initiate SPVP handshake (async with timeout/retry)

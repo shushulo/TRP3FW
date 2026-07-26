@@ -47,9 +47,28 @@ local function CheckAutoInitializeSalt()
         return
     end
 
-    -- Check if salt already exists (use cached check)
+    -- Check if salt already exists (use cached check).
+    --
+    -- GetPhaseSalt has a THREE-valued contract:
+    --   nil  -> still loading (Epsilon issued an async ticket; we do not know yet)
+    --   ""   -> confirmed no salt configured for this phase
+    --   str  -> the salt
+    --
+    -- Only "" means it is safe to generate one. Treating nil as "no salt" -- which the old
+    -- `if existingSalt and existingSalt ~= ""` check did, since nil fails the first clause and
+    -- falls through -- meant that on a COLD cache (the common case right after a phase change,
+    -- which is exactly when this runs) auto-init would SetPhaseAddonData over a salt that was
+    -- merely still being fetched. That silently rotates the phase secret: every peer's cached
+    -- verification for this phase becomes invalid, and in-flight handshakes fail with a
+    -- verifier mismatch, which HandleSPVPReply then treats as a hostile peer and blocks.
+    --
+    -- Bail on nil and let the next phase-change or login pass retry once the salt has landed.
     local existingSalt = TRP3FW:GetPhaseSalt(phaseID, false)
-    if existingSalt and existingSalt ~= "" then
+    if existingSalt == nil then
+        TRP3FW:Debug(string.format("SPVP auto-init deferred: Phase %d salt still loading", phaseID), "spvp")
+        return
+    end
+    if existingSalt ~= "" then
         TRP3FW:Debug(string.format("SPVP auto-init skipped: Phase %d already has salt", phaseID), "spvp")
         return
     end
@@ -79,8 +98,19 @@ local function CheckAutoInitializeSalt()
     local dateStr = timestamp and date("%Y-%m-%d %H:%M UTC", timestamp) or "unknown"
 
     TRP3FW:Info(string.format("Phase %d secured with SPVP automatically. (Generated: %s)", phaseID, dateStr))
-    TRP3FW:Debug(string.format("SPVP auto-init: Generated salt for phase %d: %s...", phaseID, salt:sub(1, 16)), "spvp")
+    -- Do NOT log salt material, not even a prefix. This used to emit `salt:sub(1, 16)` in a
+    -- format no SecurityService redaction pattern matched (the patterns key off a literal
+    -- "salt: " prefix), so 16 chars of the phase secret reached the debug window and any log
+    -- a user pastes for support. The salt is the shared secret the whole SPVP handshake rests
+    -- on; length and presence are all that is useful for diagnostics.
+    TRP3FW:Debug(string.format("SPVP auto-init: Generated salt for phase %d (%d chars)", phaseID, #salt), "spvp")
 end
+
+-- Exported for tests, following the SPVP_IsWellFormedSalt precedent in spvp.lua. The
+-- salt-loading guard above is the kind of three-valued logic worth pinning, and the
+-- alternative (driving it through a 3s C_Timer inside an EventService callback) would test
+-- the plumbing rather than the decision.
+TRP3FW.CheckAutoInitializeSalt = CheckAutoInitializeSalt
 
 -- Hook into phase change and login events via EventService
 C_Timer.After(1, function()

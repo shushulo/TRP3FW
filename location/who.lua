@@ -14,7 +14,11 @@ local function TryMapFallbackForWho(playerName, sendId, callback, reasonTag)
     local CI = TRP3FW.CacheInterface
     local cacheDuration = (TRP3FW.Prefs and TRP3FW.Prefs.scanCacheDuration) or 120
     local cacheFailDuration = (TRP3FW.Prefs and TRP3FW.Prefs.scanCacheFailureDuration) or 10
-    local strictNonceRequired = TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
+    -- Hard-disabled: nothing transmits the nonce, so every entry is verified=false and this
+    -- would reject every cache hit. See TRP3FW:IsScanNonceVerificationAvailable.
+    local strictNonceRequired = TRP3FW.IsScanNonceVerificationAvailable
+        and TRP3FW:IsScanNonceVerificationAvailable()
+        and TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
     local myMapID = TRP3FW:GetCurrentMapID()
 
     local function checkEntry(entry, sourceBase, mismatchSource)

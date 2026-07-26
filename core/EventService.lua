@@ -51,7 +51,8 @@ function EventService:RegisterCallback(event, func, priority)
     self.callbacks[event] = self.callbacks[event] or {}
     table.insert(self.callbacks[event], {
         func = func,
-        priority = priority or 50
+        priority = priority or 50,
+        active = true  -- cleared by UnregisterCallback; see Trigger
     })
 
     -- Sort by priority
@@ -66,6 +67,10 @@ function EventService:UnregisterCallback(event, func)
 
     for i, callback in ipairs(self.callbacks[event]) do
         if callback.func == func then
+            -- Clear the flag as well as removing the entry: an in-flight Trigger
+            -- is walking a snapshot taken before this call, and checks `active`
+            -- so a callback unregistered mid-dispatch doesn't still fire.
+            callback.active = false
             table.remove(self.callbacks[event], i)
             return
         end
@@ -73,8 +78,6 @@ function EventService:UnregisterCallback(event, func)
 end
 
 function EventService:OnEvent(event, ...)
-    local now = TRP3FW:GetCurrentTime()
-
     -- Debug WHO_LIST_UPDATE to diagnose issues
     if event == "WHO_LIST_UPDATE" then
         TRP3FW:Debug("[EventService] WHO_LIST_UPDATE event received from WoW", "who")
@@ -101,13 +104,32 @@ function EventService:OnEvent(event, ...)
     end
 end
 
+-- Callbacks routinely mutate this event's own callback list while it is being
+-- dispatched -- phase.lua's one-shot TARGET_CHANGED handler unregisters itself and
+-- registers its successor from inside its own invocation (finishStep -> processNext).
+-- Walking the live array with ipairs made that silently lossy: table.remove shifts
+-- the following callback into the slot the loop has already passed, so it never runs
+-- for that event. In practice CacheService's interaction tracker (the other
+-- TARGET_CHANGED listener) was being skipped during batch phase checking -- precisely
+-- the target events it most needs to see. RegisterCallback's table.sort could also
+-- reorder entries mid-walk and run one twice. Both are order-dependent, so they only
+-- reproduced in game and only sometimes.
+--
+-- Dispatch over a snapshot, skipping entries unregistered partway through.
+-- Registrations made during dispatch take effect on the next event.
 function EventService:Trigger(event, sourceEvent, ...)
-    if not self.callbacks[event] then return end
+    local callbacks = self.callbacks[event]
+    if not callbacks then return end
 
-    for _, callback in ipairs(self.callbacks[event]) do
-        local ok, err = pcall(callback.func, sourceEvent, ...)
-        if not ok then
-            TRP3FW:Error("Error in EventService callback for "..tostring(event)..": "..tostring(err))
+    local snapshot = {}
+    for i = 1, #callbacks do snapshot[i] = callbacks[i] end
+
+    for _, callback in ipairs(snapshot) do
+        if callback.active then
+            local ok, err = pcall(callback.func, sourceEvent, ...)
+            if not ok then
+                TRP3FW:Error("Error in EventService callback for "..tostring(event)..": "..tostring(err))
+            end
         end
     end
 end

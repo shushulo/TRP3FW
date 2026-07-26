@@ -17,6 +17,15 @@ end
 
 --- Process SPVP stage
 --- Runs cryptographic phase verification in parallel with normal checks
+---
+--- N17 - `context.spvpEnabled` is three-valued, and the distinction matters:
+---   true  = SPVP is on for this request (salt resolved, no override).
+---   false = deliberately OFF. `CheckLocationCascading` must respect this and NOT
+---           re-derive it. Its late-resolution block (location/cascading.lua) fires on
+---           `spvpEnabled == nil` and re-enables SPVP from live prefs + salt presence,
+---           which knows nothing about per-phase overrides - so leaving this nil made
+---           "disable SPVP for phase N" a no-op.
+---   nil   = no opinion yet (salt still loading). Late resolution is exactly right here.
 --- @param context table - Pipeline context
 --- @return table - {handled = boolean, allowed = boolean (optional)}
 function TRP3FW.SPVPStage:Process(context)
@@ -32,6 +41,7 @@ function TRP3FW.SPVPStage:Process(context)
 
     if not spvpEnabled then
         TRP3FW:Debug("SPVP skipped: Master toggle (spvpEnabled) is disabled in settings", "spvp")
+        context.spvpEnabled = false
         return { handled = false }
     end
 
@@ -39,12 +49,14 @@ function TRP3FW.SPVPStage:Process(context)
     local currentPhaseID = TRP3FW:GetCurrentPhaseID()
     if currentPhaseID == 169 then
         TRP3FW:Debug("SPVP skipped: Start Phase (169) exclusion", "spvp")
+        context.spvpEnabled = false
         return { handled = false }
     end
 
     -- Check if Epsilon API available
     if not TRP3FW.hasEpsilonAPI then
         TRP3FW:Debug("SPVP skipped: Epsilon API unavailable", "spvp")
+        context.spvpEnabled = false
         return { handled = false }
     end
 
@@ -64,12 +76,15 @@ function TRP3FW.SPVPStage:Process(context)
     elseif phaseSalt == "" then
         -- No salt set - skip SPVP
         TRP3FW:Debug("SPVP skipped: No phase salt configured", "spvp")
+        context.spvpEnabled = false
         return { handled = false }
     end
 
     -- Check per-phase overrides
-    if context.settings.spvpPerPhaseOverrides and context.settings.spvpPerPhaseOverrides[currentPhaseID] == false then
+    local perPhase = context.settings and context.settings.spvpPerPhaseOverrides
+    if perPhase and perPhase[currentPhaseID] == false then
         TRP3FW:Debug(string.format("SPVP skipped: Disabled for phase %d", currentPhaseID), "spvp")
+        context.spvpEnabled = false
         return { handled = false }
     end
 

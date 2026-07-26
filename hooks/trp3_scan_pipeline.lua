@@ -142,40 +142,43 @@ local function PerformLocationCheck(self, playerName, callback, options)
     local whoService = self.ServiceContainer:Get("WhoService")
 
     if whoService then
+        -- `lastZoneQueryTime > 0` is load-bearing, not defensive - same guard as
+        -- WhoService:CheckPlayer (features/services/WhoService.lua:275), which this block is
+        -- a copy of. Both fields start at 0/nil, and our clock is client uptime, so without
+        -- the guard `now - 0 < 60` holds for the first 60 seconds of uptime and a zone query
+        -- that has NEVER RUN reads as "scanned just now, and complete". Unlike CheckPlayer
+        -- (where that made WHO checks fail shut) this only picks the query type, so the cost
+        -- is a name query where a zone refresh would have served better - but the premise is
+        -- false either way. 0 means never scanned, and never-scanned proves nothing.
+        local zoneEverQueried = (whoService.lastZoneQueryTime or 0) > 0
         local zoneAge = now - (whoService.lastZoneQueryTime or 0)
         local zoneTTL = 60  -- Same as zone completeness check
         local wasNotTruncated = (not whoService.lastZoneResultCount or whoService.lastZoneResultCount < 50)
-        local lastMapScanAge = now - (self.lastMapScanAt or 0)
-        local recentMapScan = lastMapScanAge < 5  -- Map scan in last 5 seconds
+        local recentMapScan = (now - (self.lastMapScanAt or 0)) < 5  -- Map scan in last 5 seconds
 
-        -- Decide query type based on zone cache state and map scan activity
-        if zoneAge < zoneTTL and wasNotTruncated then
-            -- Zone cache is fresh and complete - zone completeness optimization will handle it
-            -- UNLESS a map scan is actively running (need specific location for scan window)
-            if recentMapScan then
-                whoNameOnly = true  -- Do whoname to get their specific location fast
-                self:Debug("[Scan Reply] WHO zone cache fresh but map scan active, using whoname query", "hooks")
-            else
-                whoNameOnly = true  -- Zone completeness check will handle it
-                self:Debug("[Scan Reply] WHO zone cache fresh and complete, using zone completeness check", "hooks")
-            end
-        elseif not wasNotTruncated then
-            -- Zone was truncated - MUST use whoname to find specific player
-            whoNameOnly = true
-            self:Debug("[Scan Reply] WHO zone truncated (>=50 results), forcing whoname query", "hooks")
-        elseif zoneAge >= zoneTTL then
-            -- Zone cache is stale - prefer whozone refresh (better data for multiple scanners)
-            -- UNLESS a map scan is active (tight 3s window needs fast whoname)
-            if recentMapScan then
-                whoNameOnly = true
-                self:Debug("[Scan Reply] Map scan active, using fast whoname query", "hooks")
-            else
-                whoNameOnly = false
-                self:Debug("[Scan Reply] WHO zone cache stale, allowing whozone refresh", "hooks")
-            end
-        else
-            -- Default: allow whozone if it's beneficial
+        -- Decide query type based on zone cache state and map scan activity.
+        --
+        -- Only ONE combination wants a zone query: a zone that was queried, has gone stale,
+        -- was not truncated when it ran, and has no map scan competing for the tight ~3s TRP3
+        -- reply window. Everything else wants the fast name query. (The previous form spelled
+        -- this out as five branches, but three of them set `true` with differing comments as
+        -- though they differed, the fresh+complete branch's `if recentMapScan` decided
+        -- nothing, and the trailing `else` was unreachable - the two elseif conditions are
+        -- exhaustive once the first branch is excluded.)
+        local zoneStale = zoneEverQueried and zoneAge >= zoneTTL
+        if zoneStale and wasNotTruncated and not recentMapScan then
             whoNameOnly = false
+            self:Debug("[Scan Reply] WHO zone cache stale and complete, allowing whozone refresh", "hooks")
+        else
+            whoNameOnly = true
+            self:Debug(function()
+                local why
+                if not zoneEverQueried then why = "no zone query has run yet"
+                elseif not wasNotTruncated then why = "last zone query was truncated (>=50 results)"
+                elseif recentMapScan then why = "map scan active, need a fast answer"
+                else why = "zone cache still fresh, completeness check will handle it" end
+                return "[Scan Reply] Using whoname query ("..why..")"
+            end, "hooks")
         end
     else
         -- No WhoService, fall back to name queries

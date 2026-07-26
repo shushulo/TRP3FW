@@ -638,14 +638,24 @@ function CacheService:InitializeZoneCacheClearing()
 
                 TRP3FW:Debug("[Prepopulate] Detected zone: "..tostring(zoneName).." (mapID: "..tostring(mapID)..")", "cache")
 
+                -- Sanitize as a GATE on prepopulating, but do NOT write the sanitized form
+                -- back to currentZoneName.
+                --
+                -- currentZoneName is the RAW zone name (set from GetRealZoneText at :476) and
+                -- every consumer is built around that: WhoService sanitizes at the point of
+                -- use because the zone name crosses a RunPrivileged string boundary there
+                -- (see WhoService.lua:389-395). This line used to overwrite it with the
+                -- sanitized form, so the variable alternated between two forms depending on
+                -- which code path last ran -- and it is used as a `whoZone` CACHE KEY and
+                -- compared against entry.zone in PruneInteractionZoneMismatch, so two forms
+                -- mean two keyspaces and a prune that drops entries stored under the other.
                 local sanitized = zoneName and TRP3FW:SanitizeZoneName(zoneName) or nil
                 if not sanitized then
                     TRP3FW:Debug("[Prepopulate] Zone sanitization failed, aborting prepopulation", "cache")
                     return
                 end
 
-                TRP3FW.currentZoneName = sanitized
-                TRP3FW:Debug("[Prepopulate] Sanitized zone: "..tostring(sanitized), "cache")
+                TRP3FW:Debug("[Prepopulate] Zone validated: "..tostring(zoneName), "cache")
 
                 if TRP3FW.hasEpsilonAPI and TRP3FW.Prefs.useWhoQuery then
                     TRP3FW:Debug("[Prepopulate] Epsilon API and useWhoQuery enabled, starting WHO query", "cache")
@@ -684,10 +694,18 @@ function CacheService:InitializeInteractionTracking()
     local ES = TRP3FW.ServiceContainer:Get("EventService")
     if not ES then return end
 
-    -- OPTIMIZATION: Interaction refresh logic uses percentage of TTL
-    local refreshPercent = TRP3FW.Prefs.interactionRefreshRate or 10
-    local cacheDuration = TRP3FW.Prefs.interactionCacheDuration or 600
-    local refreshThreshold = cacheDuration * (refreshPercent / 100)
+    -- Interaction refresh logic uses a percentage of the TTL.
+    --
+    -- Read LIVE, not snapshotted into the closure at init. These two prefs are editable in the
+    -- settings UI and via /trp3fw, and capturing them here meant a change had no effect until
+    -- /reload -- with nothing in the UI saying so. The cost is two table reads and a multiply
+    -- on a path that already calls CleanPlayerName and is throttled to 2Hz besides, so the
+    -- perf argument for snapshotting does not survive contact with the numbers.
+    local function GetRefreshThreshold()
+        local refreshPercent = TRP3FW.Prefs.interactionRefreshRate or 10
+        local cacheDuration = TRP3FW.Prefs.interactionCacheDuration or 600
+        return cacheDuration * (refreshPercent / 100)
+    end
 
     local lastMouseoverProcess = 0
     local MOUSEOVER_THROTTLE = 0.5  -- OPTIMIZATION: Reduced from 0.1s (10Hz) to 0.5s (2Hz) for 80% event reduction
@@ -712,27 +730,36 @@ function CacheService:InitializeInteractionTracking()
                 local unitName = UnitName("mouseover")
                 if not unitName then return end
 
-                -- OPTIMIZATION: Check cache BEFORE expensive CleanPlayerName call
+                -- Read and write must use the SAME key. This used to read with the RAW
+                -- unitName but write with CleanPlayerName(unitName), justified as "check the
+                -- cache before the expensive CleanPlayerName call". CleanPlayerName truncates
+                -- at the first hyphen, so for any hyphenated name the read was a guaranteed
+                -- miss and every single mouseover redundantly re-Set the entry -- the same
+                -- defect class as the allowedSenders/interaction key mismatch in 30ee55c.
+                --
+                -- The optimization it bought was largely illusory anyway: CleanPlayerName is
+                -- cached twice over (the persistent TRP3FW_ValidatedNames cache plus the clean
+                -- -name cache), so the "expensive" path is a table lookup for any name seen
+                -- before -- which, on a repeat mouseover, is exactly the case being optimized.
                 local CI = TRP3FW.CacheInterface
                 local now = TRP3FW:GetCurrentTime()
-                local existing = CI and CI:Get("interaction", unitName)
+                local name = TRP3FW:CleanPlayerName(unitName)
+                if not name then return end
 
-                -- Only do expensive CleanPlayerName if cache miss or stale entry
-                if not existing or (now - existing.timestamp) > refreshThreshold then
-                    local name = TRP3FW:CleanPlayerName(unitName)
-                    if name then
-                        local zone = TRP3FW.currentZoneName or "Unknown"
-                        if CI then
-                            CI:Set("interaction", name, {
-                                timestamp = now,
-                                zone = zone,
-                                mapID = TRP3FW.currentMapID,
-                                source = "mouseover"
-                            })
-                            TRP3FW:Debug(function()
-                                return "[Interaction Cache] Cached "..name.." from mouseover in "..zone
-                            end, "cache")
-                        end
+                local existing = CI and CI:Get("interaction", name)
+
+                if not existing or (now - existing.timestamp) > GetRefreshThreshold() then
+                    local zone = TRP3FW.currentZoneName or "Unknown"
+                    if CI then
+                        CI:Set("interaction", name, {
+                            timestamp = now,
+                            zone = zone,
+                            mapID = TRP3FW.currentMapID,
+                            source = "mouseover"
+                        })
+                        TRP3FW:Debug(function()
+                            return "[Interaction Cache] Cached "..name.." from mouseover in "..zone
+                        end, "cache")
                     end
                 end
             end
@@ -773,7 +800,7 @@ function CacheService:InitializeInteractionTracking()
     ES:RegisterCallback("MOUSEOVER_CHANGED", OnInteractionEvent)
 
     self.interactionTrackingInitialized = true
-    TRP3FW:Debug("[CacheService] Interaction tracking enabled (refresh threshold: "..string.format("%.1f", refreshThreshold).."s)", "cache")
+    TRP3FW:Debug("[CacheService] Interaction tracking enabled (refresh threshold: "..string.format("%.1f", GetRefreshThreshold()).."s)", "cache")
 end
 
 TRP3FW.ServiceContainer:Register(CacheService)

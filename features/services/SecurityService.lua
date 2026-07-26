@@ -45,10 +45,19 @@ local DEBUG_REDACTION_PATTERNS = {
     {category = "locations",pattern = "phase ID: %d+", replacement = "phase ID: [REDACTED]"},
     {category = "locations",pattern = "phaseID[=%s:]+%d+", replacement = "phaseID=[REDACTED]"},
     {category = "locations",pattern = "Phase ID[=%s:]+%d+", replacement = "Phase ID=[REDACTED]"},
-    {category = "spvp",     pattern = "salt: %x+:%d+", replacement = "salt: [REDACTED]"},
-    {category = "spvp",     pattern = "salt: %x+", replacement = "salt: [REDACTED]"},
-    {category = "spvp",     pattern = "INIT:%d+:%x+:%d+", replacement = "INIT:X:REDACTED:REDACTED"},
-    {category = "spvp",     pattern = "REPLY:%x+:%d+:%x+", replacement = "REPLY:REDACTED:REDACTED:REDACTED"},
+    -- SPVP. NOTE these are DEFENCE IN DEPTH, not the primary control: the real fix is that
+    -- production code no longer logs salt material at all (spvp_auto_init logs only a length,
+    -- and /trp3fw spvpdebug prints a fingerprint via TRP3FW:GetSaltFingerprint).
+    --
+    -- The character class is %w, not %x. These previously required HEX, but per the salt
+    -- contract Epsilon returns 15-char NON-HEX tickets, and any such value sailed straight
+    -- through unredacted. Order matters: the timestamped form must precede the bare form, or
+    -- the bare pattern consumes the leading hash and leaves the ":<timestamp>" dangling.
+    {category = "spvp",     pattern = "salt: %w+:%d+", replacement = "salt: [REDACTED]"},
+    {category = "spvp",     pattern = "salt: %w+", replacement = "salt: [REDACTED]"},
+    {category = "spvp",     pattern = "[Ss]alt for phase %d+: %w+", replacement = "salt for phase [REDACTED]: [REDACTED]"},
+    {category = "spvp",     pattern = "INIT:%d+:%w+:%d+", replacement = "INIT:X:REDACTED:REDACTED"},
+    {category = "spvp",     pattern = "REPLY:%w+:%d+:%w+", replacement = "REPLY:REDACTED:REDACTED:REDACTED"},
 }
 
 function SecurityService:Initialize()
@@ -109,7 +118,9 @@ function SecurityService:CleanPlayerName(name)
     if TRP3FW_ValidatedNames and TRP3FW_ValidatedNames[name] then
         local entry = TRP3FW_ValidatedNames[name]
         local timestamp = type(entry) == "table" and entry.timestamp or 0
-        local ttl = TRP3FW.Prefs.validatedNamesCacheDuration or 604800 -- Default: 7 days
+        -- Prefs may not be loaded yet: this is reachable from hooks that can fire before
+        -- LoadProfile runs. Every other Prefs read in this file guards; this one didn't.
+        local ttl = (TRP3FW.Prefs and TRP3FW.Prefs.validatedNamesCacheDuration) or 604800 -- Default: 7 days
         local age = time() - timestamp
 
         -- Only use cache if entry is still valid

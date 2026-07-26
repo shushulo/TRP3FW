@@ -229,17 +229,21 @@ end)
 
 -- ===================== Factory detection & priority =====================
 
+-- Minimal availability stubs, shared by the factory describe below and the ADDON_LOADED
+-- invalidation describe after it (which needs the same two addons).
+local function installMinimalTRP3()
+    _G.TRP3_API = { profile = {
+        getPlayerCurrentProfileID = function() return "x" end,
+        getPlayerCurrentProfile = function() return {} end,
+        getProfiles = function() return {} end,
+    }, register = {} }
+end
+local function installMinimalMRP()
+    _G.mrp = {}; _G.mrpSaved = { SelectedProfile = "Default", Profiles = { Default = {} } }
+end
+
 T.describe("Profile adapter factory", function()
-    local function installTRP3()
-        _G.TRP3_API = { profile = {
-            getPlayerCurrentProfileID = function() return "x" end,
-            getPlayerCurrentProfile = function() return {} end,
-            getProfiles = function() return {} end,
-        }, register = {} }
-    end
-    local function installMRP()
-        _G.mrp = {}; _G.mrpSaved = { SelectedProfile = "Default", Profiles = { Default = {} } }
-    end
+    local installTRP3, installMRP = installMinimalTRP3, installMinimalMRP
 
     T.it("returns nil when no RP addon is present", function()
         clearAddonGlobals()
@@ -274,6 +278,118 @@ T.describe("Profile adapter factory", function()
         local r = TRP3FW:GetAllProfiles()
         T.not_nil(r)
         T.eq(#r, 0)
+    end)
+end)
+
+-- ===================== ADDON_LOADED invalidation =====================
+-- ClearAdapterCache previously had NO production caller (its only caller was the test above),
+-- so detection was frozen at first use for the session. Because detection caches on the FIRST
+-- success and TRP3 is the highest priority, a user whose TRP3 finished loading after something
+-- had already triggered detection kept the lower-priority adapter until /reload -- i.e. ghosted
+-- through the wrong addon's profile store.
+
+T.describe("adapter cache invalidation on ADDON_LOADED", function()
+    local installTRP3, installMRP = installMinimalTRP3, installMinimalMRP
+
+    T.it("BUG (fixed): a late TRP3 load supersedes an already-cached MRP adapter", function()
+        clearAddonGlobals(); installMRP()
+        T.eq(TRP3FW:GetProfileAdapter():GetAddonName(), "MRP", "sanity: MRP detected first")
+
+        -- TRP3 finishes loading afterwards and announces itself.
+        installTRP3()
+        TRP3FW:OnAddonLoadedForAdapters("ADDON_LOADED", "totalRP3")
+
+        T.eq(TRP3FW:GetProfileAdapter():GetAddonName(), "TRP3",
+            "the higher-priority adapter must win once its addon is actually loaded")
+    end)
+
+    T.it("ignores addons that cannot change the outcome", function()
+        clearAddonGlobals(); installMRP()
+        T.eq(TRP3FW:GetProfileAdapter():GetAddonName(), "MRP")
+
+        -- ADDON_LOADED fires for every addon on the system; an unrelated one must not
+        -- trigger pointless re-detection churn.
+        installTRP3()
+        TRP3FW:OnAddonLoadedForAdapters("ADDON_LOADED", "Blizzard_AuctionHouseUI")
+
+        T.eq(TRP3FW:GetProfileAdapter():GetAddonName(), "MRP",
+            "an unrelated addon must not invalidate the cache")
+    end)
+
+    T.it("does not churn when TRP3 is already the cached adapter", function()
+        clearAddonGlobals(); installTRP3()
+        T.eq(TRP3FW:GetProfileAdapter():GetAddonName(), "TRP3")
+
+        TRP3FW:OnAddonLoadedForAdapters("ADDON_LOADED", "MyRolePlay")
+
+        T.not_nil(TRP3FW.cachedProfileAdapter,
+            "nothing can outrank TRP3, so the cache must be left intact")
+        T.eq(TRP3FW:GetProfileAdapter():GetAddonName(), "TRP3")
+    end)
+
+    T.it("tolerates a nil addon name", function()
+        clearAddonGlobals(); installMRP()
+        TRP3FW:GetProfileAdapter()
+        T.no_raise(function() TRP3FW:OnAddonLoadedForAdapters("ADDON_LOADED", nil) end)
+    end)
+end)
+
+-- ===================== Interface conformance =====================
+-- adapter_interface.lua used to document 11 required methods in prose and define none of
+-- them, with nothing verifying an adapter implemented the set. A missing method surfaced as
+-- "attempt to call a nil value" at ghost-send time -- mid-send, on the path that decides what
+-- leaves your client.
+
+T.describe("adapter interface conformance", function()
+    T.it("every shipped adapter implements the full interface", function()
+        for _, name in ipairs({ "TRP3", "MRP", "XRP" }) do
+            local ok, missing = TRP3FW:ValidateAdapter(TRP3FW.Adapters[name])
+            T.truthy(ok, name.." adapter is missing: "..table.concat(missing or {}, ", "))
+        end
+    end)
+
+    T.it("detects a missing method rather than failing at call time", function()
+        local incomplete = {}
+        for _, m in ipairs(TRP3FW.ADAPTER_REQUIRED_METHODS) do
+            incomplete[m] = function() end
+        end
+        incomplete.GetAbout = nil
+
+        local ok, missing = TRP3FW:ValidateAdapter(incomplete)
+        T.falsy(ok, "an adapter missing GetAbout must not validate")
+        T.eq(missing[1], "GetAbout")
+    end)
+
+    T.it("rejects a non-table adapter without erroring", function()
+        local ok = TRP3FW:ValidateAdapter(nil)
+        T.falsy(ok)
+        T.no_raise(function() TRP3FW:ValidateAdapter("not an adapter") end)
+    end)
+end)
+
+-- ===================== Profile-count log throttle =====================
+
+T.describe("ShouldLogProfileCount throttle", function()
+    T.it("BUG (fixed): throttles per adapter, not across all of them", function()
+        TRP3FW.profileLogThrottle = {}
+        H.mock.setClock(1000)
+
+        T.truthy(TRP3FW:ShouldLogProfileCount("TRP3"), "first TRP3 log passes")
+        -- Previously one shared timestamp meant TRP3's log suppressed MRP's and XRP's for 3s,
+        -- swallowing exactly the logs you would want to compare.
+        T.truthy(TRP3FW:ShouldLogProfileCount("MRP"), "MRP must not be suppressed by TRP3")
+        T.truthy(TRP3FW:ShouldLogProfileCount("XRP"), "XRP must not be suppressed by TRP3")
+    end)
+
+    T.it("still throttles repeat calls from the SAME adapter", function()
+        TRP3FW.profileLogThrottle = {}
+        H.mock.setClock(1000)
+
+        T.truthy(TRP3FW:ShouldLogProfileCount("TRP3"))
+        T.falsy(TRP3FW:ShouldLogProfileCount("TRP3"), "an immediate repeat is throttled")
+
+        H.mock.advance(3)
+        T.truthy(TRP3FW:ShouldLogProfileCount("TRP3"), "and passes again once the window lapses")
     end)
 end)
 

@@ -105,6 +105,10 @@ TRP3FW.defaultSettings = {
     scanCacheFailureDuration = 10, -- Short TTL for failed/mismatched scan/broadcast entries
     mapScanMinInterval = 60,   -- Minimum seconds between map scans (manual or automatic)
     sendCacheDuration  = 600,
+    -- TRP3->MSP ghost-profile conversion cache. There is no profile-edited event anywhere in
+    -- the addon to invalidate on, so this TTL is what bounds how long an edit to the ghost
+    -- profile keeps transmitting the pre-edit version.
+    mspConversionCacheDuration = 300,
 
     spvpVerifiedCacheDuration = 300,    -- 5 minutes (cryptographic verification)
     spvpVerifiedRefreshRate = 50,       -- Refresh when age > 50% of TTL
@@ -239,8 +243,30 @@ TRP3FW.defaultSettings = {
     scanResponseWhitelist = "",
 }
 
--- Fallback for early access
-TRP3FW.Prefs = TRP3FW.defaultSettings
+-- Fallback for early access, until LoadProfile repoints this at the real profile table.
+--
+-- This used to be a bare alias (`TRP3FW.Prefs = TRP3FW.defaultSettings`). If anything wrote a
+-- setting while the alias was live, it mutated defaultSettings itself -- and since LoadProfile
+-- backfills missing keys FROM defaultSettings, every profile created afterwards was born with
+-- the polluted value. That window is not hypothetical: TRP3FW.lua pcall-wraps
+-- InitializeSettings precisely because a throw there leaves this alias in place for the whole
+-- session (see the section-9 finding).
+--
+-- A copy costs one table at load and closes the hole. Table-valued defaults are deep-copied,
+-- for the same reason LoadProfile's copyDefault exists: a shallow copy would still share
+-- ghostProfileOverrides/spvpPerPhaseOverrides with defaultSettings, and the UI mutates those
+-- in place. (copyDefault itself is declared further down, next to LoadProfile, so this does
+-- the recursion inline rather than forward-referencing it.)
+do
+    local function deepCopy(value)
+        if type(value) ~= "table" then return value end
+        local copy = {}
+        for k, v in pairs(value) do copy[k] = deepCopy(v) end
+        return copy
+    end
+
+    TRP3FW.Prefs = deepCopy(TRP3FW.defaultSettings)
+end
 
 -- Hook state containers (recursion/replay guards and original proxies)
 TRP3FW.hookState = TRP3FW.hookState or {}
@@ -263,6 +289,28 @@ end
 
 function TRP3FW:IsMapCheckEnabled()
     return TRP3FW.Prefs.mapCheckMode ~= "off"
+end
+
+-- Scan-reply nonce verification is HARD-DISABLED: the half of the feature that would make it
+-- work does not exist.
+--
+-- MapScan generates a per-scan nonce and stores it on the activeScanCallbacks entry, but
+-- NOTHING EVER TRANSMITS IT. The scan request is TRP3's own MapScannersManager.launch
+-- ("playerScan") broadcast, which knows nothing about a TRP3FW nonce; and TRP3FW's own scan
+-- REPLY hook (hooks/trp3.lua) wraps TRP3's sendP2PMessage and forwards unpack(args) verbatim,
+-- appending nothing. So no responder -- not even another TRP3FW user -- can echo a nonce back,
+-- every reply lands in the "missing nonce" branch, and every cached entry has verified=false.
+--
+-- With the pref on, that means every scan reply is ignored and map checking fails SHUT. The
+-- pref, its checkbox (ui/tabs/Security.lua) and `/trp3fw scanreply nonce` are all still
+-- reachable, so gating on the raw pref anywhere is a live footgun. Every consumer must go
+-- through this accessor instead.
+--
+-- Wiring the nonce up needs protocol cooperation (a handshake that tells the responder which
+-- nonce to echo), which is a design decision, not a defect fix -- so the verification code is
+-- left intact and merely inert, ready for that work.
+function TRP3FW:IsScanNonceVerificationAvailable()
+    return false
 end
 
 function TRP3FW:ShouldAlertOnPhase()
@@ -322,7 +370,25 @@ function TRP3FW:IsGhostModeEnabled()
 end
 
 -- Runtime state
+-- Which RP addons/capabilities are present locally. Keyed by capability name:
+-- TRP3 / MRP / XRP / MSP (booleans) and MapScanner (the string "TRP3"/"RPMapScan").
+-- Written by hooks/installer.lua, read by status.lua, ui/, core/utils.lua, location/.
 TRP3FW.detectedAddons = {}
+-- Which RP addon a given REMOTE PLAYER is running, inferred from their MSP handshake.
+-- Keyed by cleaned player name, values are "TRP3"/"MRP"/"XRP"/"MSP".
+--
+-- Deliberately separate from detectedAddons: these were one table, and the two keyspaces
+-- collided on any player whose name happened to be a capability key. A player named
+-- "MapScanner" set detectedAddons.MapScanner to a truthy value, so location/maps.lua:361
+-- and location/cascading.lua:214 believed a map scanner existed when none did (and the
+-- Status tab reported one). In the other direction, a send to a player named "MSP" read
+-- back the installer's `detectedAddons.MSP = true` as that player's addon, putting a
+-- BOOLEAN where a string was expected: HistoryService:TrackAddonRequest type-guards and
+-- silently skips it, but NotificationService (:279, :506) formats it with "%s", which is a
+-- hard error in Lua 5.1.
+TRP3FW.playerAddonProtocol = {}
+TRP3FW.playerAddonProtocolCount = 0
+TRP3FW.PLAYER_ADDON_PROTOCOL_LIMIT = 500
 -- TRP3FW.notificationHistory managed by HistoryService
 -- TRP3FW.profileSendHistory managed by HistoryService
 TRP3FW.scanNotificationHistory = {}
@@ -351,6 +417,10 @@ TRP3FW.profiler = {
     stats = {},       -- Collected statistics: [name] = {count, totalTime, minTime, maxTime, calls}
 }
 
+-- How many recent samples each profiled name retains for percentile math. Held in a ring
+-- buffer (see profiler.stop), so this is also the buffer's fixed size.
+local PROFILER_SAMPLE_LIMIT = 1000
+
 -- Start profiling a function/block
 function TRP3FW.profiler.start(name)
     if not TRP3FW.profiler.enabled then return end
@@ -377,7 +447,8 @@ function TRP3FW.profiler.stop(name)
             totalTime = 0,
             minTime = math.huge,
             maxTime = 0,
-            calls = {}  -- Store recent calls for percentile calculations
+            calls = {},      -- Ring buffer of recent samples for percentile calculations
+            callCursor = 0   -- Write position within `calls`
         }
     end
 
@@ -389,10 +460,15 @@ function TRP3FW.profiler.stop(name)
 
     -- Keep last 1000 calls for percentile calculations (FIFO; the previous random
     -- eviction biased P95/P99 toward older outliers).
-    table.insert(stats.calls, elapsed)
-    if #stats.calls > 1000 then
-        table.remove(stats.calls, 1)
-    end
+    --
+    -- RING BUFFER, not table.insert + table.remove(calls, 1). The old form shifted 1000
+    -- elements on every single measurement once the buffer filled -- O(n) per sample, inside
+    -- the profiler itself, which is the one place added overhead corrupts the thing being
+    -- measured. Overwriting one slot is O(1). The only reader (profiler.report) copies the
+    -- array and sorts it, so slot order is irrelevant.
+    stats.callCursor = (stats.callCursor or 0) + 1
+    if stats.callCursor > PROFILER_SAMPLE_LIMIT then stats.callCursor = 1 end
+    stats.calls[stats.callCursor] = elapsed
 end
 
 -- Calculate percentile from sorted array
@@ -481,11 +557,8 @@ function TRP3FW:DebugRefactor(message, category)
     end
 
     local formatted = string.format("[REFACTOR] [%s] %s", category or "GENERAL", message)
+    -- Debug() feeds both chat and the debug window buffer, so no direct AddDebugMessage here.
     self:Debug(formatted, "refactor")
-
-    if self.AddDebugMessage then
-        self:AddDebugMessage(formatted, "refactor")
-    end
 end
 
 function TRP3FW:LogRefactorTransition(functionName, version, context)
@@ -517,9 +590,9 @@ TRP3FW.pendingSendId = 0
 -- TRP3FW.CacheInterface (O(1) LRU eviction). The deprecation-warning proxies
 -- previously here are no longer referenced anywhere outside their own declaration.
 
--- Performance: Frame-based monotonic time caching (eliminates ~95 syscalls per request)
-TRP3FW.cachedTime = nil
-TRP3FW.cachedTimeFrame = 0
+-- (TRP3FW.cachedTime / cachedTimeFrame removed: the "frame cache" they backed read the clock
+-- unconditionally before consulting itself, so it saved no syscalls and cost extra work on
+-- every call. See TRP3FW:GetCurrentTime in core/utils.lua.)
 
 -- OPTIMIZATION: Phase ID caching (eliminates redundant C_Epsilon.GetPhaseId() calls in ghost mode)
 -- Phase changes are rare relative to profile sends, so cache with 1-second TTL
@@ -567,6 +640,14 @@ TRP3FW.lastZoneEventTime = 0    -- Timestamp of last zone event (for deduplicati
 TRP3FW.pendingPhaseInSends = {}  -- Queued Chomp sends during phase-in delay
 TRP3FW.PHASE_IN_QUEUE_LIMIT = 200
 
+-- Cap on BurstStage's per-player queue of requests waiting on an in-flight location check.
+-- This was the one unbounded collection in the addon, against CLAUDE.md's stated rule that
+-- every cache has a maxSize to prevent DoS. Bounded in practice by the check window (~2s via
+-- cascading's deadline), but a hung check widens that to 30s -- and each entry retains a full
+-- profile payload in originalArgs.
+TRP3FW.BURST_QUEUE_LIMIT = 100
+TRP3FW.burstQueueDrops = 0  -- Diagnostic counter; surfaced by /trp3fw stats
+
 -- Original function references (for hooks)
 TRP3FW.originalMSPSend = nil
 TRP3FW.originalMSPReply = nil
@@ -581,6 +662,18 @@ function TRP3FW:MigrateSettings()
     TRP3FW_DB.profiles = TRP3FW_DB.profiles or {}
     TRP3FW_DB.profileKeys = TRP3FW_DB.profileKeys or {}
     TRP3FW_DB.global = TRP3FW_DB.global or { version = TRP3FW.VERSION }
+
+    -- `version` previously recorded the INSTALL-time version forever: it was set once, in the
+    -- table constructor above, and never written again. Nothing reads it today, but any future
+    -- migration keyed off it would have read a stale value and concluded no migration was
+    -- needed. Keep both halves, since they answer different questions:
+    --   * lastVersion  - the version that last ran. This is what a migration should compare
+    --                    against, and it is updated below AFTER migrations have had their
+    --                    chance to see the old value.
+    --   * firstVersion - the version that created this DB, preserved for diagnostics.
+    local g = TRP3FW_DB.global
+    g.firstVersion = g.firstVersion or g.version or TRP3FW.VERSION
+    g.previousVersion = g.lastVersion or g.version  -- what the migrations below should read
 
     -- Check if we have legacy data to migrate
     -- TRP3FW_Settings (legacy global) might contain data if it was just loaded
@@ -598,6 +691,23 @@ function TRP3FW:MigrateSettings()
     if not next(TRP3FW_DB.profiles) then
         TRP3FW_DB.profiles["Default"] = CopyTable(self.defaultSettings)
     end
+
+    -- Stamp LAST, so anything above can still read `previousVersion` to detect an upgrade.
+    -- `version` is kept in sync as the current version for anything already reading it.
+    TRP3FW_DB.global.lastVersion = TRP3FW.VERSION
+    TRP3FW_DB.global.version = TRP3FW.VERSION
+end
+
+-- Table-valued defaults must be copied, never aliased, when backfilled into a
+-- profile -- see the comment in LoadProfile below.
+local function copyDefault(value)
+    if type(value) ~= "table" then return value end
+
+    local copy = {}
+    for k, v in pairs(value) do
+        copy[k] = copyDefault(v)
+    end
+    return copy
 end
 
 function TRP3FW:LoadProfile(profileName)
@@ -610,10 +720,17 @@ function TRP3FW:LoadProfile(profileName)
     -- Point Prefs to the active profile table
     self.Prefs = db.profiles[profileName]
 
-    -- Ensure all default keys exist in the profile
+    -- Ensure all default keys exist in the profile.
+    -- Table-valued defaults (ghostProfileOverrides, spvpPerPhaseOverrides) are copied
+    -- rather than assigned: assigning shares one table between defaultSettings and every
+    -- profile that backfills the key. Profiles saved before those settings existed all
+    -- lack them, so upgrading users hit this on the first profile switch -- and the UI
+    -- mutates these tables in place (ui/tabs/Alerts.lua writes ghostProfileOverrides
+    -- element-by-element), so an override set on one profile showed up on all of them
+    -- and on every profile later created from defaultSettings.
     for k, v in pairs(self.defaultSettings) do
         if self.Prefs[k] == nil then
-            self.Prefs[k] = v
+            self.Prefs[k] = copyDefault(v)
         end
     end
 

@@ -101,8 +101,25 @@ local mapScanFrame = CreateFrame("Frame")
 mapScanFrame:RegisterEvent("CHAT_MSG_ADDON")
 
 -- Active scan tracking
-local activeScanCallbacks = {} -- playerName -> {callback, timer, found, scanMapID, nonce}
+-- playerName -> {callbacks = {fn...}, timer, found, scanMapID, nonce}
+-- `callbacks` is a list, not a single slot: several independent requests can be waiting on
+-- one in-flight scan for the same player (see the attach path in MapScan below).
+local activeScanCallbacks = {}
 local activeScanForMap = false -- Are we currently scanning our current map?
+
+-- Deliver a scan outcome to every caller waiting on it. Callers are pcall'd individually
+-- so one throwing handler can't strand the others (they are hook/pipeline continuations).
+local function ResolveScanCallbacks(scanInfo, found, source, age)
+    if not scanInfo or not scanInfo.callbacks then return end
+    for _, cb in ipairs(scanInfo.callbacks) do
+        if cb then
+            local ok, err = pcall(cb, found, source, age)
+            if not ok then
+                TRP3FW:Debug("[Map Scan] Callback error for source "..tostring(source)..": "..tostring(err), "channel")
+            end
+        end
+    end
+end
 
 -- Hook into TRP3's map scan events to auto-enable caching
 -- Track which map is currently being scanned
@@ -167,7 +184,11 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
     local start = debugprofilestop()
     if event == "CHAT_MSG_ADDON" and prefix == "RPB1" then
         local senderName = TRP3FW:CleanPlayerName(sender)
-        local strictNonceRequired = TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
+        -- Hard-disabled: nothing transmits the nonce, so no reply can ever carry one and
+        -- this would reject every scan reply. See TRP3FW:IsScanNonceVerificationAvailable.
+        local strictNonceRequired = TRP3FW.IsScanNonceVerificationAvailable
+            and TRP3FW:IsScanNonceVerificationAvailable()
+            and TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
 
         -- Safety check: If CleanPlayerName returns nil, use raw sender name for debugging
         if not senderName then
@@ -317,10 +338,11 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
             if scanInfo.timer then
                 scanInfo.timer:Cancel()
             end
-            if scanInfo.callback then
-                scanInfo.callback(true, verifiedNonce and "scanned_verified" or "scanned", 0)
-            end
+            -- Clear the entry BEFORE dispatching: a callback can re-enter MapScan for the
+            -- same player, and it must register a fresh scan rather than attach to the one
+            -- that is already resolving.
             activeScanCallbacks[senderName] = nil
+            ResolveScanCallbacks(scanInfo, true, verifiedNonce and "scanned_verified" or "scanned", 0)
         end
     end
 
@@ -350,7 +372,12 @@ function TRP3FW:MapScan(name, sendId, callback, priority)
 
     -- Check cache first
     local CI = self.CacheInterface
-    local strictNonceRequired = TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
+    -- Hard-disabled: every cached entry has verified=false because nothing transmits the
+    -- nonce, so this would invalidate the entire mapScan/broadcast cache. See
+    -- TRP3FW:IsScanNonceVerificationAvailable.
+    local strictNonceRequired = TRP3FW.IsScanNonceVerificationAvailable
+        and TRP3FW:IsScanNonceVerificationAvailable()
+        and TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
     local cached = nil
     if CI then
         cached = CI:Get("mapScan", name)
@@ -502,6 +529,27 @@ function TRP3FW:MapScan(name, sendId, callback, priority)
 
     self:Debug("Map scan: No recent broadcast from "..name.." found in cache", "channel")
 
+    -- BUG FIX: activeScanCallbacks is keyed by player name alone, and a second scan for
+    -- the same player used to OVERWRITE the first entry. Two things went wrong:
+    --   1. The first caller's callback was discarded - it was never told found, not-found
+    --      or timed out, so whatever awaited it just hung until its own deadline.
+    --   2. The first entry's timer was never cancelled. When it fired it looked up
+    --      activeScanCallbacks[name], found the SECOND entry, saw found == false, and
+    --      resolved it as a timeout early - and wrote a `found = false` mapScan cache
+    --      entry, which then suppressed this player for scanCacheFailureDuration.
+    -- Reachable in one request: on the HIGH-priority path RunMapCheck arms a 0.3s parallel
+    -- startMapScan while CheckPlayerViaWho is still running, and a WHO failure routes
+    -- through TryMapFallbackForWho, which calls MapScan for the same player directly.
+    -- Attach to the in-flight scan instead (same shape as WhoService's queue dedupe and
+    -- pendingPhaseCheckWaiters). The attaching caller inherits the running scan's timeout
+    -- window rather than getting its own.
+    local inFlight = activeScanCallbacks[name]
+    if inFlight and not inFlight.found then
+        if callback then table.insert(inFlight.callbacks, callback) end
+        self:Debug("[Map Scan] Scan already awaiting a response from '"..name.."' - attached to it, not re-registered", "channel")
+        return
+    end
+
     -- Decide if we can proceed with a scan (or piggyback on one)
     local now = self:GetCurrentTime()
     local minInterval = (TRP3FW.Prefs and TRP3FW.Prefs.mapScanMinInterval) or MAP_SCAN_MIN_INTERVAL
@@ -533,7 +581,7 @@ function TRP3FW:MapScan(name, sendId, callback, priority)
     currentScanMapID = currentScanMapID or self:GetCurrentMapID()
 
     activeScanCallbacks[name] = {
-        callback = callback,
+        callbacks = callback and { callback } or {},
         timer = nil, -- Will be set below
         found = false,
         scanMapID = currentScanMapID,
@@ -575,10 +623,10 @@ function TRP3FW:MapScan(name, sendId, callback, priority)
                 TRP3FW:Debug("[Cache Add] recentScans: Added "..name.." (NOT FOUND - timeout, mapID: "..tostring(timeoutMapID)..")", "cache")
             end
 
-            if scanInfo.callback then
-                scanInfo.callback(false, "timeout", 0) -- 0 = fresh scan just completed
-            end
+            -- Clear before dispatching, for the same re-entrancy reason as the WHISPER
+            -- response path above.
             activeScanCallbacks[name] = nil
+            ResolveScanCallbacks(scanInfo, false, "timeout", 0) -- 0 = fresh scan just completed
         end
 
         -- If no more active callbacks, disable the global scan flag

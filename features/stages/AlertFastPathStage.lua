@@ -42,7 +42,11 @@ function AlertFastPathStage:Process(context)
         spvpSalt = context.spvpSalt
     }
 
-    -- Run location checks asynchronously to surface alerts
+    -- Run location checks asynchronously to surface alerts.
+    -- N17: `options` must be passed. It was built and then dropped here (LocationStage
+    -- passes its equivalent), so the alert-only path discarded SPVPStage's decision and
+    -- cascading's late-resolution re-derived `spvpEnabled` from live prefs - running SPVP
+    -- in phases the user had explicitly opted out of.
     TRP3FW:CheckLocationCascading(context.playerName, context.sendId, function(locationOK, alertType, source, mapCacheAge, theirZone, myZone, cacheInfo, recentTransition, timeSinceTransition, checkDetails)
         -- Process alerts only
         local shouldAlert = (locationOK == false) and (source ~= "disabled")
@@ -89,7 +93,7 @@ function AlertFastPathStage:Process(context)
 
         -- Process burst allows
         TRP3FW:ProcessBurstAllows(context.playerName)
-    end)
+    end, options)
 
     return {handled = true, allowed = true, reason = "alert_fast_path"}
 end

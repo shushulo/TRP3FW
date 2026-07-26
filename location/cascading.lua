@@ -94,7 +94,7 @@ local function EvaluateResults(results)
 
     local checkDetails = {
         phase = { result = results.phaseCheck, source = results.phaseSource, method = results.phaseMethod, theirMapID = results.theirMapID, myMapID = results.myMapID, disabled = results.phaseDisabled },
-        map = { result = results.mapCheck, source = results.mapSource, method = results.mapMethod, cacheAge = results.mapCacheAge, theirZone = results.theirZone, myZone = results.myZone, theirMapID = results.theirMapFromWho or results.theirMapID, myMapID = results.myMapID, skippedBecausePhase = results.mapSkippedBecausePhase, disabled = results.mapDisabled },
+        map = { result = results.mapCheck, source = results.mapSource, method = results.mapMethod, cacheAge = results.mapCacheAge, theirZone = results.theirZone, myZone = results.myZone, theirMapID = results.theirMapID, myMapID = results.myMapID, skippedBecausePhase = results.mapSkippedBecausePhase, disabled = results.mapDisabled },
         spvp = { result = results.spvpCheck, source = results.spvpSource, disabled = results.spvpDisabled }
     }
 
@@ -257,6 +257,10 @@ end
 
 local function HandlePhaseResult(results, inPhase, source, theirMapID, phaseMethod, priority)
     if results.resolved then return end  -- N3: discard late results
+    -- Idempotence guard, mirroring HandleMapResult. Without it a repeat delivery re-ran this
+    -- whole body including the RunMapCheck dispatch; the phase side quietly absorbing a
+    -- duplicate callback is why one went unnoticed for so long.
+    if results.phaseCheck ~= nil then return end
     results.phaseCheck, results.theirMapID, results.phaseSource, results.phaseMethod = inPhase, theirMapID, source, phaseMethod
     MarkComplete(results, "phase")
     if source and source:find("cached") then results.cacheInfo.phaseCache = "hit" end
@@ -408,6 +412,21 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     local phaseCheckEnabled = self.hasEpsilonAPI and (options.phaseCheckEnabled ~= false and self:IsPhaseCheckEnabled())
     local mapCheckEnabled = options.mapCheckEnabled ~= false and self:IsMapCheckEnabled()
 
+    -- BUG FIX: options.priority was never read. hooks/trp3_scan_pipeline.lua sets
+    -- `priority = "HIGH"` on every TRP3 scan reply (which must resolve inside TRP3's ~3s
+    -- reply window), but StartStandardChecks was called with no priority at all, so every
+    -- HIGH-keyed path downstream was unreachable from the only caller that asks for it:
+    --   * StartStandardChecks' 0.2s parallel map-check fast fallback
+    --   * RunMapCheck's 0.3s parallel map-scan fast fallback and its skip-WHO-when-busy rule
+    --   * CheckPlayerPhase's 1.5s targeting timeout (stayed 3.0s) and QueuePhaseCheck's
+    --     immediate-fire (stayed behind the 1.0s batch-accumulation delay)
+    --   * MapScan's 5s rate limit (stayed 60s) and 2.5s scan timeout (stayed 5s)
+    -- Net effect: a scan reply could not resolve before ~4s even in the good case, so it
+    -- always lost the race to the 2.0s deadline below and to TRP3's own window. Note
+    -- OnSPVPResult still chooses its own priorities deliberately (see H3 there); this only
+    -- restores the priority the caller actually supplied.
+    local priority = options.priority
+
     local spvpEnabled = options.spvpEnabled
     local spvpMode = options.spvpMode or TRP3FW.Prefs.spvpMode or "off"
 
@@ -433,7 +452,7 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     local results = {
         playerName = playerName, sendId = sendId, callback = callback,
         phaseCheck = nil, mapCheck = nil, spvpCheck = nil,
-        mapCacheAge = nil, theirMapID = nil, theirZone = nil, theirMapFromWho = nil,
+        mapCacheAge = nil, theirMapID = nil, theirZone = nil,
         mapSource = nil, spvpSource = nil, phaseSource = nil, phaseMethod = nil,
         myMapID = myMapID, myZone = myZone,
         -- H8: Per-kind tracking. `expected` = which kinds will report; `done` = which have.
@@ -534,6 +553,6 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
                 OnSPVPResult(results, verified, source)
             end)
         end
-        StartStandardChecks(results)
+        StartStandardChecks(results, priority)
     end
 end

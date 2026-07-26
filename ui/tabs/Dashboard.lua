@@ -91,18 +91,33 @@ local function hitBar(parent, label)
     fill:SetColorTexture(Theme:Color("GOLD"))
     row.fill = fill
 
+    -- Apply the stored rate to the fill's width. Split out from SetRate because the track is
+    -- ANCHORED (LEFT/RIGHT), not sized -- so GetWidth() returns 0 until the frame has actually
+    -- been laid out. PrebuildAllTabs triggers the first RefreshDashboard before that happens,
+    -- so on first paint the old `if w and w > 0` guard silently skipped the update and left the
+    -- bar empty. Re-running this from OnSizeChanged is the hit-bar equivalent of the fix
+    -- CreateSlider documents (TabManager.lua:816-823), which anchors its fill to the thumb; a
+    -- bar has no thumb to anchor to, so it recomputes on resize instead.
+    local function applyFill(self)
+        local rate = self._rate
+        if not rate then return end
+        local w = self.track:GetWidth()
+        if w and w > 0 then self.fill:SetWidth(math.max(1, w * rate / 100)) end
+    end
+
     function row:SetRate(hits, misses)
         local total = (hits or 0) + (misses or 0)
         local rate = total > 0 and ((hits / total) * 100) or 0
         if total == 0 then
             -- No data yet: hide the fill so an empty bar isn't a misleading red 0%.
+            self._rate = nil
             self.fill:SetWidth(1)
             self.fill:SetColorTexture(Theme:Color("TRACK"))
             self.pct:SetText("--")
             return
         end
-        local w = self.track:GetWidth()
-        if w and w > 0 then self.fill:SetWidth(math.max(1, w * rate / 100)) end
+        self._rate = rate
+        applyFill(self)
         -- Health color: <50% red, 50-80% yellow, >=80% green.
         local colorKey
         if rate >= 80 then colorKey = "SUCCESS"
@@ -111,6 +126,10 @@ local function hitBar(parent, label)
         self.fill:SetColorTexture(Theme:Color(colorKey))
         self.pct:SetText(string.format("%.0f%%", rate))
     end
+
+    -- Catches the first real layout, when GetWidth() finally returns something usable.
+    row:SetScript("OnSizeChanged", function(self) applyFill(self) end)
+
     return row
 end
 
@@ -260,11 +279,16 @@ local function RefreshDashboard()
             else return "|cff7fc07fAllowed|r" end
         end
         local history = TRP3FW.notificationHistory or {}
-        local n = #history
+        -- HistoryService:RecordHistory does table.insert(history, 1, entry), so index 1
+        -- is ALREADY the newest. Indexing from the end (history[n - i + 1]) walked it
+        -- oldest-first, so this panel showed the stalest entries it had, not the recent
+        -- activity it advertises.
         for i, row in ipairs(dashWidgets.recent) do
-            local e = history[n - i + 1]  -- newest first
+            local e = history[i]
             if e then
-                row.time:SetText(e.timestamp and date("%H:%M:%S", e.timestamp) or "--")
+                -- wallTime, not timestamp: timestamp is client uptime and date() reads
+                -- its argument as a Unix epoch. See HistoryService:RecordHistory.
+                row.time:SetText(e.wallTime and date("%H:%M:%S", e.wallTime) or "--")
                 row.player:SetText(e.player or "Unknown")
                 row.outcome:SetText(outcome(e))
             else

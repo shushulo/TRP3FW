@@ -248,7 +248,7 @@ local function CreateDebugTab(container)
     toggleRow(dbgCard, "debug", "Master debug mode", "Display verbose technical logs.", function(c) TRP3FW.Prefs.debug = c; TRP3FW:RefreshUI() end)
     toggleRow(dbgCard, "debugTimestamp", "Prefix timestamps", "Include server time in debug.", nil, 16)
 
-    local dOut = TabManager:CreateSkinnedDropdown(dbgCard, "Debug output destination", "Target frame for logs.", 200, "debugOutputBoth")
+    local dOut = TabManager:CreateSkinnedDropdown(dbgCard, "Debug output destination", "Logs are always captured for the debug window while debug mode is on; this picks whether they also print to chat.", 200, "debugOutputBoth")
     uiElements.debugOutputDropdown = dOut
     UIDropDownMenu_Initialize(dOut, function()
         local l = {

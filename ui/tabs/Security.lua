@@ -167,7 +167,7 @@ local function CreateSecurityTab(container)
     scanModeDropdown("Different-map behavior", "scanResponseMapMode", "scanResponseWhoModeDropdown")
 
     local gating = {
-        { "scanResponseRequireNonce", "Require nonce on scan replies", "Ignore map scan replies without the issued nonce token (older scanners may be ignored)." },
+        { "scanResponseRequireNonce", "Require nonce on scan replies |cff888888(unavailable)|r", "NOT IMPLEMENTED - has no effect. The scan protocol has no way to carry the nonce back (the request is TRP3's own broadcast, and reply hooks forward their arguments verbatim), so no reply can ever be verified. Enabling this would ignore every scan reply and disable map checking entirely, so it is hard-disabled in code." },
         { "scanResponseCacheEnabled", "Cache scan requesters", "When replying to map scans, cache WHO results (if a WHO query ran). Does not add to interaction/send caches." },
         { "scanResponseAllowCacheBypass", "Bypass with existing caches", "If the requester is already in the allowed or interaction cache, skip the WHO gate and reply immediately." },
         { "scanResponseAllowGroupBypass", "Always allow party/raid", "If the scan requester is in your party or raid, always reply (skips phase/map/WHO gates)." },
@@ -263,7 +263,7 @@ local function CreateSecurityTab(container)
         uiElements.spvpSaltStatus:ClearAllPoints()
         uiElements.spvpSaltStatus:SetPoint("TOPLEFT", spvpCard, "TOPLEFT", 12, y)
         uiElements.spvpSaltStatus:SetPoint("RIGHT", spvpCard, "RIGHT", -12, 0)
-    end, 24, 1)
+    end, 24, 1, { uiElements.spvpSaltStatus })
 
     uiElements.spvpSecureButton = TabManager:CreateButton(spvpCard, "Secure this phase", 180, false)
     uiElements.spvpSecureButton:SetOnClick(function()
@@ -283,7 +283,7 @@ local function CreateSecurityTab(container)
     spvpCard:AddRow(function(y)
         uiElements.spvpSecureButton:ClearAllPoints()
         uiElements.spvpSecureButton:SetPoint("TOPLEFT", spvpCard, "TOPLEFT", 12, y)
-    end, 28, 1)
+    end, 28, 1, { uiElements.spvpSecureButton })
     spvpCard:Reflow()
 
     return scrollFrame

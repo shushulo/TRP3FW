@@ -72,8 +72,47 @@ Use `H.mock.setClock(t)` / `H.mock.advance(s)` to control time, and
 - `history_service_spec` — `HistoryService` accounting: per-type block/ghost
   breakdown (the combined `phase+map` `:find` logic), `start_phase_block`
   bucketing, `maxHistorySize` capping, `IncrementStat` nested/top-level guards,
-  `TrackAddonRequest` dedup/case-folding, and the send-history suppression
-  window (`IsFirstSend`/`RecordSend`).
+  `TrackAddonRequest` dedup/case-folding (including the nil-`sendId` guard), the
+  send-history suppression window (`IsFirstSend`/`RecordSend`), the monotonic
+  `timestamp` vs epoch `wallTime` split that the `date()`-based UI depends on,
+  and the canonical (unescaped) player-name form stored for display.
+- `notification_service_spec` — `NotificationService` suppression: the
+  `ShouldSuppress` window/escalation/count accounting, and — separately — that
+  the accumulated count actually reaches the user as the
+  `(+N suppressed in last Xs)` rollup. The two layers are tested independently
+  because the tally was correct while the `Notify` boundary discarded it.
+- `who_service_queue_spec` — `WhoService` queue plumbing and the
+  "that zone scan was complete" shortcut: that it cannot fire for a
+  never-scanned zone or while a zone query is in flight, that queue dedupe
+  chains rather than drops the earlier caller's callback, and that
+  `ScanZoneForPlayers` drains the queue on both its failure exits.
+- `location_stage_timer_spec` — `LocationStage`'s 30s give-up timer: that a
+  resolved check retires its `pendingSends` entry, that the timer only tears
+  down the check whose `sendId` owns it (so a *newer* check for the same player
+  and its queued sends survive), that a genuinely hung check is still abandoned,
+  and that the stage always returns `handled = true` — which is what keeps
+  `Pipeline:Run`'s fall-through result unreachable.
+- `spvp_stage_override_spec` — the three-valued `context.spvpEnabled` contract:
+  deliberate declines (per-phase override, master toggle, phase 169, no Epsilon
+  API, empty salt) must be `false` so `CheckLocationCascading`'s late resolution
+  doesn't re-enable SPVP, while a still-loading salt must stay `nil` so it can.
+  Also covers `AlertFastPathStage` actually forwarding its `options` table.
+- `location_dispatch_spec` — the three section-4 seam bugs: that
+  `CheckLocationCascading` forwards `options.priority` (scan replies ask for
+  `"HIGH"`; dropping it disabled every latency path built for them), that a phase
+  check delivers its result to each caller exactly once rather than twice to the
+  originator, and that a second `MapScan` for a player already being scanned
+  attaches to the in-flight scan instead of overwriting it.
+- `ui_refresh_spec` — the section-8 UI contracts: that `RefreshUI` actually
+  drives the four phase-batching sliders (they live under `<key>Slider` keys no
+  refresh loop reads, so they displayed their minimum rather than the stored
+  pref), that `SETTING_LEVELS` classifies the real `phaseCheckInterTargetDelay`
+  key rather than a phantom `phaseCheckBatchInterDelay`, and that
+  `debugwindow.lua` declares `autoScrollCheck` above the function closing over
+  it. The last two are source-text assertions on purpose: the auto-scroll bug is
+  lexical (a `local` below its reader resolves to a nil global), and `uiElements`
+  is a file-local with no accessor, so driving `RefreshUI` for real would mean
+  adding a test-only hook to production code.
 
 ## In-game integration tests
 

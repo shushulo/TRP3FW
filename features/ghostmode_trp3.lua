@@ -102,9 +102,14 @@ function TRP3FW:EnableGhostForNextSend(playerName, profileID)
     end
 
     local now = GetTime()
-    -- FIXED: MEDIUM-3 - Add random jitter to prevent timing oracle attacks
+    -- MEDIUM-3: random jitter so the ghost window's width isn't a timing oracle.
+    -- The auto-cleanup timer below must use the SAME duration: it used to be hardcoded
+    -- to 2s while expireTime was 2+jitter, so the timer always fired first and the
+    -- jitter never widened the window by a single frame - the flag was cleared at a
+    -- fixed 2.0s every time, which is exactly the constant interval jitter exists to hide.
     local jitter = math.random(0, 2000) / 1000  -- 0-2s random jitter
-    local expireTime = now + 2 + jitter  -- 2-4 second window
+    local ghostWindow = 2 + jitter               -- 2-4 second window
+    local expireTime = now + ghostWindow
 
     -- Generation counter to prevent race conditions (increment on each new ghost flag)
     self.ghostGeneration = (self.ghostGeneration or 0) + 1
@@ -127,14 +132,15 @@ function TRP3FW:EnableGhostForNextSend(playerName, profileID)
         generation = currentGeneration,  -- Track which generation this ghost flag belongs to
     }
 
+    local windowLabel = string.format("%.2fs", ghostWindow)
     if profileID then
-        self:Debug("[Ghost Flag] Enabled ghost mode for "..playerName.." with profile ID: "..tostring(profileID).." (expires in 2s, gen: "..currentGeneration..")", "ghost")
+        self:Debug("[Ghost Flag] Enabled ghost mode for "..playerName.." with profile ID: "..tostring(profileID).." (expires in "..windowLabel..", gen: "..currentGeneration..")", "ghost")
     else
-        self:Debug("[Ghost Flag] Enabled ghost mode for "..playerName.." with blank profile (expires in 2s, gen: "..currentGeneration..")", "ghost")
+        self:Debug("[Ghost Flag] Enabled ghost mode for "..playerName.." with blank profile (expires in "..windowLabel..", gen: "..currentGeneration..")", "ghost")
     end
 
-    -- Schedule automatic cleanup after 2 seconds (track timer for cancellation)
-    self.ghostCleanupTimer = C_Timer.NewTimer(2, function()
+    -- Schedule automatic cleanup at the end of the jittered window (track timer for cancellation)
+    self.ghostCleanupTimer = C_Timer.NewTimer(ghostWindow, function()
         -- RACE CONDITION FIX: Only clear if this is still the current generation
         if self.ghostNextSend and self.ghostNextSend.generation == currentGeneration and self.ghostNextSend.target == playerName then
             self:Debug("[Ghost Flag] Auto-clearing expired ghost flag for "..playerName.." (gen: "..currentGeneration..")", "ghost")
@@ -203,6 +209,20 @@ function TRP3FW:ClearAllGhostFlags()
         self.ghostCleanupTimer:Cancel()
         self.ghostCleanupTimer = nil
         self:Debug("[Ghost Flag] Cancelled cleanup timer during ClearAll", "ghost")
+    end
+
+    -- "Clear all" has to mean all. These two per-target throttle tables
+    -- (features/decision.lua's AllowSender) previously survived the emergency reset, so a
+    -- target throttled at the moment of the reset stayed throttled for up to 10s afterwards
+    -- -- silently suppressing replies during exactly the recovery this function exists for.
+    -- CacheService prunes them eventually, but "eventually" is not what the caller asked for.
+    if self.mspAllowDebounce and next(self.mspAllowDebounce) then
+        wipe(self.mspAllowDebounce)
+        self:Debug("[Ghost Flag] Cleared MSP allow debounce during ClearAll", "ghost")
+    end
+    if self.mspTargetWindow and next(self.mspTargetWindow) then
+        wipe(self.mspTargetWindow)
+        self:Debug("[Ghost Flag] Cleared MSP target window during ClearAll", "ghost")
     end
 end
 

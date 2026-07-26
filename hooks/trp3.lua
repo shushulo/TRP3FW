@@ -40,13 +40,23 @@ function TRP3FW:GetGhostDataForInformationType(informationType, profileID)
             self:Debug("[GetGhostData] No profileID, using blank characteristics", "ghost")
             ghostData = self:GetBlankCharacteristicsData()
         end
-        -- Safety: ensure required fields exist
+        -- Safety: ensure required fields exist.
+        --
+        -- These two defaults are applied to a COPY. GetProfileCharacteristics returns a live
+        -- reference into TRP3_Profiles (features/profiles/adapter_trp3.lua:125 hands back
+        -- profile.data.player.characteristics itself, not a copy), so assigning here wrote
+        -- into the user's actual saved ghost profile - permanently stamping FN and CH onto it
+        -- the first time a ghost send used it. ValidateGhostTRP3Payload below does copy
+        -- before it sanitizes (:174), which is why only these two assignments leaked.
         if ghostData then
-            if not ghostData.FN or ghostData.FN == "" then
-                ghostData.FN = UnitName("player")
-            end
-            if not ghostData.CH or ghostData.CH == "" then
-                ghostData.CH = "ffffff"  -- White color (6-char RGB hex only)
+            local needsFN = not ghostData.FN or ghostData.FN == ""
+            local needsCH = not ghostData.CH or ghostData.CH == ""
+            if needsFN or needsCH then
+                local copy = {}
+                for k, v in pairs(ghostData) do copy[k] = v end
+                if needsFN then copy.FN = UnitName("player") end
+                if needsCH then copy.CH = "ffffff" end  -- White (6-char RGB hex only)
+                ghostData = copy
             end
         end
     elseif informationType == registerInfoTypes.ABOUT then
@@ -346,9 +356,11 @@ function TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queu
     local addon = "TRP3"
     if prefix and tostring(prefix):find("MSP") then
         addon = "MSP"
-        -- Try to resolve specific addon from MSP handshake
-        if TRP3FW.detectedAddons and playerName and TRP3FW.detectedAddons[playerName] then
-             addon = TRP3FW.detectedAddons[playerName]
+        -- Try to resolve specific addon from MSP handshake. Reads the player-keyed table,
+        -- not detectedAddons - see core/init.lua for why those are separate.
+        local resolved = TRP3FW.playerAddonProtocol and playerName and TRP3FW.playerAddonProtocol[playerName]
+        if type(resolved) == "string" then
+            addon = resolved
         end
     end
 
@@ -434,6 +446,9 @@ function TRP3FW:InstallSendObjectHook()
     local conflict = self:CheckHookConflict("sendObject", comms.sendObject, originals.sendObject, nil)
     if conflict.action == "skip" then
         self:Debug("sendObject hook already installed; skipping", "hooks")
+        -- Still ours, so TRP3 ghosting is available - see the flag note at the
+        -- successful-install site below.
+        self.hasTRP3ExchangeHooks = true
         return true
     elseif conflict.action == "refuse" then
         self.hookStatus.sendObject = "refused"
@@ -578,6 +593,12 @@ function TRP3FW:InstallSendObjectHook()
 
         return result
     end
+
+    -- This hook IS the TRP3 exchange hook: it is the only thing that replaces outgoing
+    -- SI profile payloads with ghost data. `hasTRP3ExchangeHooks` gates whether TRP3
+    -- ghosting is considered available, but nothing ever set it - it was declared false
+    -- in core/init.lua and never assigned again, so every reader saw a permanent false.
+    self.hasTRP3ExchangeHooks = true
 
     self:Debug("Installed AddOn_TotalRP3.Communications.sendObject hook (pre-serialization ghost mode)", "hooks")
     return true

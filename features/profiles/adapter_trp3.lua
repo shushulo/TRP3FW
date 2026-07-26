@@ -44,7 +44,7 @@ function TRP3Adapter:GetProfiles()
     -- Sort by name
     table.sort(profiles, function(a, b) return a.name < b.name end)
 
-    if TRP3FW:ShouldLogProfileCount() then
+    if TRP3FW:ShouldLogProfileCount("TRP3") then
         TRP3FW:Debug("TRP3 adapter: Found "..#profiles.." profiles", "hooks")
     end
     return profiles

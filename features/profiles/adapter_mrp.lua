@@ -42,7 +42,7 @@ function MRPAdapter:GetProfiles()
         return a.name < b.name
     end)
 
-    if TRP3FW:ShouldLogProfileCount() then
+    if TRP3FW:ShouldLogProfileCount("MRP") then
         TRP3FW:Debug("MRP adapter: Found "..#profiles.." profiles", "hooks")
     end
     return profiles

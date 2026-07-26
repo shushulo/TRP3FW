@@ -7,6 +7,7 @@
 
 local T = require("tests.framework")
 local H = require("tests.harness")
+local mock = H.mock
 
 -- Build a HistoryService instance on a fresh namespace and initialize it.
 -- SecurityService is intentionally NOT loaded: RecordHistory falls back to the
@@ -149,6 +150,14 @@ T.describe("HistoryService:TrackAddonRequest", function()
         T.no_raise(function() svc:TrackAddonRequest(nil, 21) end)
         T.is_nil(svc.sessionStats.requestsByAddon.WEIRDADDON)
     end)
+
+    T.it("counts a request with no sendId instead of erroring", function()
+        -- `TRP3FW.lastAddonRequestSendId[nil] = true` is a hard "table index is nil"
+        -- error, and this runs inside the profile-send hook.
+        local fw, svc = newHistory()
+        T.no_raise(function() svc:TrackAddonRequest("TRP3", nil) end)
+        T.eq(svc.sessionStats.requestsByAddon.TRP3, 1, "still counted, just not deduplicated")
+    end)
 end)
 
 -- ===================== Send-history / suppression window =====================
@@ -182,6 +191,98 @@ T.describe("HistoryService send-history suppression", function()
         svc:RecordSend("Bob", 150)
         T.eq(svc.profileSendHistory["Bob"].suppressedCount, 0)
         T.eq(svc.profileSendHistory["Bob"].timestamp, 150)
+    end)
+end)
+
+-- ===================== Wall-clock vs monotonic timestamps =====================
+--
+-- `timestamp` is TRP3FW:GetCurrentTime() = GetTimePreciseSec(): seconds since the
+-- client started, NOT a Unix epoch. It is the right clock for the elapsed-time math
+-- the rest of the addon does with it (suppression windows, cache ages), but three UI
+-- sites render history entries with `date(fmt, entry.timestamp)` - ui/settings.lua
+-- (Status tab "Recent events"), ui/tabs/Dashboard.lua, and ui/historywindow.lua's
+-- perf-graph tooltip. `date()` interprets its argument as an epoch, so feeding it an
+-- uptime value printed every event as a time in Jan 1970 that drifted with uptime.
+--
+-- Fix: entries carry BOTH clocks - `timestamp` (monotonic, for math) and `wallTime`
+-- (time(), epoch, for display). These tests pin that both are present and distinct.
+-- The mock clock is session-relative and mock `time()` adds a plausible epoch base,
+-- so a wallTime that is really an uptime value is detectable here.
+
+local EPOCH_FLOOR = 1000000000  -- ~2001-09; any real epoch timestamp exceeds this
+
+T.describe("HistoryService timestamps carry a wall clock for display", function()
+    T.it("RecordHistory stores an epoch wallTime alongside the monotonic timestamp", function()
+        mock.setClock(1234)
+        local fw, svc = newHistory()
+        svc:RecordHistory("Bob", "TRP3", true, false, false, "phase")
+
+        local entry = svc.notificationHistory[1]
+        T.eq(entry.timestamp, 1234, "monotonic clock preserved for elapsed-time math")
+        T.truthy(entry.wallTime and entry.wallTime > EPOCH_FLOOR,
+            "wallTime must be a real epoch value - date() renders 1970 otherwise")
+    end)
+
+    T.it("performanceHistory entries also carry an epoch wallTime", function()
+        -- Nonzero start clock: RecordPerformance uses `intervalStart == 0` as its
+        -- "not yet armed" sentinel, so a clock literally at 0 re-arms every call and
+        -- the interval never rolls over. Production time is client uptime, never 0.
+        mock.setClock(100)
+        local fw, svc = newHistory({ trackHistory = true, maxHistorySize = 50,
+            statusRefreshRate = 1, performanceHistoryEnabled = true })
+
+        -- Two samples straddling the 1s interval boundary so the interval rolls over
+        -- and appends a performanceHistory row.
+        svc:RecordPerformance(5, "ctx")
+        mock.setClock(102)
+        svc:RecordPerformance(5, "ctx")
+
+        local entry = svc.sessionStats.performanceHistory[1]
+        T.not_nil(entry, "an interval rollover must append a history row")
+        T.eq(entry.timestamp, 102, "monotonic clock preserved")
+        T.truthy(entry.wallTime and entry.wallTime > EPOCH_FLOOR,
+            "perf-graph tooltip renders this with date() - it must be an epoch value")
+    end)
+end)
+
+-- ===================== Canonical (unescaped) player names =====================
+--
+-- SanitizePlayerName ESCAPES quotes/backslashes for safe embedding in RunPrivileged()
+-- code strings ("Il'tar" -> "Il\'tar", with a literal backslash byte). That form is for
+-- code generation only; the canonical form used everywhere else - cache keys, display -
+-- is CleanPlayerName's output. See commit 30ee55c, which fixed the same confusion in
+-- AllowSender. RecordHistory preferred the escaped form, so every apostrophe name was
+-- stored and DISPLAYED with a stray backslash in the history list and Status tab.
+
+T.describe("HistoryService:RecordHistory player-name form", function()
+    local function newHistoryWithSecurity()
+        local fw = H.newNamespace()
+        fw.Prefs = { trackHistory = true, maxHistorySize = 50 }
+        H.loadModule("core/Service.lua", fw)
+        H.loadModule("core/ServiceContainer.lua", fw)
+        H.loadModule("core/cache_interface.lua", fw)
+        fw.CacheInterface:Register("cleanName", {})
+        fw.CacheInterface:Register("sanitizedName", {})
+        _G.TRP3FW_ValidatedNames = {}
+        H.loadModule("features/services/SecurityService.lua", fw)
+        H.loadModule("features/services/HistoryService.lua", fw)
+        fw.ServiceContainer:Get("SecurityService"):Initialize()
+        local svc = fw.ServiceContainer:Get("HistoryService")
+        svc:Initialize()
+        return fw, svc
+    end
+
+    T.it("stores an apostrophe name unescaped", function()
+        local fw, svc = newHistoryWithSecurity()
+        svc:RecordHistory("Il'tar", "TRP3", true, false, false, "phase")
+        T.eq(svc.notificationHistory[1].player, "Il'tar",
+            "history must hold the canonical name, not RunPrivileged's escaped form")
+    end)
+
+    T.it("leaves an ordinary name untouched", function()
+        local fw, svc = newHistoryWithSecurity()
+        svc:RecordHistory("Bob", "TRP3", true, false, false, "phase")
+        T.eq(svc.notificationHistory[1].player, "Bob")
     end)
 end)
 

@@ -69,9 +69,20 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority, inspectD
             return
         end
 
+        -- BUG FIX: this used to seed the group with THIS caller's own callback/signal.
+        -- But the same functions also ride on the queue entry created just below
+        -- (entry.callback / entry.onTargetingStarted), and every resolver delivers BOTH:
+        -- e.g. ExecutePhaseCheck's handleResult calls check.callback(...) and then
+        -- ResolvePhaseCheckWaiters(...). So the originating caller was invoked twice for
+        -- every single phase check, while attached callers were invoked once.
+        --
+        -- The two mechanisms own disjoint sets: the queue entry owns the caller that
+        -- created it (and carries it through batch merges and requeues), the waiters group
+        -- owns only the ADDITIONAL callers that attached to an already-pending check.
+        -- Seed both lists empty.
         self.pendingPhaseCheckWaiters[playerName] = {
-            callbacks = { callback },
-            onTargetingStartedList = onTargetingStarted and { onTargetingStarted } or {},
+            callbacks = {},
+            onTargetingStartedList = {},
             targetingStarted = false,
         }
     end
@@ -111,13 +122,14 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority, inspectD
 
     -- Check if we have enough items to justify an immediate full-capacity batch
     -- "If we get up to the point where we would consume all of the available tokens, we should immediately fire off the batch"
-    local available = TRP3FW:GetAvailablePrivilegedTokens()
+    -- Capacity for immediate firing - must match ProcessPhaseCheckBatch's formula, which now
+    -- gets its reserved-token deduction from GetAvailablePrivilegedTokens(category) rather
+    -- than subtracting Prefs.privilegedReservedTokens by hand. Keep the two in step: this is
+    -- the same batch, sized twice.
+    local available = TRP3FW:GetAvailablePrivilegedTokens("phase_check_target")
 
-    -- Calculate capacity for immediate firing (aggressive) - matching ProcessPhaseCheckBatch formula
-    local reserved = TRP3FW.Prefs.privilegedReservedTokens or 2
-    local overhead = math.max(1, reserved)
-
-    local immediateCap = math.floor(available) - overhead
+    local RESTORE_TOKEN_OVERHEAD = 1
+    local immediateCap = math.floor(available) - RESTORE_TOKEN_OVERHEAD
     if immediateCap < 1 then immediateCap = 1 end
 
     -- Only fire immediately if we are filling the current capacity
@@ -154,9 +166,10 @@ function TRP3FW:QueuePhaseCheck(playerName, sendId, callback, priority, inspectD
     end
 end
 
--- Fire every onTargetingStarted attached to this player's waiters group (the check's
--- own + any concurrent callers that attached while it was queued) and mark the group so
--- a caller attaching AFTER this point fires immediately instead of waiting. Safe to call
+-- Fire every onTargetingStarted attached to this player's waiters group (the concurrent
+-- callers that attached while it was queued; the check's own signal is fired separately
+-- by the resolver via check.onTargetingStarted) and mark the group so a caller attaching
+-- AFTER this point fires immediately instead of waiting. Safe to call
 -- even if no waiters entry exists (e.g. the LOW-priority background-refresh queue path,
 -- which never creates one since it passes no callback).
 function TRP3FW:FirePhaseCheckTargetingStarted(playerName)
@@ -166,10 +179,12 @@ function TRP3FW:FirePhaseCheckTargetingStarted(playerName)
     for _, fn in ipairs(waiters.onTargetingStartedList) do fn() end
 end
 
--- Deliver a phase check result to every caller attached to this player's waiters group
--- (not just the original check's own callback), then clear the group. Call exactly once
--- per resolved player per check attempt - the same single-flight point that already
--- exists in ExecutePhaseCheck (handleResult) and ProcessPhaseCheckBatch (finishStep).
+-- Deliver a phase check result to the ADDITIONAL callers that attached to this player's
+-- in-flight check (the check's own callback is delivered separately by the resolver, via
+-- check.callback / check.callbacks - see QueuePhaseCheck for why the two sets are kept
+-- disjoint), then clear the group. Call exactly once per resolved player per check
+-- attempt - the same single-flight point that already exists in ExecutePhaseCheck
+-- (handleResult) and ProcessPhaseCheckBatch (finishStep).
 -- Signature matches the standard callback order used everywhere else in this file:
 -- (inPhase, source, theirMapID, phaseMethod).
 function TRP3FW:ResolvePhaseCheckWaiters(playerName, inPhase, source, mapID, method)
@@ -235,24 +250,32 @@ function TRP3FW:ProcessPhaseCheckBatch()
 
     -- DYNAMIC BATCH SIZING: Calculate max batch size based on available tokens
     -- "batch until we would run out of secure tokens"
-    local availableTokens = TRP3FW:GetAvailablePrivilegedTokens()
+    --
+    -- Ask for the tokens available to the category this batch will actually SPEND.
+    -- GetAvailablePrivilegedTokens used to return the raw bucket regardless of priority, so
+    -- this had to subtract `reserved` by hand to compensate -- two places guessing at one
+    -- rule. The function now applies the reserved-token deduction itself, exactly as
+    -- RunPrivilegedSafe does, so the only overhead left to reserve here is the 1 token for
+    -- the HIGH-priority target restore (which CAN use reserved tokens, hence not covered
+    -- by the deduction above).
+    local batchCategory = "phase_check_target"
+    local availableTokens = TRP3FW:GetAvailablePrivilegedTokens(batchCategory)
 
-    -- Calculate overhead based on reserved tokens setting
-    -- Formula: available - max(1, reserved)
-    -- We need at least 1 token for the restore action (HIGH priority),
-    -- and we must respect the reserved amount for NORMAL priority targeting calls.
-    local reserved = TRP3FW.Prefs.privilegedReservedTokens or 2
-    local overhead = math.max(1, reserved)
-
-    local dynamicMax = math.floor(availableTokens) - overhead
+    local RESTORE_TOKEN_OVERHEAD = 1
+    local dynamicMax = math.floor(availableTokens) - RESTORE_TOKEN_OVERHEAD
     if dynamicMax < 1 then dynamicMax = 1 end -- Always try at least one if we're running
 
     local settingsMax = TRP3FW.Prefs.phaseCheckBatchSize or 5
 
     -- If we have plenty of tokens (full bucket), allow larger batches than default settings
     -- to clear the queue faster ("3 second window" accumulation implies larger bursts)
-    -- BUT never exceed dynamicMax (token limit)
-    if availableTokens >= 9 then
+    -- BUT never exceed dynamicMax (token limit).
+    --
+    -- Tested against the RAW bucket, not the category-adjusted number above: "is the bucket
+    -- essentially full" is a question about the bucket itself. Testing the adjusted value
+    -- would make this branch unreachable at the default reserved=2, since the adjusted figure
+    -- then caps at RATE_LIMIT-2 = 8 and could never satisfy >= 9.
+    if TRP3FW:GetAvailablePrivilegedTokens() >= 9 then
         settingsMax = math.max(settingsMax, 8)
     end
 
