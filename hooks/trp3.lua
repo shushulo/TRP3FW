@@ -300,9 +300,34 @@ function TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queu
         end
     end
 
-    local playerName = target and self:CleanPlayerName(target)
-    if not playerName then
+    -- Two different nil causes here, and they need opposite handling.
+    --
+    -- (a) No target at all: a broadcast/channel send with no specific recipient. There is no
+    --     per-recipient gating decision to make, and dropping these would break TRP3's normal
+    --     protocol traffic. Pass through, as before.
+    --
+    -- (b) A target that CleanPlayerName could not parse: under 2 chars, over 50, control
+    --     characters, or SecurityService unavailable. This previously fell into the same
+    --     pass-through branch, sending to a specific, named recipient with the entire pipeline
+    --     skipped -- no whitelist, no cache, no location check, no ghosting. That is the one
+    --     case where the addon is supposed to be deciding something and instead decided
+    --     nothing.
+    --
+    -- Case (b) is not reachable for a real character name (WoW caps names at 12 chars plus
+    -- realm, the value is server-supplied, and services initialise a full second before hooks
+    -- install), so this is a "should never happen" branch. Those are exactly the ones that must
+    -- not silently transmit: if we cannot identify the recipient, we cannot conclude they are
+    -- allowed. Matches the fail-closed handling at :327 (ghost payload generation) and in the
+    -- scan-reply pipeline.
+    if not target then
         return originalFunc(prefix, text, chatType, target, priority, queue, callback, callbackArg)
+    end
+
+    local playerName = self:CleanPlayerName(target)
+    if not playerName then
+        self:Warn("[Chomp Hook] Unparseable target name ("..tostring(target)
+            .."); blocking send rather than transmitting ungated")
+        return
     end
 
     local sendIdObj = self:CreateVerifiedSendId()

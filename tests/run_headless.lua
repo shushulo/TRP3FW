@@ -50,6 +50,7 @@ local specs = {
     "tests.unit.fontsize_wrapper_spec",
     "tests.unit.chomp_pipeline_timer_spec",
     "tests.unit.chomp_hook_failclosed_spec",
+    "tests.unit.unparseable_target_failclosed_spec",
     "tests.unit.scan_pipeline_who_mode_spec",
     "tests.unit.addon_keyspace_spec",
     "tests.unit.ghost_data_mutation_spec",

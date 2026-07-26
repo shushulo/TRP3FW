@@ -305,8 +305,24 @@ end
 function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, ...)
     local cleanName = self:CleanPlayerName(playerName)
     if not cleanName then
-        -- Invalid name, allow
-        return originalFunc(...)
+        -- FAIL CLOSED. This used to `return originalFunc(...)` ("Invalid name, allow"), which
+        -- sent the reply completely ungated -- no whitelist, no cache, no location check.
+        --
+        -- A C_SCAN reply carries the player's exact map COORDINATES
+        -- (PlayerMapScanner.lua:161 sends x, y), so an ungated one discloses physical position
+        -- to someone who may be explicitly blocked. That is at least as sensitive as profile
+        -- text and strictly worse than not answering a scan.
+        --
+        -- Reaching here means the name could not be parsed at all: under 2 chars, over 50,
+        -- containing control characters, or SecurityService unavailable. None are reachable
+        -- for a real WoW character name (max 12 chars + realm, server-supplied via
+        -- CHAT_MSG_ADDON, and services initialise a full second before hooks install), so this
+        -- is a "should never happen" branch -- exactly the kind that must not silently
+        -- transmit if the impossible does occur. If we cannot identify the recipient, we
+        -- cannot decide they are allowed, so we do not answer.
+        self:Debug("[Scan Reply] Unparseable target name ("..tostring(playerName)
+            .."); dropping reply rather than disclosing coordinates ungated", "hooks")
+        return
     end
 
     self:Debug("[Scan Reply] Processing scan reply to "..cleanName, "hooks")
