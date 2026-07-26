@@ -109,110 +109,25 @@ function XRPAdapter:GetProfileByID(id)
     }
 end
 
--- Get characteristics data from profile
--- XRP uses fields table with MSP structure
-function XRPAdapter:GetCharacteristics(id)
-    local profile = self:GetProfileByID(id)
-    if not profile or not profile.data or not profile.data.fields then
-        TRP3FW:Debug("XRP adapter: No profile data or fields for GetCharacteristics", "hooks")
-        return nil
-    end
-
-    local fields = profile.data.fields
-
-    -- Map XRP fields to TRP3-like characteristics structure
-    return {
-        v = 1,
-        FN = fields.NA or "",    -- Name
-        RA = fields.RA or "",    -- Race
-        CL = fields.RC or "",    -- Class
-        IC = fields.IC or "",    -- Icon
-        TI = fields.NT or "",    -- Title
-        NH = fields.NH or "",    -- House
-        NI = fields.NI or "",    -- Nickname
-        AG = fields.AG or "",    -- Age
-        AE = fields.AE or "",    -- Eye color
-        AH = fields.AH or "",    -- Height
-        AW = fields.AW or "",    -- Weight
-        HB = fields.HB or "",    -- Birthplace
-        HH = fields.HH or "",    -- Home
-        MI = {},                 -- Misc traits (XRP doesn't have this structure)
-        PS = {},                 -- Personality traits (XRP doesn't have this structure)
-    }
-end
-
--- Get about data from profile
-function XRPAdapter:GetAbout(id)
-    local profile = self:GetProfileByID(id)
-    if not profile or not profile.data or not profile.data.fields then
-        TRP3FW:Debug("XRP adapter: No profile data or fields for GetAbout", "hooks")
-        return nil
-    end
-
-    local fields = profile.data.fields
-
-    -- Map XRP fields to TRP3-like about structure
-    return {
-        v = 1,
-        TE = 1,                  -- Template type (1 = simple text)
-        BK = 1,                  -- Background
-        MU = fields.MU or "",    -- Music
-        T1 = {
-            TX = fields.DE or "",  -- Description
-        },
-        -- Note: XRP also has HI (history), but we're using simple template for compatibility
-    }
-end
-
--- Get misc data from profile
-function XRPAdapter:GetMisc(id)
-    local profile = self:GetProfileByID(id)
-    if not profile or not profile.data or not profile.data.fields then
-        TRP3FW:Debug("XRP adapter: No profile data or fields for GetMisc", "hooks")
-        return nil
-    end
-
-    local fields = profile.data.fields
-
-    -- Map XRP fields to TRP3-like misc structure
-    return {
-        v = 1,
-        PE = {},                 -- Peek/glance slots (XRP doesn't have this)
-        ST = {},                 -- RP styles (XRP doesn't have this)
-        CU = fields.CU or "",    -- Currently
-        CO = fields.CO or "",    -- Currently OOC
-    }
-end
-
--- Get character data from profile
-function XRPAdapter:GetCharacter(id)
-    local profile = self:GetProfileByID(id)
-    if not profile or not profile.data or not profile.data.fields then
-        TRP3FW:Debug("XRP adapter: No profile data or fields for GetCharacter", "hooks")
-        return nil
-    end
-
-    local fields = profile.data.fields
-
-    -- Map XRP fields to TRP3-like character structure.
+-- Characteristics / About / Misc / Character.
+--
+-- Shared with the MRP adapter: both store flat MSP fields and converted them with
+-- near-identical bodies, differing only by the .fields indirection and comment wording.
+-- See adapter_msp_shared.lua.
+TRP3FW.MSPAdapterShared.Apply(XRPAdapter, "XRP", function(profile)
+    -- XRP nests MSP fields under .fields.
     --
-    -- Same correction as adapter_mrp: RP/XP were hardcoded to 1 on the claim that XRP "uses FC
-    -- differently". FC/FR are standard MSP fields with a defined mapping, which TRP3 itself
-    -- implements (totalRP3/modules/register/msp/register_msp.lua:437-443 and :450).
+    -- NOTE these are the profile's OWN fields, NOT the parent-inheritance-resolved set: XRP
+    -- resolves fields through a parent chain and a child stores only its overrides
+    -- (XRP/Backend/Profiles.lua:86-125). GetProfileByID returns xrpSaved.profiles[id] raw, so
+    -- a child profile read through this adapter reports only what it overrides.
     --
-    -- The RP case is the one that mattered: a ghosted XRP profile always reported
-    -- IN-CHARACTER even when the source profile was explicitly flagged OOC.
-    return {
-        v = 1,
-        CU = fields.CU or "",    -- Currently IC
-        CO = fields.CO or "",    -- Currently OOC
-        -- FC == "1" is OOC -> RP = 2; anything else (including absent) -> RP = 1 (IC).
-        RP = (fields.FC == "1") and 2 or 1,
-        -- FR == "4" is the "not looking for RP" end -> XP = 1; otherwise XP = 2.
-        -- Note this reads INVERSE to intuition; it matches TRP3's own conversion.
-        XP = (fields.FR == "4") and 1 or 2,
-    }
-end
+    -- That is pre-existing behaviour, unchanged by this refactor. The ghost-send path does
+    -- walk the chain (hooks/msp_exchange.lua), which is where it actually matters -- these
+    -- getters feed the settings UI's profile preview. Flagged here rather than fixed because
+    -- changing it alters what the UI displays and deserves its own decision.
+    return profile.data and profile.data.fields
+end)
 
 -- Validate that a profile ID exists
 function XRPAdapter:ValidateProfileID(id)

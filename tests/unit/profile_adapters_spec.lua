@@ -16,6 +16,8 @@ TRP3FW.Prefs = {}
 
 -- adapter_interface defines TRP3FW.Adapters + ShouldLogProfileCount (uses GetTime).
 H.loadModule("features/profiles/adapter_interface.lua", TRP3FW)
+-- MRP and XRP build their Get* methods from this shared module, so it must load first.
+H.loadModule("features/profiles/adapter_msp_shared.lua", TRP3FW)
 H.loadModule("features/profiles/adapter_trp3.lua", TRP3FW)
 H.loadModule("features/profiles/adapter_mrp.lua", TRP3FW)
 H.loadModule("features/profiles/adapter_xrp.lua", TRP3FW)
@@ -323,6 +325,77 @@ T.describe("MSP FC/FR mapping (XRP)", function()
         T.eq(A:GetCharacter("Main").XP, 1)
         clearAddonGlobals(); installWith({ FR = "1" })
         T.eq(A:GetCharacter("Main").XP, 2)
+    end)
+end)
+
+-- ===================== Shared MSP conversion =====================
+-- MRP and XRP had four near-identical Get* bodies each, differing only by where the fields
+-- live (profile.data vs profile.data.fields), the adapter name in the debug string, and
+-- comment wording. Nothing forced them to agree, which is why the FC/FR hardcode existed
+-- twice and had to be fixed twice. They now build from adapter_msp_shared.lua.
+
+T.describe("MSP adapters share one conversion implementation", function()
+    -- NOTE: the two adapters do NOT share function OBJECTS. BuildGetters is called once per
+    -- adapter so each closes over its own getFields, which is exactly how the storage-shape
+    -- difference is expressed. What they share is the single source those closures come from,
+    -- so the assertion that matters is behavioural equivalence, tested below.
+    T.it("both adapters' getters originate from the shared builder", function()
+        local built = TRP3FW.MSPAdapterShared.BuildGetters("TEST", function(p) return p.data end)
+        for _, name in ipairs({ "GetCharacteristics", "GetAbout", "GetMisc", "GetCharacter" }) do
+            T.not_nil(built[name], "shared builder must provide "..name)
+            T.not_nil(TRP3FW.Adapters.MRP[name], "MRP must have "..name)
+            T.not_nil(TRP3FW.Adapters.XRP[name], "XRP must have "..name)
+        end
+    end)
+
+    T.it("TRP3 is deliberately NOT routed through the shared module", function()
+        -- TRP3 returns its native structures straight from profile.data.player.* with no field
+        -- mapping, so sharing would mean inventing a conversion it does not need. Its getters
+        -- must therefore behave differently: a TRP3 profile has no flat MSP fields.
+        clearAddonGlobals()
+        _G.TRP3_API = { profile = {
+            getPlayerCurrentProfileID = function() return "p" end,
+            getPlayerCurrentProfile = function() return {} end,
+            getProfiles = function() return { p = { player = { characteristics = { FN = "Native" } } } } end,
+        }, register = {} }
+
+        local c = TRP3FW.Adapters.TRP3:GetCharacteristics("p")
+        T.eq(c.FN, "Native", "TRP3 returns its native structure unmapped")
+        T.is_nil(c.MI, "and does not synthesise the flat-MSP placeholder keys")
+    end)
+
+    T.it("produces identical output for equivalent MRP and XRP profiles", function()
+        clearAddonGlobals()
+        -- Same MSP fields, reached through each addon's own storage shape.
+        local msp = { NA = "Kael", RA = "Elf", RC = "Hunter", CU = "Hunting", FC = "1", FR = "4" }
+
+        _G.mrp = {}
+        _G.mrpSaved = { SelectedProfile = "P", Profiles = { P = msp } }
+        _G.AddOn_XRP = {}
+        _G.xrpSaved = { selected = "P", profiles = { P = { fields = msp, inherits = {} } } }
+
+        local m = TRP3FW.Adapters.MRP:GetCharacteristics("P")
+        local x = TRP3FW.Adapters.XRP:GetCharacteristics("P")
+        T.eq(m.FN, x.FN); T.eq(m.RA, x.RA); T.eq(m.CL, x.CL)
+
+        local mc = TRP3FW.Adapters.MRP:GetCharacter("P")
+        local xc = TRP3FW.Adapters.XRP:GetCharacter("P")
+        T.eq(mc.RP, xc.RP, "FC maps the same way for both")
+        T.eq(mc.XP, xc.XP, "FR maps the same way for both")
+        T.eq(mc.RP, 2, "sanity: FC=1 is OOC")
+        T.eq(mc.XP, 1, "sanity: FR=4 is the not-looking end")
+    end)
+
+    T.it("still nil-guards a profile with no usable fields", function()
+        clearAddonGlobals()
+        _G.mrp = {}
+        _G.mrpSaved = { SelectedProfile = "P", Profiles = { P = false } }
+        T.is_nil(TRP3FW.Adapters.MRP:GetCharacteristics("P"))
+
+        _G.AddOn_XRP = {}
+        _G.xrpSaved = { selected = "P", profiles = { P = {} } }  -- present, but no .fields
+        T.is_nil(TRP3FW.Adapters.XRP:GetCharacteristics("P"),
+            "XRP's original guard tested profile.data.fields; that must still hold")
     end)
 end)
 
