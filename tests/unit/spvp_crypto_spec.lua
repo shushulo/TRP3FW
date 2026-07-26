@@ -15,7 +15,11 @@ TRP3FW.pendingSPVPInits = {}
 H.loadModule("features/encryption/spvp.lua", TRP3FW)
 
 local SPVP = TRP3FW.SPVP
-local DH_PRIME = 90000049  -- must match the constant in spvp.lua
+-- Must match the constant in spvp.lua. This is a SAFE prime (p = 2q+1, q = 46999871 prime):
+-- the previous 90000049 had p-1 = 2^4 * 3 * 971 * 1931, all small factors, so Pohlig-Hellman
+-- reduced the discrete log to ~sqrt(1931) = 44 operations.
+local DH_PRIME = 93999743
+local DH_SUBGROUP_ORDER = 46999871
 
 T.describe("SPVP.ModPow", function()
     T.it("handles base cases", function()
@@ -62,15 +66,117 @@ T.describe("SPVP.FNV1aHash", function()
     end)
 end)
 
+T.describe("DH group parameters", function()
+    local function isPrime(n)
+        if n < 2 then return false end
+        if n % 2 == 0 then return n == 2 end
+        local i = 3
+        while i * i <= n do
+            if n % i == 0 then return false end
+            i = i + 2
+        end
+        return true
+    end
+
+    T.it("DH_PRIME is prime", function()
+        T.truthy(isPrime(DH_PRIME), DH_PRIME.." must be prime")
+    end)
+
+    T.it("is a SAFE prime: p = 2q+1 with q also prime", function()
+        -- This is the property that defeats Pohlig-Hellman. Without it, p-1 factors into
+        -- small primes and the discrete log decomposes into tiny subgroups.
+        T.eq((DH_PRIME - 1) / 2, DH_SUBGROUP_ORDER, "q must be (p-1)/2")
+        T.truthy(isPrime(DH_SUBGROUP_ORDER), DH_SUBGROUP_ORDER.." must be prime")
+    end)
+
+    T.it("ModPow's intermediate stays exactly representable in a double", function()
+        -- ModPow computes base*base BEFORE reducing, so (p-1)^2 must be < 2^53 or the
+        -- arithmetic silently produces WRONG answers rather than merely weak ones.
+        local maxIntermediate = (DH_PRIME - 1) * (DH_PRIME - 1)
+        T.truthy(maxIntermediate < 2 ^ 53,
+            "(p-1)^2 must fit in a double's exact-integer range")
+        T.eq(maxIntermediate, math.floor(maxIntermediate), "must be an exact integer")
+    end)
+
+    T.it("a handshake round-trips under the new prime", function()
+        local g = 4
+        local a, b = 12345678, 87654321
+        local A = SPVP.ModPow(g, a, DH_PRIME)
+        local B = SPVP.ModPow(g, b, DH_PRIME)
+        T.eq(SPVP.ModPow(B, a, DH_PRIME), SPVP.ModPow(A, b, DH_PRIME),
+            "both sides must derive the same shared key")
+    end)
+end)
+
+T.describe("GetGenerator subgroup validation", function()
+    T.it("produces a generator in the large prime subgroup", function()
+        local g = SPVP.GetGenerator(184739, string.rep("a", 64) .. ":1704844800")
+        T.eq(SPVP.ModPow(g, DH_SUBGROUP_ORDER, DH_PRIME), 1,
+            "g^q mod p must be 1, i.e. g lies in the order-q subgroup")
+    end)
+
+    T.it("never returns a degenerate generator across many salts", function()
+        -- g == 1 or g == p-1 would collapse the shared key to a single value, making the
+        -- handshake succeed for anyone regardless of phase.
+        for i = 1, 300 do
+            local salt = string.format("%064x:%d", i * 7919, 1704844800 + i)
+            local g = SPVP.GetGenerator(1000 + i, salt)
+            T.truthy(g ~= 1 and g ~= DH_PRIME - 1,
+                "degenerate generator produced for salt #" .. i .. " (g=" .. g .. ")")
+            T.eq(SPVP.ModPow(g, DH_SUBGROUP_ORDER, DH_PRIME), 1,
+                "generator outside the large subgroup for salt #" .. i)
+        end
+    end)
+
+    T.it("is deterministic: same phase+salt gives the same generator", function()
+        -- Both peers must derive the same g from the same salt or nothing verifies.
+        local salt = string.rep("f", 64) .. ":1704844800"
+        T.eq(SPVP.GetGenerator(555, salt), SPVP.GetGenerator(555, salt))
+    end)
+
+    T.it("differs across phases and across salts", function()
+        local saltA = string.rep("a", 64) .. ":1704844800"
+        local saltB = string.rep("b", 64) .. ":1704844800"
+        T.neq(SPVP.GetGenerator(111, saltA), SPVP.GetGenerator(222, saltA),
+            "different phase must give a different generator")
+        T.neq(SPVP.GetGenerator(111, saltA), SPVP.GetGenerator(111, saltB),
+            "different salt must give a different generator")
+    end)
+end)
+
 T.describe("SPVP.HashKey", function()
-    T.it("returns an 8-char hex string", function()
+    -- WIDENED 32 -> 64 bits. The old 8-char verifier was a single FNV-1a, and FNV-1a has no
+    -- collision resistance -- by the birthday bound an attacker needed only ~2^16 tries to
+    -- find a colliding verifier without solving any discrete log. That made the verifier the
+    -- cheapest attack on the whole protocol, below even the group weakness it sits on.
+    T.it("returns a 16-char hex string (64-bit verifier)", function()
         local v = SPVP.HashKey(123456789)
-        T.eq(#v, 8, "verifier is 8 hex chars")
+        T.eq(#v, 16, "verifier is 16 hex chars")
         T.truthy(v:match("^[0-9a-f]+$"), "lowercase hex only")
     end)
 
     T.it("is deterministic for the same key", function()
         T.eq(SPVP.HashKey(42), SPVP.HashKey(42))
+    end)
+
+    T.it("distinguishes different keys", function()
+        T.neq(SPVP.HashKey(42), SPVP.HashKey(43))
+    end)
+
+    T.it("both 32-bit halves participate", function()
+        -- Guards against a refactor that accidentally makes one half constant, which would
+        -- silently put the birthday bound back at 2^16.
+        local hiSeen, loSeen = {}, {}
+        for k = 1, 200 do
+            local v = SPVP.HashKey(k * 7919)
+            hiSeen[v:sub(1, 8)] = true
+            loSeen[v:sub(9, 16)] = true
+        end
+        local hiCount, loCount = 0, 0
+        for _ in pairs(hiSeen) do hiCount = hiCount + 1 end
+        for _ in pairs(loSeen) do loCount = loCount + 1 end
+        T.truthy(hiCount > 150, "high half must vary, got "..hiCount.." distinct")
+        T.truthy(loCount > 150, "low half must vary, got "..loCount.." distinct")
     end)
 end)
 
