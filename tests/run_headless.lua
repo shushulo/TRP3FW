@@ -60,6 +60,7 @@ local specs = {
     "tests.unit.privileged_tokens_spec",
     "tests.unit.spvp_queue_bounds_spec",
     "tests.unit.alert_fastpath_dedup_spec",
+    "tests.unit.profiles_widget_pool_spec",
 }
 
 local T = require("tests.framework")

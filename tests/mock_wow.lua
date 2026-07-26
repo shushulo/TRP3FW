@@ -111,14 +111,65 @@ function FRAME_METHODS:GetScript(name) return self.scripts[name] end
 function FRAME_METHODS:Show() self.shown = true end
 function FRAME_METHODS:Hide() self.shown = false end
 function FRAME_METHODS:IsShown() return self.shown end
+-- Real IsVisible also walks the parent chain; shown-state is enough for specs, and returning
+-- a real boolean matters: production guards like `if not content:IsVisible() then return end`
+-- would otherwise always bail, making a render-loop spec pass vacuously.
+function FRAME_METHODS:IsVisible() return self.shown end
 
 -- Replay an event through this frame's OnEvent handler the way the client would.
 function FRAME_METHODS:Fire(event, ...)
     if self.scripts.OnEvent then self.scripts.OnEvent(self, event, ...) end
 end
 
+-- Names that are CHILD FRAME REFERENCES on real widgets, not methods. The catch-all below
+-- cannot tell a method call from a field read, so without this an `if frame.ScrollBar then`
+-- guard sees the no-op function, passes, and then indexes it -- production code that correctly
+-- guards for an absent child would fail only under the mock. Real WoW returns a frame or nil;
+-- nil is the honest stand-in here.
+local FRAME_FIELDS = {
+    ScrollBar = true, ScrollChild = true, Text = true, Icon = true,
+    NormalTexture = true, Left = true, Right = true, Middle = true,
+}
+
+-- Regions (FontStrings / Textures). Real widgets return an OBJECT from CreateFontString and
+-- CreateTexture; the catch-all below returns a no-op function, so `local cap =
+-- card:CreateFontString(...)` used to yield nil and the next `cap:SetPoint(...)` blew up.
+-- That is why no spec could drive a real UI render loop.
+--
+-- These carry just enough state for assertions: text, shown, and the width/height a caller
+-- explicitly set. Everything else degrades to a no-op like frames do.
+local REGION_METHODS = {}
+function REGION_METHODS:SetText(t) self.text = t end
+function REGION_METHODS:GetText() return self.text end
+function REGION_METHODS:Show() self.shown = true end
+function REGION_METHODS:Hide() self.shown = false end
+function REGION_METHODS:IsShown() return self.shown end
+function REGION_METHODS:SetWidth(w) self.width = w end
+function REGION_METHODS:GetWidth() return self.width or 0 end
+function REGION_METHODS:SetHeight(h) self.height = h end
+function REGION_METHODS:GetHeight() return self.height or 0 end
+function REGION_METHODS:GetStringWidth() return #(self.text or "") * 6 end
+
+local regionMeta = {
+    __index = function(_, key)
+        return REGION_METHODS[key] or function() end
+    end
+}
+
+M.regions = {}
+local function newRegion(kind)
+    local r = setmetatable({ regionKind = kind, shown = true }, regionMeta)
+    table.insert(M.regions, r)
+    return r
+end
+
+function FRAME_METHODS:CreateFontString() return newRegion("FontString") end
+function FRAME_METHODS:CreateTexture() return newRegion("Texture") end
+function FRAME_METHODS:CreateMaskTexture() return newRegion("MaskTexture") end
+
 local frameMeta = {
     __index = function(_, key)
+        if FRAME_FIELDS[key] then return nil end
         return FRAME_METHODS[key] or function() end
     end
 }
