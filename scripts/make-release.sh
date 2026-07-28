@@ -48,6 +48,19 @@ cd "$(git rev-parse --show-toplevel)"
 fail() { echo "  FAIL: $*" >&2; exit 1; }
 ok()   { echo "  ok:   $*"; }
 
+# Always return to whatever branch the caller was on, however we exit -- an
+# early failure must never strand them on the half-built release branch.
+STARTING_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+restore_branch() {
+	local current
+	current="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+	if [[ -n "$STARTING_BRANCH" && "$current" != "$STARTING_BRANCH" ]]; then
+		git checkout --quiet "$STARTING_BRANCH" 2>/dev/null \
+			|| echo "warning: could not return to $STARTING_BRANCH (you are on $current)" >&2
+	fi
+}
+trap restore_branch EXIT
+
 # --------------------------------------------------------------------------
 # Preflight.  Everything that can reject the release happens BEFORE we mutate
 # any branch, so a failed run leaves the repo exactly as it found it.
@@ -61,8 +74,6 @@ ok "working tree clean"
 git rev-parse --verify --quiet "$DEV_BRANCH" >/dev/null || \
 	fail "dev branch '$DEV_BRANCH' does not exist"
 ok "dev branch '$DEV_BRANCH' exists"
-
-STARTING_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
 # Read the canonical version out of the DEV branch (not the working tree, which
 # may be sitting on some other branch).
@@ -125,7 +136,6 @@ else
 		ok "tests pass ($(printf '%s' "$TEST_OUT" | sed -n 's/.*Passed: \([0-9]*\).*/\1/p' | tail -1) assertions)"
 	else
 		echo "$TEST_OUT" | tail -20 >&2
-		git checkout --quiet "$STARTING_BRANCH"
 		fail "headless test suite failed; not building a release"
 	fi
 fi
@@ -170,7 +180,6 @@ PYEOF
 if grep -qiE "wowunit|tests\\\\|tests/" TRP3FW.toc; then
 	echo "  FAIL: TRP3FW.toc still references tests after stripping:" >&2
 	grep -niE "wowunit|tests\\\\|tests/" TRP3FW.toc >&2
-	git checkout --quiet "$STARTING_BRANCH"
 	exit 1
 fi
 ok "TRP3FW.toc stripped clean"
@@ -182,14 +191,14 @@ while IFS= read -r entry; do
 	path="${entry//\\//}"
 	[[ -f "$path" ]] || { echo "  FAIL: .toc loads missing file: $path" >&2; MISSING=1; }
 done < <(grep -E '^[^#[:space:]].*\.(lua|xml)[[:space:]]*$' TRP3FW.toc | tr -d '\r')
-[[ "$MISSING" -eq 0 ]] || { git checkout --quiet "$STARTING_BRANCH"; exit 1; }
+[[ "$MISSING" -eq 0 ]] || exit 1
 ok "all .toc-referenced files present"
 
 git add -A
 git commit --quiet -m "Release $VERSION: strip dev-only tree for distribution
 
 Regenerated from $DEV_BRANCH by scripts/make-release.sh. Removes tests/,
-thoughts/, CLAUDE.md and scripts/, and drops the WoWUnit OptionalDep plus the
+thoughts/, CLAUDE.md, scripts/ and .gitea/, and drops the WoWUnit OptionalDep plus the
 test-loading lines from TRP3FW.toc so the addon loads cleanly without them."
 
 echo
@@ -208,4 +217,3 @@ echo "    git push origin $RELEASE_BRANCH --force-with-lease"
 echo "    git push origin $TAG"
 echo
 echo "Returning to $STARTING_BRANCH"
-git checkout --quiet "$STARTING_BRANCH"
