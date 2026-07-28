@@ -3,8 +3,16 @@
 
 local addonName, TRP3FW = ...
 
--- Version info
-TRP3FW.VERSION = "2.9.2-hotfix"
+-- Version info. This is the single source of truth for the addon version:
+-- TRP3FW.toc, the README badge and the release tag are all checked against it
+-- by scripts/make-release.sh, which refuses to build if they disagree.
+--
+-- Numbering unified with the release branch line as of 1.6.0 (branch v1.6 ->
+-- version 1.6.0, tag v1.6.0). This is a deliberate step DOWN from the previous
+-- 2.9.x line: existing installs carry TRP3FW_DB.global.lastVersion = "2.9.2-hotfix",
+-- so any future upgrade check must not assume versions increase monotonically
+-- across this boundary.
+TRP3FW.VERSION = "1.6.0"
 TRP3FW.ADDON_NAME = addonName
 
 -- FIXED: HIGH-6 - SendId verification system (prevents spoofing)
