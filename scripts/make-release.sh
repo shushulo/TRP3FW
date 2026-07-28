@@ -17,15 +17,21 @@
 # This script PREPARES the release locally and stops.  It prints the push
 # commands but never pushes, and never touches GitHub.  Review, then push.
 #
-# Usage:   scripts/make-release.sh [--dev-branch v1.6-dev]
+# The headless test suite must pass before anything is built.  Point LUA at a
+# Lua 5.1 interpreter if it is not on PATH (the usual Windows install location
+# is tried automatically).
+#
+# Usage:   scripts/make-release.sh [--dev-branch v1.6-dev] [--skip-tests]
 #
 set -euo pipefail
 
 DEV_BRANCH="v1.6-dev"
+SKIP_TESTS=0
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--dev-branch) DEV_BRANCH="$2"; shift 2 ;;
-		-h|--help)    sed -n '2,30p' "$0"; exit 0 ;;
+		--skip-tests) SKIP_TESTS=1; shift ;;
+		-h|--help)    sed -n '2,34p' "$0"; exit 0 ;;
 		*) echo "unknown argument: $1" >&2; exit 2 ;;
 	esac
 done
@@ -98,6 +104,32 @@ if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
 fi
 ok "tag '$TAG' is free"
 
+# Headless test suite.  Run against the DEV branch's tree, which is what we are
+# about to strip -- so check it out first if we are not already on it.
+if [[ "$SKIP_TESTS" -eq 1 ]]; then
+	echo "  SKIPPED: tests (--skip-tests)"
+else
+	LUA="${LUA:-}"
+	if [[ -z "$LUA" ]]; then
+		for candidate in lua lua5.1 "/c/Program Files (x86)/Lua/5.1/lua.exe"; do
+			if command -v "$candidate" >/dev/null 2>&1; then LUA="$candidate"; break; fi
+		done
+	fi
+	[[ -n "$LUA" ]] || fail "no Lua 5.1 interpreter found; set LUA=/path/to/lua.exe"
+
+	if [[ "$STARTING_BRANCH" != "$DEV_BRANCH" ]]; then
+		git checkout --quiet "$DEV_BRANCH"
+	fi
+
+	if TEST_OUT="$("$LUA" tests/run_headless.lua 2>&1)"; then
+		ok "tests pass ($(printf '%s' "$TEST_OUT" | sed -n 's/.*Passed: \([0-9]*\).*/\1/p' | tail -1) assertions)"
+	else
+		echo "$TEST_OUT" | tail -20 >&2
+		git checkout --quiet "$STARTING_BRANCH"
+		fail "headless test suite failed; not building a release"
+	fi
+fi
+
 # --------------------------------------------------------------------------
 # Build.  Force-move the release branch onto the dev tip, then strip.
 # --------------------------------------------------------------------------
@@ -112,7 +144,7 @@ git branch -f "$RELEASE_BRANCH" "$DEV_BRANCH"
 git checkout --quiet "$RELEASE_BRANCH"
 
 # Everything the dev branch carries that must not ship.
-git rm -r --quiet --ignore-unmatch tests/ thoughts/ CLAUDE.md scripts/
+git rm -r --quiet --ignore-unmatch tests/ thoughts/ CLAUDE.md scripts/ .gitea/
 
 # Drop the test wiring from the .toc: the WoWUnit OptionalDep, and every line
 # from the integration-tests comment to end of file.

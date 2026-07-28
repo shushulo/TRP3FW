@@ -1,0 +1,57 @@
+# Headless unit tests for TRP3FW.
+#
+# Runs on the dev branches only. The stripped release branches (v1.6, v1.5)
+# have no tests/ tree by design, so there is nothing to run there.
+#
+# This workflow is read-only: it checks out, runs the suite, and reports. It
+# holds no secrets and never pushes. Releases stay a deliberate local action
+# via scripts/make-release.sh.
+name: tests
+
+on:
+  push:
+    branches:
+      - '*-dev'
+  pull_request:
+    branches:
+      - '*-dev'
+
+jobs:
+  headless:
+    # If your act_runner registered with different labels, change this to match
+    # (check Settings -> Actions -> Runners for the labels each one advertises).
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends lua5.1
+
+      - name: Show interpreter version
+        run: lua5.1 -v
+
+      # run_headless.lua exits non-zero on any failure, so this step alone
+      # gates the build.
+      - name: Run headless suite
+        run: lua5.1 tests/run_headless.lua
+
+      # Parse-check every shipping Lua file. Catches syntax errors in files
+      # that no unit spec happens to load.
+      - name: Syntax-check all addon sources
+        run: |
+          if ! command -v luac5.1 >/dev/null 2>&1; then
+            echo "luac5.1 not available on this runner image; skipping parse check"
+            exit 0
+          fi
+          fail=0
+          while IFS= read -r f; do
+            luac5.1 -p "$f" || { echo "SYNTAX ERROR: $f"; fail=1; }
+          done < <(find core features hooks location ui -name '*.lua')
+          for f in TRP3FW.lua commands.lua status.lua; do
+            luac5.1 -p "$f" || { echo "SYNTAX ERROR: $f"; fail=1; }
+          done
+          exit $fail
