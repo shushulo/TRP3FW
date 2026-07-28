@@ -18,18 +18,23 @@ on:
 
 jobs:
   headless:
-    # If your act_runner registered with different labels, change this to match
-    # (check Settings -> Actions -> Runners for the labels each one advertises).
-    runs-on: ubuntu-latest
+    # The act_runners on this instance register with the single label "docker"
+    # (Settings -> Actions -> Runners). That label carries no implicit image, so
+    # the container is named explicitly below rather than relying on a default.
+    runs-on: docker
+    container:
+      image: node:20-bookworm
 
     steps:
       - name: Check out
         uses: actions/checkout@v4
 
+      # Runs as root inside the container, so no sudo. The lua5.1 package
+      # provides both /usr/bin/lua5.1 and /usr/bin/luac5.1.
       - name: Install Lua 5.1
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends lua5.1
+          apt-get update -qq
+          apt-get install -y --no-install-recommends lua5.1
 
       - name: Show interpreter version
         run: lua5.1 -v
@@ -41,17 +46,21 @@ jobs:
 
       # Parse-check every shipping Lua file. Catches syntax errors in files
       # that no unit spec happens to load.
+      # Kept POSIX-sh compatible (no process substitution): act_runner does not
+      # guarantee bash for `run:` steps.
       - name: Syntax-check all addon sources
         run: |
           if ! command -v luac5.1 >/dev/null 2>&1; then
             echo "luac5.1 not available on this runner image; skipping parse check"
             exit 0
           fi
+          find core features hooks location ui -name '*.lua' > /tmp/luafiles
+          echo TRP3FW.lua >> /tmp/luafiles
+          echo commands.lua >> /tmp/luafiles
+          echo status.lua >> /tmp/luafiles
           fail=0
           while IFS= read -r f; do
             luac5.1 -p "$f" || { echo "SYNTAX ERROR: $f"; fail=1; }
-          done < <(find core features hooks location ui -name '*.lua')
-          for f in TRP3FW.lua commands.lua status.lua; do
-            luac5.1 -p "$f" || { echo "SYNTAX ERROR: $f"; fail=1; }
-          done
+          done < /tmp/luafiles
+          echo "parse-checked $(wc -l < /tmp/luafiles) files"
           exit $fail
