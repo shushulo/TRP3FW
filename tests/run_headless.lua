@@ -26,6 +26,7 @@ local specs = {
     "tests.unit.allowsender_apostrophe_key_spec",
     "tests.unit.escaped_name_target_match_spec",
     "tests.unit.npc_name_collision_spec",
+    "tests.unit.target_exact_match_spec",
     "tests.unit.icon_filter_pe_spec",
     "tests.unit.cache_stage_ttl_spec",
     "tests.unit.manual_retarget_race_spec",

@@ -682,7 +682,11 @@ function TRP3FW:ProcessPhaseCheckBatch()
             ES:RegisterCallback(ES.Events.TARGET_CHANGED, onTargetChanged)
         end
 
-        local success, err, waitTime = TRP3FW:RunPrivilegedSafe('TargetUnit("'..sanitizedName..'")', category)
+        -- exactMatch=true: TargetUnit([name, exactMatch]) defaults exactMatch to FALSE,
+        -- i.e. partial matching, so "Grumble" could select "Grumblesnout". This does not
+        -- filter NPCs (exactMatch is purely about name matching) - the UnitIsPlayer guard
+        -- below still does that. Restores deliberately omit this; see ExecutePhaseCheck.
+        local success, err, waitTime = TRP3FW:RunPrivilegedSafe('TargetUnit("'..sanitizedName..'", true)', category)
 
         if success then
             if check.onTargetingStarted then check.onTargetingStarted() end
@@ -1089,7 +1093,11 @@ function TRP3FW:ExecutePhaseCheck(check)
     end)
 
     local category = (priority == "LOW") and "phase_check_target_low" or "phase_check_target"
-    local success, err, waitTime = self:RunPrivilegedSafe('TargetUnit("'..sanitizedName..'")', category)
+    -- exactMatch=true - see the batch path's targeting call for the rationale. Note the
+    -- RESTORE calls above intentionally do NOT pass it: they target previousTargetName
+    -- from GetUnitName(unit, true), which carries a realm suffix, and forcing an exact
+    -- match on that form risks failing the restore and stranding the player's target.
+    local success, err, waitTime = self:RunPrivilegedSafe('TargetUnit("'..sanitizedName..'", true)', category)
 
     if success then
         if check.onTargetingStarted then check.onTargetingStarted() end
