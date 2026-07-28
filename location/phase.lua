@@ -415,7 +415,9 @@ function TRP3FW:ProcessPhaseCheckBatch()
                         local currentName = UnitName("target")
                         local isOneOfOurTargets = false
                         for _, batchCheck in ipairs(batch) do
-                            if batchCheck.playerName == currentName then
+                            -- Unescape: batchCheck.playerName is SanitizePlayerName's
+                            -- escaped output, currentName is the raw in-game name.
+                            if (batchCheck.playerName:gsub("\\(.)", "%1")) == currentName then
                                 isOneOfOurTargets = true
                                 break
                             end
@@ -446,7 +448,8 @@ function TRP3FW:ProcessPhaseCheckBatch()
                         local currentName = UnitName("target")
                         local isOneOfOurTargets = false
                         for _, batchCheck in ipairs(batch) do
-                            if batchCheck.playerName == currentName then
+                            -- Unescape, as above.
+                            if (batchCheck.playerName:gsub("\\(.)", "%1")) == currentName then
                                 isOneOfOurTargets = true
                                 break
                             end
@@ -663,7 +666,11 @@ function TRP3FW:ProcessPhaseCheckBatch()
         -- Event listener for immediate success
         onTargetChanged = function()
             local newName = UnitName("target")
-            if newName == check.playerName then
+            -- Compare against the unescaped name: UnitName returns the raw in-game name,
+            -- check.playerName is SanitizePlayerName's escaped output. See liveTargetName
+            -- in ExecutePhaseCheck for the full explanation. UnitIsPlayer guards against a
+            -- same-named NPC satisfying the check (false allow).
+            if newName == cleanCheckName and UnitIsPlayer("target") then
                 local targetMap = C_Map.GetBestMapForUnit("target")
                 TRP3FW:Debug(function()
                     return "[Batch] "..check.playerName.." - IN PHASE (Event driven)"
@@ -702,7 +709,14 @@ function TRP3FW:ProcessPhaseCheckBatch()
                 else
                     -- Target changed - verify name matches (sanity check)
                     local newName = UnitName("target")
-                    if newName == check.playerName then
+                    if newName == cleanCheckName and not UnitIsPlayer("target") then
+                        -- Same-named NPC: our TargetUnit() landed on it, but it is not the
+                        -- player, so this must not count as a successful phase check.
+                        TRP3FW:Debug(function()
+                            return "[Batch] "..check.playerName.." - NPC NAME COLLISION (not a player)"
+                        end, "phase")
+                        reason = "batch_npc_collision"
+                    elseif newName == cleanCheckName then
                         local targetMap = C_Map.GetBestMapForUnit("target")
                         TRP3FW:Debug(function()
                             return "[Batch] "..check.playerName.." - IN PHASE (Timer check)"
@@ -905,6 +919,25 @@ function TRP3FW:ExecutePhaseCheck(check)
     self:SetPhaseCheckTargeting(true)
     self:Debug("[Phase Check] Acquired mutex for "..playerName, "phase")
 
+    -- playerName is SanitizePlayerName's escaped-for-RunPrivileged output (quotes and
+    -- backslashes are backslash-escaped so it can be embedded in the TargetUnit("...")
+    -- code string, e.g. "'Grumble'" -> "\'Grumble\'"). UnitName("target") returns the RAW
+    -- in-game name, so every live-target comparison below must use this unescaped form -
+    -- comparing against playerName directly is always false for any name containing a
+    -- quote, which both reports successfully-targeted players as out-of-phase AND makes
+    -- the restore logic misread our own target as a manual retarget (leaving the player
+    -- stuck on the check's subject). Unescape rather than re-running CleanPlayerName,
+    -- whose whitelist rejects the literal backslash.
+    local liveTargetName = (playerName:gsub("\\(.)", "%1"))
+
+    -- TargetUnit("Name") matches NPCs too, and WoW will pick a nearby same-named NPC.
+    -- A name-only match therefore let an NPC standing next to us satisfy the check and
+    -- report IN PHASE for a player who was never there (a false allow). Every live-target
+    -- verification must confirm the unit is actually a player.
+    local function targetIsCheckedPlayer()
+        return UnitName("target") == liveTargetName and UnitIsPlayer("target")
+    end
+
     -- Save current target state
     local hadTarget = UnitExists("target")
     local previousTargetGUID = hadTarget and UnitGUID("target") or nil
@@ -991,8 +1024,13 @@ function TRP3FW:ExecutePhaseCheck(check)
         -- Only restore/clear when we're confident the current selection is ours to clean
         -- up: either it's still playerName (our TargetUnit() call is what's selected), or
         -- it never changed at all.
+        -- NOTE: this is deliberately a name-only comparison, unlike the success checks
+        -- above. A same-named NPC was selected by OUR TargetUnit() call, so it is ours to
+        -- clean up and the real target must still be restored - it just must not count as
+        -- a successful phase check. Requiring UnitIsPlayer here would misclassify that NPC
+        -- as a manual retarget and strand the player on it.
         local currentName = UnitName("target")
-        local manualRetargetDetected = targetActuallyChanged and currentName ~= playerName
+        local manualRetargetDetected = targetActuallyChanged and currentName ~= liveTargetName
 
         -- Restore target
         pcall(function()
@@ -1029,8 +1067,7 @@ function TRP3FW:ExecutePhaseCheck(check)
     end
 
     onTargetChanged = function()
-        local newName = UnitName("target")
-        if newName == playerName then
+        if targetIsCheckedPlayer() then
             handleResult(true, C_Map.GetBestMapForUnit("target"), "targeting")
         end
     end
@@ -1044,7 +1081,7 @@ function TRP3FW:ExecutePhaseCheck(check)
 
     timeoutTimer = C_Timer.NewTimer(timeoutDuration, function()
         -- Fallback: If event didn't fire (e.g. target didn't change), verify manually
-        if UnitName("target") == playerName then
+        if targetIsCheckedPlayer() then
             handleResult(true, C_Map.GetBestMapForUnit("target"), "targeting_fallback")
         else
             handleResult(false, nil, "timeout")

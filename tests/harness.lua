@@ -29,6 +29,15 @@ function H.newNamespace()
     -- verification.
     function TRP3FW:GetCurrentTime() return mock.clock end
 
+    -- Default UnitIsPlayer to true so specs that only care about names keep exercising the
+    -- "target is a real player" path. In-game this global always exists; leaving it nil
+    -- here would make phase.lua's NPC guard throw instead of testing what the spec means
+    -- to test. Specs covering NPC name collisions override this explicitly AFTER calling
+    -- newNamespace(). This RESETS unconditionally rather than only filling in a nil: these
+    -- specs share one Lua state, so an NPC spec's `return false` would otherwise leak into
+    -- every spec that runs after it.
+    _G.UnitIsPlayer = function() return true end
+
     return TRP3FW
 end
 

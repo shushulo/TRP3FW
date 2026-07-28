@@ -24,6 +24,8 @@ local specs = {
     "tests.unit.scan_reply_cache_veto_spec",
     "tests.unit.apostrophe_name_spec",
     "tests.unit.allowsender_apostrophe_key_spec",
+    "tests.unit.escaped_name_target_match_spec",
+    "tests.unit.npc_name_collision_spec",
     "tests.unit.icon_filter_pe_spec",
     "tests.unit.cache_stage_ttl_spec",
     "tests.unit.manual_retarget_race_spec",
