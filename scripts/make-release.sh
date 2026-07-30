@@ -154,7 +154,21 @@ git branch -f "$RELEASE_BRANCH" "$DEV_BRANCH"
 git checkout --quiet "$RELEASE_BRANCH"
 
 # Everything the dev branch carries that must not ship.
-git rm -r --quiet --ignore-unmatch tests/ thoughts/ CLAUDE.md scripts/ .gitea/
+#
+# The dotfiles are a deliberate split rather than a blanket sweep:
+#
+#   .gitignore              STRIPPED. Its entries (other_addons/, thoughts/debug/, .claude/)
+#                           name paths that do not exist on a release branch, and it points at
+#                           scripts/make-release.sh, which is stripped too. Nothing for it to do.
+#   .git-blame-ignore-revs  STRIPPED. Names a dev-branch commit and only takes effect when a
+#                           contributor wires it into blame.ignoreRevsFile by hand.
+#   .gitattributes          KEPT. This one is load-bearing: the blobs are stored with CRLF, so
+#                           `* text=auto eol=lf` is what normalises them to LF on checkout.
+#                           Dropping it would make checkouts differ by each machine's
+#                           core.autocrlf. WoW itself reads either ending fine, but there is no
+#                           upside to inconsistency and it costs 10 lines to keep.
+git rm -r --quiet --ignore-unmatch tests/ thoughts/ CLAUDE.md scripts/ .gitea/ \
+	.gitignore .git-blame-ignore-revs
 
 # Drop the test wiring from the .toc: the WoWUnit OptionalDep, and every line
 # from the integration-tests comment to end of file.
@@ -183,6 +197,22 @@ if grep -qiE "wowunit|tests\\\\|tests/" TRP3FW.toc; then
 	exit 1
 fi
 ok "TRP3FW.toc stripped clean"
+
+# Verify the strip list actually took. Catches both directions: a dev-only path that
+# survived, and .gitattributes being swept up by a future broadened `git rm`.
+STRIP_FAIL=0
+for unwanted in tests thoughts CLAUDE.md scripts .gitea .gitignore .git-blame-ignore-revs; do
+	if [[ -e "$unwanted" ]]; then
+		echo "  FAIL: '$unwanted' should not be on a release branch" >&2
+		STRIP_FAIL=1
+	fi
+done
+[[ -f .gitattributes ]] || {
+	echo "  FAIL: .gitattributes must be KEPT (normalises the CRLF-stored blobs on checkout)" >&2
+	STRIP_FAIL=1
+}
+[[ "$STRIP_FAIL" -eq 0 ]] || exit 1
+ok "dev-only files stripped, .gitattributes retained"
 
 # Every .lua the .toc loads must actually exist in the stripped tree, or the
 # addon breaks at load time for users.
