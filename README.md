@@ -4,54 +4,111 @@
 
 [![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)]()
 [![WoW](https://img.shields.io/badge/WoW-9.2.7%2B-orange.svg)]()
-[![License](https://img.shields.io/badge/license-Personal%20Use-green.svg)]()
+[![License](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 
-TRP3 Firewall monitors and controls who can see your RP profile. It automatically blocks or "ghosts" requests from players who are not nearby (different phase, map, or zone), improving privacy and performance in crowded areas.
+TRP3 Firewall controls who receives *your* RP profile. When another player's addon requests your
+profile, TRP3FW works out whether they are actually near you — same phase, same map, same zone —
+and then allows, blocks, or "ghosts" the request (sends a blank profile instead of refusing
+outright). The result is more privacy in crowded areas and less profile traffic overall.
+
+It only ever gates **outgoing** data. You can always request other players' profiles, and nothing
+you do here stops other people from seeing you in-game.
 
 ---
 
-## 🚀 Quick Start
+## Installation
 
-### 1. Installation
-*   Download the latest `TRP3FW.zip` from the [Releases](../../releases) page.                                                                                                                                                       │
-*   Extract the `TRP3FW` folder into your `World of Warcraft/_retail_/Interface/AddOns/` directory.
-*   Rename the extracted folder to `TRP3FW` by removing the verion number.
+1. Download the latest `TRP3FW.zip` from the [Releases](../../releases) page.
+2. Extract the `TRP3FW` folder into `World of Warcraft/_retail_/Interface/AddOns/`.
+3. If the extracted folder has a version number in its name (e.g. `TRP3FW-1.6.0`), rename it to
+   just `TRP3FW`. WoW will not load it otherwise.
+4. Restart the game, or `/reload` if you are already logged in.
 
-### 2. First Launch & Presets
-On first launch, you will be prompted to choose a preset. These can be changed later in `/trp3fwui`.
+TRP3FW gates profile traffic belonging to another addon, so it needs one of
+[Total RP 3](https://totalrp3.info), [MyRolePlay](https://www.curseforge.com/wow/addons/my-roleplay),
+or [XRP](https://www.curseforge.com/wow/addons/xrp) to do anything useful. It loads without one
+and simply has nothing to gate. Run `/trp3fw status` to see what was detected.
+
+---
+
+## Getting Started
+
+Open the settings window with **`/trp3fwui`** (or `/trp3fw ui`, or click the minimap button).
+
+On first launch you are asked to pick a **settings complexity level** — Basic, Intermediate,
+Advanced, or Everything. This only controls how many options the UI shows you; it does not change
+how the firewall behaves. Intermediate is the default, and you can change it any time from the
+sidebar. "Skip" leaves it at the default.
+
+### Presets
+
+The **Alerts** tab has five one-click presets. Out of the box TRP3FW behaves like **Balanced** —
+it notifies you but blocks nothing, so you can watch what it would do before letting it act.
 
 | Preset | Behavior |
 |--------|----------|
-| **Relaxed** | Notifications only. Never blocks anyone. |
-| **Balanced** | Alert mode for both Phase and Map requests. |
-| **Recommended** | **(Default)** Blocks requests from players in different phases/maps. |
-| **Strict** | Maximum security. Blocks all non-nearby requests and scan replies. |
-| **Ghosty** | Stealth mode. Sends **blank profiles** instead of blocking. |
+| **Relaxed** | Map alerts only. Phase checking off. Never blocks. |
+| **Balanced** | **(Default)** Alerts on both phase and map mismatches. Never blocks. |
+| **Recommended** | Alerts *and* blocks requests from players in a different phase or map. |
+| **Strict** | As Recommended, plus blocks map-scan replies. |
+| **Ghosty** | Sends **blank profiles** instead of blocking, so requesters see nothing unusual. |
 
-### 3. Usage
-*   **Open Settings:** `/trp3fwui`
-*   **Check Status:** `/trp3fw status`
-*   **Show Location:** `/trp3fw location` (displays current map ID and zone)
-*   **Note:** You can always **request** other players' profiles. TRP3FW only blocks *your* outgoing data.
+Presets are a starting point — every underlying option stays editable afterwards.
 
 ---
 
-## 🛡️ Key Features
+## Key Features
 
-*   **Smart Location Detection**: Cascades through **Phase Checks** (Epsilon), **WHO Queries**, and **Map Scanning**.
-*   **Ghost Mode**: Send a **blank** or **alternate profile** (e.g., "Unknown Hooded Figure") to blocked players.
-*   **High Performance**: Intelligent dynamic batching handles 50+ concurrent requests instantly.
-*   **Security Hardened**: Input sanitization, rate limiting, and protection against scan spoofing.
-*   **Cross-Protocol**: Fully compatible with **TotalRP3**, **MyRolePlay**, and **XRP**.
+* **Cascading location detection** — tries a **phase check**, then a **WHO query**, then a
+  **map scan**, using the first that succeeds. Phase and WHO checks require the Epsilon server's
+  API; map scanning works everywhere.
+* **Ghost mode** — instead of blocking, send a blank profile, or a decoy profile of your own
+  making (create a TRP3 profile, name it in the settings, and TRP3FW sends that instead).
+  Per-phase and per-map overrides are supported.
+* **Cross-protocol** — works with **Total RP 3**, **MyRolePlay**, and **XRP**, including the
+  Mary Sue Protocol paths those addons share.
+* **Content filters** — optionally strip colour gradients and inline icons from *incoming*
+  profiles, or enforce a minimum font size so nobody can send you unreadable text.
+* **Built for crowds** — request batching, LRU caches on every hot path, and throttled WHO
+  queries keep the cost flat when 50 people load in at once.
+* **Security-minded** — all player names are sanitized before use, every cache is size-capped,
+  and network-fed state is bounded and expired rather than allowed to grow.
 
-**Project Info**
-*   **Version:** 1.6.0
-*   **Updated:** July 2026
-*   **License:** Personal Use Only
+---
 
+## Common Commands
 
+`/trp3fw` on its own prints the full command list. The ones worth knowing:
 
+| Command | What it does |
+|---------|--------------|
+| `/trp3fwui` | Open the settings window (also `/trp3fw ui`) |
+| `/trp3fw status` | Current settings, detected addons, hook and cache health |
+| `/trp3fw stats` | Session counts — allows, blocks, ghosts, alerts |
+| `/trp3fw location` | Your current map ID and zone name |
+| `/trp3fw test` | Play sample notifications so you know what alerts look like |
+| `/trp3fw reloadhooks` | Reinstall hooks after another addon updates |
+| `/trp3fw debug` | Toggle debug output (see below) |
+| `/reload` | Reload the UI |
 
+### Troubleshooting
 
+Start with `/trp3fw status` — it reports which addons were detected, whether the Epsilon API is
+available, and whether the hooks installed cleanly.
 
+* **Nothing seems to happen** — check an RP addon was detected, then try `/trp3fw reloadhooks`.
+* **Phase or WHO checks unavailable** — both need Epsilon's API. On other servers TRP3FW falls
+  back to map scanning automatically.
+* **No notifications** — `/trp3fw notify toggle` and `/trp3fw display chat`.
+* **Digging deeper** — `/trp3fw debug` then `/trp3fw debugfilter decision` (also `location`,
+  `cache`, `ghost`, `hooks`, and others) narrows the output to one area.
 
+---
+
+## Project Info
+
+* **Version:** 1.6.0
+* **Interface:** 9.2.7+ (90207)
+* **License:** [GPL-3.0](LICENSE)
+
+Settings are stored per-account in `WTF/Account/<account>/SavedVariables/TRP3FW.lua`.

@@ -3,6 +3,22 @@
 
 local addonName, TRP3FW = ...
 
+-- Open the settings window. This is the command status.lua, the README and the in-game help
+-- text have always pointed users at, but it was never actually registered -- the minimap
+-- button and the first-run prompt were the only ways in, so hiding the button locked the user
+-- out of their own settings. The handler lives in ui/settings.lua, which owns the frame.
+SLASH_TRP3FWUI1 = "/trp3fwui"
+SlashCmdList.TRP3FWUI = function(msg)
+    local action = (msg or ""):match("^%s*(%S*)"):lower()
+    if action ~= "show" and action ~= "hide" then action = nil end
+
+    if TRP3FW.ToggleSettingsWindow then
+        TRP3FW:ToggleSettingsWindow(action)
+    else
+        TRP3FW:Error("Settings UI is unavailable (ui/settings.lua did not load). Run /trp3fw status and report the output.")
+    end
+end
+
 -- Register slash command
 SLASH_TRP3FW1 = "/trp3fw"
 SlashCmdList.TRP3FW = function(msg)
@@ -1090,6 +1106,15 @@ SlashCmdList.TRP3FW = function(msg)
         TRP3FW:Info("Reinstalling hooks...")
         TRP3FW:InstallHooks()
         TRP3FW:Info("Hooks reinstalled")
+
+    elseif cmd == "ui" or cmd == "config" or cmd == "options" then
+        -- Alias for /trp3fwui, so the settings window is reachable from the one command
+        -- users are most likely to try first. Same guard as `minimap` below.
+        if TRP3FW.ToggleSettingsWindow then
+            TRP3FW:ToggleSettingsWindow(args[1] and args[1]:lower() or nil)
+        else
+            TRP3FW:Error("Settings UI not available yet (UI not loaded?)")
+        end
 
     elseif cmd == "minimap" then
         -- Defined in ui/settings.lua, which InitializeUI only reaches 2.5s after

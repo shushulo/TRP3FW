@@ -66,6 +66,7 @@ local specs = {
     "tests.unit.scan_nonce_disabled_spec",
     "tests.unit.privileged_tokens_spec",
     "tests.unit.spvp_queue_bounds_spec",
+    "tests.unit.spvp_prefix_confusion_spec",
     "tests.unit.alert_fastpath_dedup_spec",
     "tests.unit.profiles_widget_pool_spec",
 }

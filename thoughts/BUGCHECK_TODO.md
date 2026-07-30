@@ -111,6 +111,73 @@ started, deliberately deferred.
 - [x] `TRP3FW.lua` (114)
 - [x] `commands.lua` (1382)
 
+## 10. Release Pass (v1.6.0)
+
+Found during the pre-release once-over, after sections 1-9 were closed out.
+
+- [x] **HIGH / security: SPVP salt responses could be forged over the network** (fixed) —
+  `features/encryption/spvp_handlers.lua:22`. The `CHAT_MSG_ADDON` handler checked
+  `pendingSaltTickets[prefix]` **before** the `prefix ~= "TRP3FW_SPVP"` guard, and `prefix` is
+  attacker-chosen — any player can `SendAddonMessage` with any prefix. Epsilon's async salt
+  tickets are short, non-secret, mixed-case strings (`hce1i9XrDGkCgWD` in the captured log at
+  `thoughts/debug/output.txt.txt:71`), so a player who guessed or observed a live ticket could
+  hand us a salt response as though the *server* had answered. Two consequences, both now
+  covered by spec: a well-formed forgery caches an **attacker-chosen salt** for the phase, so
+  every subsequent SPVP verification there runs against it; a malformed one negative-caches the
+  phase for an hour **and** flushes `pendingSPVPInits` for it, NOSALT-ing the legitimate peers
+  who were waiting on the real response.
+
+  Fix: the ticket branch now rejects packets from a *different* player. Deliberately not "no
+  sender" — which of Epsilon's two server-side sender forms (absent, or our own name) is used
+  is not observable from the client, and guessing wrong would silently break all salt loading.
+  Rejecting only third-party senders closes the forgery path without depending on that detail;
+  an unparseable sender counts as third-party. New spec
+  `tests/unit/spvp_prefix_confusion_spec.lua` (5 tests), verified by reverting the fix: the two
+  attack tests fail, the three accept/ignore tests pass either way.
+
+  **Note:** `other_addons/EpsilonLib/PhaseAddOnData.lua:262` has the identical
+  `_queue[prefix]`-before-anything-else shape (and destructures `sender` without using it), so
+  this is an ecosystem-wide idiom rather than a TRP3FW invention. The difference is that
+  EpsilonLib is fetching data while TRP3FW is making a **security decision** on the result.
+
+- [x] **`/trp3fwui` was documented everywhere and registered nowhere** (fixed) — the command
+  appears in `status.lua` x4, `commands.lua` x3, the README and CLAUDE.md, but the only slash
+  globals in the addon were `SLASH_TRP3FW1`, `SLASH_TRP3FWFLAGS1` and `SLASH_TRP3FWTEST1`.
+  `settingsFrame` is file-local to `ui/settings.lua`, so the minimap button and the first-run
+  complexity prompt were the *only* ways to open the settings window — and `/trp3fw minimap`
+  hides the button, which locked the user out of their own settings with the on-screen help
+  still telling them to type a command that did nothing.
+
+  Fix: new exported `TRP3FW:ToggleSettingsWindow(action)` in `ui/settings.lua` (owns the frame,
+  guards the not-yet-initialized case with a real error rather than silence), `/trp3fwui`
+  registered in `commands.lua` with optional `show`/`hide`, plus `/trp3fw ui|config|options`
+  aliases. 7 new tests in `tests/unit/commands_spec.lua`.
+
+- [x] **README described a first-launch preset prompt that does not exist** (fixed) — it
+  documented the five presets (Relaxed/Balanced/Recommended/Strict/Ghosty, all real, in
+  `ui/tabs/Alerts.lua:104`) as a first-launch chooser with **Recommended** as the default. The
+  actual first-run prompt is `ShowWelcomeWizard` (`ui/settings.lua:1311`), which asks for a
+  UI **complexity level** (Basic/Intermediate/Advanced/Everything) and does not touch firewall
+  behaviour at all. The shipped default is `phaseCheckMode = "alert"` / `mapCheckMode = "alert"`
+  (`core/init.lua:77`), which is **Balanced** — i.e. the addon ships blocking nothing, the
+  opposite of what the README promised. Also removed: an "Unknown Hooded Figure" ghost-profile
+  example that appears nowhere in the code (the real default is `TRP3FW_BLANK`), and a
+  "50+ concurrent requests instantly" performance claim with no measurement behind it.
+
+- [x] **README/LICENSE licensing conflict** (resolved: GPLv3) — the badge and footer said
+  "Personal Use Only" while `LICENSE` is the full GPLv3 text, present since the initial commit
+  and therefore already shipped in v1.4 and v1.5. GPLv3 grants redistribution rights that
+  "Personal Use Only" revokes, and the grant on already-distributed versions is irrevocable.
+  Confirmed with the maintainer that GPLv3 is intended; README now says GPL-3.0 and links the
+  file. No change to `LICENSE`.
+
+- [ ] **Stale `v1.6` branch and `v1.6.0` tag exist locally and on gitea** — both were built from
+  `f609437`, three commits behind the current dev tip (`be0ec30`). All three missing commits are
+  tooling (`scripts/`, `.gitea/`), which `make-release.sh` strips anyway, so the *shipped* tree
+  is equivalent — but `make-release.sh` correctly refuses to rebuild an already-tagged version.
+  Before releasing: either delete and recreate the tag/branch from the new dev tip, or bump to
+  1.6.1. Neither has been pushed to GitHub yet (`origin` has only up to v1.5).
+
 ## Deferred to Final Pass
 
 Open items found during the review that were deliberately **not** fixed in place, either because

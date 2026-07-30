@@ -1259,6 +1259,33 @@ function TRP3FW:InitializeUI()
     TRP3FW.StartStatusUpdates(); TRP3FW:Success("UI Initialized")
 end
 
+-- Show / hide / toggle the settings window from outside this file.
+--
+-- `settingsFrame` is file-local, so before this existed the ONLY ways to open the settings
+-- window were the minimap button and the first-run complexity prompt -- even though
+-- `/trp3fwui` is what status.lua, commands.lua, the README and CLAUDE.md all tell users to
+-- type. A user who hides the minimap button had no way back into their own settings.
+-- `commands.lua` registers /trp3fwui against this.
+function TRP3FW:ToggleSettingsWindow(action)
+    if not settingsFrame then
+        -- InitializeUI runs at PLAYER_LOGIN; if something above it errored, say so plainly
+        -- rather than failing silently on a command the user was explicitly told to use.
+        self:Error("Settings UI is not initialized yet. Try /reload; if it persists, run /trp3fw status and report the output.")
+        return false
+    end
+
+    if action == "show" then
+        settingsFrame:Show()
+    elseif action == "hide" then
+        settingsFrame:Hide()
+    elseif settingsFrame:IsVisible() then
+        settingsFrame:Hide()
+    else
+        settingsFrame:Show()
+    end
+    return true
+end
+
 function TRP3FW:ToggleMinimapButton() if not TRP3FW.minimapButton then self:CreateMinimapButton() end; TRP3FW_MinimapSettings.hide = not TRP3FW_MinimapSettings.hide; if TRP3FW_MinimapSettings.hide then TRP3FW.minimapButton:Hide() else TRP3FW.minimapButton:Show() end end
 
 -- Restore the minimap button to its default position/visibility.

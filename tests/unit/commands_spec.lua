@@ -378,4 +378,90 @@ T.describe("phasecheck releases its mutex", function()
     end)
 end)
 
+-- /trp3fwui is what status.lua's help output, the README and CLAUDE.md all tell the user to
+-- type, but it was never registered: SLASH_TRP3FW1 and SLASH_TRP3FWFLAGS1 were the only slash
+-- globals in the addon. The settings frame is file-local to ui/settings.lua, so the minimap
+-- button and the first-run complexity prompt were the only ways to open it -- and
+-- /trp3fw minimap can hide the button, locking the user out of their own settings entirely.
+T.describe("the settings window is reachable by slash command", function()
+    -- The real handler delegates to TRP3FW:ToggleSettingsWindow (ui/settings.lua owns the
+    -- frame). Stub it here and assert on the delegation + the action it forwards.
+    local function uiEnv()
+        local TRP3FW = H.newNamespace()
+        TRP3FW.output = {}
+        local function record(_, msg) table.insert(TRP3FW.output, tostring(msg)) end
+        TRP3FW.Info, TRP3FW.Warn, TRP3FW.Error, TRP3FW.Success = record, record, record, record
+
+        TRP3FW.hasEpsilonAPI = false
+        TRP3FW.detectedAddons = {}
+        TRP3FW.profiler = { enabled = false, stats = {}, toggle = function() end,
+            report = function() end, reset = function() end }
+        function TRP3FW:IsPhaseCheckEnabled() return false end
+        function TRP3FW:GetDetectedAddonsString() return "none" end
+        function TRP3FW:ShowHelp() end
+        function TRP3FW:ShowStatus() end
+        function TRP3FW:ShowStats() end
+
+        TRP3FW.toggleCalls = {}
+        function TRP3FW:ToggleSettingsWindow(action)
+            table.insert(self.toggleCalls, action == nil and "<toggle>" or action)
+            return true
+        end
+
+        _G.SlashCmdList = {}
+        H.loadModule("commands.lua", TRP3FW)
+        return TRP3FW
+    end
+
+    T.it("registers /trp3fwui", function()
+        uiEnv()
+        T.eq(_G.SLASH_TRP3FWUI1, "/trp3fwui", "this is the command the docs advertise")
+        T.eq(type(_G.SlashCmdList.TRP3FWUI), "function", "and it needs a handler")
+    end)
+
+    T.it("bare /trp3fwui toggles the window", function()
+        local TRP3FW = uiEnv()
+        _G.SlashCmdList.TRP3FWUI("")
+        T.eq(#TRP3FW.toggleCalls, 1)
+        T.eq(TRP3FW.toggleCalls[1], "<toggle>", "no argument means toggle")
+    end)
+
+    T.it("forwards an explicit show/hide", function()
+        local TRP3FW = uiEnv()
+        _G.SlashCmdList.TRP3FWUI("show")
+        _G.SlashCmdList.TRP3FWUI("HIDE")
+        T.eq(TRP3FW.toggleCalls[1], "show")
+        T.eq(TRP3FW.toggleCalls[2], "hide", "the action must be case-insensitive")
+    end)
+
+    T.it("ignores an unrecognised argument rather than passing it through", function()
+        local TRP3FW = uiEnv()
+        _G.SlashCmdList.TRP3FWUI("wat")
+        T.eq(TRP3FW.toggleCalls[1], "<toggle>",
+            "an unknown action degrades to toggle, not to an invalid action")
+    end)
+
+    T.it("does not error on a nil msg", function()
+        uiEnv()
+        T.no_raise(function() _G.SlashCmdList.TRP3FWUI(nil) end,
+            "WoW can hand a slash handler nil")
+    end)
+
+    T.it("/trp3fw ui and its aliases reach the same opener", function()
+        for _, alias in ipairs({ "ui", "config", "options" }) do
+            local TRP3FW = uiEnv()
+            _G.SlashCmdList.TRP3FW(alias)
+            T.eq(#TRP3FW.toggleCalls, 1, "/trp3fw "..alias.." should open the settings window")
+        end
+    end)
+
+    T.it("reports an error instead of failing silently when the UI never loaded", function()
+        local TRP3FW = uiEnv()
+        TRP3FW.ToggleSettingsWindow = nil  -- ui/settings.lua absent or errored during load
+        T.no_raise(function() _G.SlashCmdList.TRP3FWUI("") end,
+            "a missing opener must not be a hard error on a documented command")
+        T.truthy(said(TRP3FW, "unavailable"), "and the user must be told why")
+    end)
+end)
+
 return T

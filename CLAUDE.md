@@ -24,7 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **TRP3 Firewall (TRP3FW)** is a World of Warcraft addon that monitors and controls RP (roleplay) profile sharing. It intercepts profile requests and uses intelligent location detection (phase checks, WHO queries, map scanning) to determine whether to allow, block, or "ghost" (send blank profiles to) requesters.
 
-**Version**: 2.9.2-hotfix (v2.0-beta)
+**Version**: 1.6.0 (deliberate step DOWN from the old 2.9.x line; see `core/init.lua:10`)
 **Target**: WoW 9.2.7+ (Shadowlands/Dragonflight/TWW)
 **Language**: Lua 5.1
 **Platform**: World of Warcraft addon system
@@ -702,7 +702,8 @@ Stored in: `WTF/Account/<account>/SavedVariables/TRP3FW.lua`
 
 ## Version Information
 
-**Current Version**: 2.9.2-hotfix (v2.0-beta)
+**Current Version**: 1.6.0 (`core/init.lua` is the single source of truth; the .toc, the README
+badge and the release tag are all checked against it by `scripts/make-release.sh`)
 **Interface Version**: 90207 (WoW 9.2.7+)
 **Total Lines of Code**: ~21,300 across the 68 Lua files loaded by `TRP3FW.toc`
 (measured 2026-07-25; the previously documented "~3,400" was off by roughly 6x)
