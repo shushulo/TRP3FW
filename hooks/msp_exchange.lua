@@ -19,15 +19,15 @@ end
 function TRP3FW:GenerateMSPGhostPayload(target)
     local profileID = self:GetGhostProfileID(target) or TRP3FW.Prefs.ghostProfileID
     local fields = self:GetProfileMSPFields(profileID)
-    
+
     -- Fallback to blank if profile fetch fails
     if not fields then
         fields = self:GetBlankMSPFields()
     end
-    
+
     local parts = {}
     local SEP = string.char(0x60) -- MSP field separator (backtick)
-    
+
     for k, v in pairs(fields) do
         -- MSP protocol: FIELD:VALUE
         -- We don't need to send CRC (!FIELD:CRC) for updates, raw data is accepted
@@ -35,7 +35,7 @@ function TRP3FW:GenerateMSPGhostPayload(target)
             table.insert(parts, k .. ":" .. tostring(v))
         end
     end
-    
+
     return table.concat(parts, SEP)
 end
 
@@ -272,10 +272,20 @@ function TRP3FW:GetProfileTRP3ToMSP(profileID)
     -- OPTIMIZATION: Check MSP conversion cache first
     -- TRP3→MSP conversion is expensive (155 lines, string processing, table iteration)
     -- Profiles rarely change during play session, so cache aggressively
+    -- The stored timestamp was previously written and never read, so a cached conversion
+    -- lived until /reload and an edit to the ghost profile kept transmitting the pre-edit
+    -- version for the rest of the session. There is no profile-edited event to invalidate
+    -- on, so the TTL is the invalidation.
     local cached = self.mspConversionCache[profileID]
     if cached and cached.mspFields then
-        self:Debug("[MSP Conversion] Cache HIT for profile: "..tostring(profileID), "ghost")
-        return cached.mspFields
+        local ttl = (self.Prefs and self.Prefs.mspConversionCacheDuration) or 300
+        local age = self:GetCurrentTime() - (cached.timestamp or 0)
+        if age < ttl then
+            self:Debug("[MSP Conversion] Cache HIT for profile: "..tostring(profileID), "ghost")
+            return cached.mspFields
+        end
+        self:Debug("[MSP Conversion] Cache entry for "..tostring(profileID).." is stale (age "..string.format("%.0f", age).."s >= ttl "..ttl.."s) - reconverting", "ghost")
+        self.mspConversionCache[profileID] = nil
     end
 
     self:Debug("[MSP Conversion] Cache MISS for profile: "..tostring(profileID)..", performing full conversion", "ghost")
@@ -435,6 +445,16 @@ function TRP3FW:GetProfileTRP3ToMSP(profileID)
 
     -- OPTIMIZATION: Cache the conversion result for future use
     -- Profiles rarely change during a play session, so this dramatically reduces overhead
+    -- Keyed by our OWN profile IDs, so growth is bounded by how many profiles the user has
+    -- rather than by anything remote. A flat cap is still cheaper than leaving the one
+    -- uncapped collection in the addon; no LRU, because there is nothing to rank.
+    local MAX_CONVERSION_ENTRIES = 50
+    if self:CountTableEntries(self.mspConversionCache) >= MAX_CONVERSION_ENTRIES
+        and not self.mspConversionCache[profileID] then
+        self:Debug("[MSP Conversion] Cache at cap ("..MAX_CONVERSION_ENTRIES.."), clearing", "ghost")
+        wipe(self.mspConversionCache)
+    end
+
     self.mspConversionCache[profileID] = {
         mspFields = mspFields,
         timestamp = self:GetCurrentTime()
@@ -483,15 +503,38 @@ function TRP3FW:GetProfileDirectMSP(profileID)
         return mspFields
     end
 
-    -- Try loading XRP profile
-    if xrp and xrp.profiles and xrp.profiles[profileID] then
+    -- Try loading XRP profile.
+    --
+    -- XRP's MSP data lives in `xrpSaved.profiles[name].fields`, NOT in a flat table, and the
+    -- modern namespace is `AddOn_XRP` / `xrpSaved` - the legacy `xrp.profiles` global this
+    -- branch used to test does not exist in current XRP (verified repo-wide against the real
+    -- addon), so the condition was never true and XRP ghost sends fell through to the
+    -- "profile not found" return below. Matches features/profiles/adapter_xrp.lua's reads.
+    --
+    -- Fields are resolved through XRP's parent-inheritance chain when available, because a
+    -- child profile stores only its overrides - copying raw `.fields` would ghost a profile
+    -- that is mostly empty. AH/AW also need XRP's MSP unit conversion, which GetProfileField
+    -- does not apply, so those are converted here when the API exposes the converters.
+    local xrpProfile = xrpSaved and xrpSaved.profiles and xrpSaved.profiles[profileID]
+    if xrpProfile then
         self:Debug("[Direct MSP] Loading XRP profile: "..tostring(profileID), "ghost")
-        local sourceProfile = xrp.profiles[profileID]
 
-        -- XRP also stores in MSP-compatible format
         local mspFields = {}
-        for field, value in pairs(sourceProfile) do
+        for field, value in pairs(xrpProfile.fields or {}) do
             mspFields[field] = value
+        end
+
+        -- Walk the parent chain for fields this profile inherits rather than overrides.
+        local parent, depth = xrpProfile.parent, 0
+        while parent and xrpSaved.profiles[parent] and depth < 10 do
+            local parentProfile = xrpSaved.profiles[parent]
+            local inherits = xrpProfile.inherits or {}
+            for field, value in pairs(parentProfile.fields or {}) do
+                if mspFields[field] == nil and inherits[field] ~= false then
+                    mspFields[field] = value
+                end
+            end
+            parent, depth = parentProfile.parent, depth + 1
         end
 
         -- Ensure required fields
@@ -502,6 +545,12 @@ function TRP3FW:GetProfileDirectMSP(profileID)
         mspFields.GR = select(2, UnitRace("player")) or ""
         mspFields.GS = tostring(UnitSex("player")) or ""
         mspFields.GF = UnitFactionGroup("player") or ""
+
+        -- NOTE: XRP converts AH/AW into MSP units on its own send path
+        -- (Backend/Profiles.lua:120), but its converters live on XRP's *private* `AddOn`
+        -- namespace, not the public `AddOn_XRP` - so they are unreachable from here. A ghosted
+        -- XRP profile therefore sends AH/AW in the user's raw stored units. Cosmetic (a height
+        -- may read as "6'2\"" rather than centimeters) and it only affects those two fields.
 
         self:Debug("[Direct MSP] Loaded "..(self:CountTableEntries(mspFields) or 0).." XRP fields", "ghost")
         return mspFields

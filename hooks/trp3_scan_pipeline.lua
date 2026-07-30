@@ -39,9 +39,29 @@ local function CheckCache(self, playerName)
     end
 
     -- Check phase cache
+    local now = self:GetCurrentTime()
     local phaseCache = CI:Get("phaseCheck", playerName)
+
+    -- BUG FIX: A fresh, explicit phase FAILURE must veto the independent WHO-cache
+    -- allow-fast-path below. Previously each cache (phase, WHO) only ever said "allow"
+    -- or "continue" - a known phaseCheck.inPhase == false (e.g. the player changed phase
+    -- after an earlier WHO/zone hit was cached) never prevented the WHO cache hit further
+    -- down from allowing anyway. Only applies when phase checking is actually meaningful
+    -- for scan replies (scanResponsePhaseCheckEnabled + scanResponsePhaseMode ~= "off");
+    -- otherwise phase isn't a signal this pipeline cares about at all.
+    local phaseCheckMattersForScan = (TRP3FW.Prefs.scanResponsePhaseCheckEnabled ~= false)
+        and (TRP3FW.Prefs.scanResponsePhaseMode and TRP3FW.Prefs.scanResponsePhaseMode ~= "off")
+    local freshPhaseFailure = false
+    if phaseCheckMattersForScan and phaseCache and phaseCache.inPhase == false then
+        local failAge = now - phaseCache.timestamp
+        local failTTL = TRP3FW.Prefs.phaseCacheFailureDuration or 10
+        if failAge < failTTL then
+            freshPhaseFailure = true
+            self:Debug("[Scan Reply] Fresh phase cache FAILURE for "..playerName.." - vetoing WHO/other cache allows, continuing to real check", "hooks")
+        end
+    end
+
     if phaseCache then
-        local now = self:GetCurrentTime()
         local age = now - phaseCache.timestamp
 
         if age < TRP3FW.Prefs.phaseCacheDuration and phaseCache.inPhase then
@@ -62,10 +82,9 @@ local function CheckCache(self, playerName)
         end
     end
 
-    -- Check WHO cache
-    local whoCache = CI:Get("whoName", playerName)
+    -- Check WHO cache (skipped entirely if a fresh phase failure already vetoed this player)
+    local whoCache = not freshPhaseFailure and CI:Get("whoName", playerName)
     if whoCache then
-        local now = self:GetCurrentTime()
         local age = now - whoCache.timestamp
 
         if age < TRP3FW.Prefs.whoNameCacheDuration and whoCache.found then
@@ -110,7 +129,67 @@ local function PerformLocationCheck(self, playerName, callback, options)
     local sendId = sendIdObj and sendIdObj.id or 0
 
     -- Merge default options with provided options
-    local checkOptions = { whoNameOnly = true }
+    -- Intelligent WHO query selection for scan replies (3-second TRP3 window):
+    -- 1. Check whoZone cache - if fresh and complete, use it
+    -- 2. If stale or truncated, prefer whozone query (faster, more data)
+    -- 3. Only fall back to whoname if zone is truncated or map scan active
+    local currentSPVPMode = TRP3FW.Prefs.spvpMode or "off"
+    local effectiveSPVPMode = (currentSPVPMode == "required") and "required" or "optional"
+
+    -- Intelligent WHO query mode selection
+    local whoNameOnly = false  -- Default: allow whozone queries
+    local now = self:GetCurrentTime()
+    local whoService = self.ServiceContainer:Get("WhoService")
+
+    if whoService then
+        -- `lastZoneQueryTime > 0` is load-bearing, not defensive - same guard as
+        -- WhoService:CheckPlayer (features/services/WhoService.lua:275), which this block is
+        -- a copy of. Both fields start at 0/nil, and our clock is client uptime, so without
+        -- the guard `now - 0 < 60` holds for the first 60 seconds of uptime and a zone query
+        -- that has NEVER RUN reads as "scanned just now, and complete". Unlike CheckPlayer
+        -- (where that made WHO checks fail shut) this only picks the query type, so the cost
+        -- is a name query where a zone refresh would have served better - but the premise is
+        -- false either way. 0 means never scanned, and never-scanned proves nothing.
+        local zoneEverQueried = (whoService.lastZoneQueryTime or 0) > 0
+        local zoneAge = now - (whoService.lastZoneQueryTime or 0)
+        local zoneTTL = 60  -- Same as zone completeness check
+        local wasNotTruncated = (not whoService.lastZoneResultCount or whoService.lastZoneResultCount < 50)
+        local recentMapScan = (now - (self.lastMapScanAt or 0)) < 5  -- Map scan in last 5 seconds
+
+        -- Decide query type based on zone cache state and map scan activity.
+        --
+        -- Only ONE combination wants a zone query: a zone that was queried, has gone stale,
+        -- was not truncated when it ran, and has no map scan competing for the tight ~3s TRP3
+        -- reply window. Everything else wants the fast name query. (The previous form spelled
+        -- this out as five branches, but three of them set `true` with differing comments as
+        -- though they differed, the fresh+complete branch's `if recentMapScan` decided
+        -- nothing, and the trailing `else` was unreachable - the two elseif conditions are
+        -- exhaustive once the first branch is excluded.)
+        local zoneStale = zoneEverQueried and zoneAge >= zoneTTL
+        if zoneStale and wasNotTruncated and not recentMapScan then
+            whoNameOnly = false
+            self:Debug("[Scan Reply] WHO zone cache stale and complete, allowing whozone refresh", "hooks")
+        else
+            whoNameOnly = true
+            self:Debug(function()
+                local why
+                if not zoneEverQueried then why = "no zone query has run yet"
+                elseif not wasNotTruncated then why = "last zone query was truncated (>=50 results)"
+                elseif recentMapScan then why = "map scan active, need a fast answer"
+                else why = "zone cache still fresh, completeness check will handle it" end
+                return "[Scan Reply] Using whoname query ("..why..")"
+            end, "hooks")
+        end
+    else
+        -- No WhoService, fall back to name queries
+        whoNameOnly = true
+    end
+
+    local checkOptions = {
+        whoNameOnly = whoNameOnly,
+        spvpMode = effectiveSPVPMode,
+        priority = "HIGH"
+    }
     if options then
         for k, v in pairs(options) do
             checkOptions[k] = v
@@ -118,7 +197,6 @@ local function PerformLocationCheck(self, playerName, callback, options)
     end
 
     -- Run cascading location check
-    -- Map scan replies have a tight window; use WHO in name-only mode (no fresh zone query) to avoid delays.
     self:CheckLocationCascading(playerName, sendId, callback, checkOptions)
 end
 
@@ -227,8 +305,24 @@ end
 function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, ...)
     local cleanName = self:CleanPlayerName(playerName)
     if not cleanName then
-        -- Invalid name, allow
-        return originalFunc(...)
+        -- FAIL CLOSED. This used to `return originalFunc(...)` ("Invalid name, allow"), which
+        -- sent the reply completely ungated -- no whitelist, no cache, no location check.
+        --
+        -- A C_SCAN reply carries the player's exact map COORDINATES
+        -- (PlayerMapScanner.lua:161 sends x, y), so an ungated one discloses physical position
+        -- to someone who may be explicitly blocked. That is at least as sensitive as profile
+        -- text and strictly worse than not answering a scan.
+        --
+        -- Reaching here means the name could not be parsed at all: under 2 chars, over 50,
+        -- containing control characters, or SecurityService unavailable. None are reachable
+        -- for a real WoW character name (max 12 chars + realm, server-supplied via
+        -- CHAT_MSG_ADDON, and services initialise a full second before hooks install), so this
+        -- is a "should never happen" branch -- exactly the kind that must not silently
+        -- transmit if the impossible does occur. If we cannot identify the recipient, we
+        -- cannot decide they are allowed, so we do not answer.
+        self:Debug("[Scan Reply] Unparseable target name ("..tostring(playerName)
+            .."); dropping reply rather than disclosing coordinates ungated", "hooks")
+        return
     end
 
     self:Debug("[Scan Reply] Processing scan reply to "..cleanName, "hooks")
@@ -264,7 +358,7 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
     -- Optimization: If both scan response modes are "off", skip expensive location checks
     local phaseMode = TRP3FW.Prefs.scanResponsePhaseMode
     local mapMode = TRP3FW.Prefs.scanResponseMapMode
-    
+
     if (not phaseMode or phaseMode == "off") and (not mapMode or mapMode == "off") then
         self:Debug("[Scan Reply] All scan checks disabled - skipping location check", "hooks")
         -- Treat as allowed
@@ -274,7 +368,7 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
 
     -- We need to pass ... arguments to originalFunc in the callback
     local args = {...}
-    
+
     -- Calculate enabled flags for cascading check
     -- Scan response phase check has an extra master toggle: scanResponsePhaseCheckEnabled
     local phaseEnabled = (phaseMode and phaseMode ~= "off")
@@ -286,6 +380,13 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
     PerformLocationCheck(self, cleanName, function(locationOK, alertType, source, mapCacheAge, theirZone, myZone, cacheInfo)
         -- Stage 5: Make Decision
         local decision = MakeDecision(locationOK, alertType, source, cacheInfo, theirZone, myZone)
+
+        -- Record history via HistoryService. All session-stat increments are handled
+        -- inside RecordHistory; do NOT IncrementStat them here (was double-counting).
+        local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
+        if historyService then
+            historyService:RecordHistory(cleanName, contextLabel or "TRP3", decision.shouldAlert, decision.shouldBlock, false, decision.alertType)
+        end
 
         -- Execute decision
         if decision.shouldBlock then
@@ -320,7 +421,7 @@ function TRP3FW:HandleScanReplyPipeline(playerName, originalFunc, contextLabel, 
             end
             originalFunc(unpack(args))
         end
-    end, { 
+    end, {
         phaseCheckEnabled = phaseEnabled,
         mapCheckEnabled = mapEnabled
     })

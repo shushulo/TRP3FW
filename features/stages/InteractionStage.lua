@@ -1,5 +1,6 @@
 -- features/stages/InteractionStage.lua
 -- Stage 4: Interaction Check (Mutual Exchange & Recent Interaction)
+-- Stage numbers here mirror features/pipelines/DecisionPipeline.lua.
 
 local addonName, TRP3FW = ...
 
@@ -17,14 +18,19 @@ function InteractionStage:Process(context)
     local CI = TRP3FW.CacheInterface
     local lastInteraction = CI and CI:Get("interaction", context.playerName)
     local currentZone = TRP3FW.currentZoneName
+    local currentMapID = TRP3FW.currentMapID
 
-    if lastInteraction and currentZone and lastInteraction.zone and lastInteraction.zone ~= currentZone then
-        if CI then
-            CI:Remove("interaction", context.playerName)
+    if lastInteraction then
+        local mapMismatch = currentMapID and lastInteraction.mapID and lastInteraction.mapID ~= currentMapID
+        local zoneMismatch = currentZone and lastInteraction.zone and lastInteraction.zone ~= currentZone
+        if mapMismatch or zoneMismatch then
+            if CI then
+                CI:Remove("interaction", context.playerName)
+            end
+            lastInteraction = nil
         end
-        lastInteraction = nil
     end
-    
+
     local interactionDuration = context.settings.interactionCacheDuration or 600
     local hadInteractionCacheHit = false
     local interactionSource = nil
@@ -38,7 +44,7 @@ function InteractionStage:Process(context)
             local age = context.now - timestamp
             local zoneInfo = lastInteraction.zone and (" in "..lastInteraction.zone) or ""
             TRP3FW:Debug("Sender "..context.playerName.." recently interacted with ("..string.format("%.1f", age).."s ago"..zoneInfo.."), allowing without checks", "send")
-            
+
             -- Deduplicate by sendId: Only increment stats once per unique sendId FOR THIS CACHE TYPE
             if not TRP3FW.lastInteractionCacheSendId then TRP3FW.lastInteractionCacheSendId = {} end
             if not TRP3FW.lastInteractionCacheSendId[context.sendId] then
@@ -48,7 +54,7 @@ function InteractionStage:Process(context)
                 TRP3FW.lastInteractionCacheSendId[context.sendId] = true
                 TRP3FW.lastInteractionCacheSendIdCount = (TRP3FW.lastInteractionCacheSendIdCount or 0) + 1
             end
-            
+
             hadInteractionCacheHit = true
             interactionSource = lastInteraction.source
         end
@@ -61,7 +67,7 @@ function InteractionStage:Process(context)
             local zone = TRP3FW.currentZoneName or "Unknown"
             TRP3FW:Debug("Sender "..context.playerName.." is current target, allowing without checks", "send")
             if CI then
-                CI:Set("interaction", context.playerName, { timestamp = context.now, zone = zone, source = "target" })
+                CI:Set("interaction", context.playerName, { timestamp = context.now, zone = zone, mapID = TRP3FW.currentMapID, source = "target" })
             end
             interactionSource = "target"
             hadInteractionCacheHit = true
@@ -75,7 +81,7 @@ function InteractionStage:Process(context)
         if mouseName == context.playerName then
             local zone = TRP3FW.currentZoneName or "Unknown"
             if CI then
-                CI:Set("interaction", context.playerName, { timestamp = context.now, zone = zone, source = "mouseover_live" })
+                CI:Set("interaction", context.playerName, { timestamp = context.now, zone = zone, mapID = TRP3FW.currentMapID, source = "mouseover_live" })
             end
             TRP3FW:Debug("Sender "..context.playerName.." is current mouseover, allowing without checks", "send")
             interactionSource = "mouseover_live"
@@ -94,7 +100,7 @@ function InteractionStage:Process(context)
             TRP3FW.lastInteractionCacheSendId[context.sendId] = true
             TRP3FW.lastInteractionCacheSendIdCount = (TRP3FW.lastInteractionCacheSendIdCount or 0) + 1
         end
-        
+
         return {handled = false}
     end
 
@@ -130,8 +136,7 @@ function InteractionStage:Process(context)
     end
 
     -- Process queued burst requests
-    TRP3FW:ProcessMSPBurstAllows(context.playerName)
-    TRP3FW:ProcessTRP3BurstAllows(context.playerName)
+    TRP3FW:ProcessBurstAllows(context.playerName)
 
     return {handled = true, allowed = true, reason = "interaction_cache"}
 end

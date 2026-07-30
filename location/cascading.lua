@@ -6,27 +6,395 @@ local addonName, TRP3FW = ...
 -- Constants
 local START_PHASE_ID = 169  -- Epsilon start phase ID (blocks all transmissions)
 
+-- ===================== Helpers =====================
+
+local function IsMethodStrong(m)
+    return m and (m:find("target") or m:find("batch") or m == "nameplate" or m == "group" or m:find("scanned") or m == "who_query")
+end
+
+local function IsReliableMapFailure(results, source, spvpVerified)
+    if not source then return false end
+
+    -- Throttles and backoffs are always unreliable signals of location
+    if source:find("backoff") or source:find("rate_limit") then return false end
+
+    -- Nearness signal: proves they are physically nearby (not just same-phase)
+    local isNear = IsMethodStrong(results.phaseMethod) or IsMethodStrong(results.mapMethod)
+
+    if results.phaseCheck == true or spvpVerified then
+        -- If we are SURE they are nearby (targeting confirmed), then timeouts and missing info are unreliable
+        if isNear then
+            if source:find("timeout") or source == "who_not_found" or source == "cached" then return false end
+        end
+    end
+
+    -- Standard reliable failure sources (mismatch, explicit who/scanned fail)
+    local isReliable = (source == "cached" or source:find("mismatch") or source:find("no_zone") or source:find("who") or source:find("scanned") or source == "cached_zone_complete")
+
+    -- Timeouts are considered reliable failures if we don't have a nearness signal (Targeting)
+    -- (Unless we are in a transition grace period where everything is unreliable)
+    if source:find("timeout") and not results.recentTransition then
+        isReliable = not isNear
+    end
+
+    return isReliable
+end
+
+-- H8: Track per-kind completion instead of fragile counter math. `expected` records which
+-- check kinds were ever in scope for this evaluation; `done` records which have reported in.
+-- A result is considered complete when every expected kind has either reported or been
+-- short-circuited (e.g. map skipped because phase verified strongly).
+local function MarkComplete(results, kind)
+    if not results.done then results.done = {} end
+    results.done[kind] = true
+end
+
+local function IsComplete(results)
+    if results.expected then
+        for kind in pairs(results.expected) do
+            if not (results.done and results.done[kind]) then return false end
+        end
+        return true
+    end
+    return false
+end
+
+local function EvaluateResults(results)
+    local playerName = results.playerName
+    local spvpEnabled = results.spvpEnabled
+    local spvpMode = results.spvpMode or "off"
+    local CI = TRP3FW.CacheInterface
+
+    local spvpVerified = (results.spvpCheck == true) or (CI and CI:Get("spvpVerified", playerName) ~= nil)
+
+    -- OPTIMIZATION: Early Success (Don't wait for slow SPVP if standard checks pass)
+    if not IsComplete(results) then
+        local mapVerified = (results.mapCheck == true)
+        local phaseVerified = (results.phaseCheck == true or spvpVerified)
+        local isStrongPhase = IsMethodStrong(results.phaseMethod)
+        local isStrongMap = IsMethodStrong(results.mapMethod)
+
+        if mapVerified and phaseVerified and (isStrongPhase or isStrongMap) and spvpMode ~= "required" then
+            TRP3FW:Debug("Early Success (Mutual) triggered for "..playerName..": Phase/Map verified (skipping pending SPVP)", "location")
+        elseif mapVerified and isStrongMap and results.whoNameOnly and spvpMode == "optional" then
+            -- SPECIAL CASE: Scan replies with strong map success don't need to wait for SPVP/Phase if optional
+            TRP3FW:Debug("Early Success (Scan) triggered for "..playerName..": Map verified (skipping pending Phase/SPVP)", "location")
+            -- Satisfy the evaluation logic so it doesn't block on phase_unknown/phase_fail
+            results.phaseCheck = true
+            results.phaseSource = "early_success_scan"
+            results.phaseMethod = "map_satisfaction"
+        else
+            return -- Wait for all checks
+        end
+    end
+
+    TRP3FW:Debug("=== All location checks complete for "..playerName.." ===", "location")
+    local locationOK = true
+    local alertTypes = {}
+
+    local checkDetails = {
+        phase = { result = results.phaseCheck, source = results.phaseSource, method = results.phaseMethod, theirMapID = results.theirMapID, myMapID = results.myMapID, disabled = results.phaseDisabled },
+        map = { result = results.mapCheck, source = results.mapSource, method = results.mapMethod, cacheAge = results.mapCacheAge, theirZone = results.theirZone, myZone = results.myZone, theirMapID = results.theirMapID, myMapID = results.myMapID, skippedBecausePhase = results.mapSkippedBecausePhase, disabled = results.mapDisabled },
+        spvp = { result = results.spvpCheck, source = results.spvpSource, disabled = results.spvpDisabled }
+    }
+
+    -- 1. SPVP Required failure
+    if spvpEnabled and spvpMode == "required" and not spvpVerified then
+        locationOK = false
+        table.insert(alertTypes, results.spvpSource == "timeout" and "spvp_timeout" or "spvp_failed")
+    end
+
+    -- 2. Phase Check Evaluation
+    if not results.phaseDisabled then
+        if results.phaseCheck == false and not spvpVerified then
+            if TRP3FW:ShouldAlertOnPhase() or TRP3FW:ShouldBlockOnPhase() then
+                locationOK = false
+                table.insert(alertTypes, "phase")
+            end
+        elseif results.phaseCheck == nil and not spvpVerified then
+            if TRP3FW:ShouldAlertOnPhase() or TRP3FW:ShouldBlockOnPhase() then
+                locationOK = false
+                table.insert(alertTypes, "phase_unknown")
+            end
+        end
+    end
+
+    -- Update checkDetails for notification display
+    if spvpVerified then
+        checkDetails.phase.result = true
+        checkDetails.phase.source = results.spvpSource or "spvp"
+        checkDetails.phase.method = "spvp"
+    end
+
+    -- 3. Map Check Evaluation
+    -- If phase verified via strong signal, map check failure is irrelevant noise
+    local isPhaseStrong = IsMethodStrong(results.phaseMethod) or (results.phaseMethod == "spvp" and results.mapMethod == "target")
+    if (results.phaseCheck == true or spvpVerified) and isPhaseStrong then
+        if results.mapCheck == false then
+             results.mapCheck = true
+             results.mapSource = "ignored_targeting_verified"
+             results.mapSkippedBecausePhase = true
+             checkDetails.map.result = true
+             checkDetails.map.source = "ignored_targeting_verified"
+             checkDetails.map.skippedBecausePhase = true
+        end
+    end
+
+    if not results.mapDisabled then
+        if results.mapCheck == false then
+            if IsReliableMapFailure(results, results.mapSource, spvpVerified) then
+                if TRP3FW:ShouldAlertOnMap() or TRP3FW:ShouldBlockOnMap() then
+                    locationOK = false
+                    table.insert(alertTypes, "map")
+                end
+            else
+                if TRP3FW:ShouldAlertOnMap() or TRP3FW:ShouldBlockOnMap() then
+                    locationOK = false
+                    table.insert(alertTypes, "map_unknown")
+                end
+            end
+        elseif results.mapCheck == nil then
+            if TRP3FW:ShouldAlertOnMap() or TRP3FW:ShouldBlockOnMap() then
+                locationOK = false
+                table.insert(alertTypes, "map_unknown")
+            end
+        end
+    end
+
+    -- 4. Overrides
+    if results.phaseCheck == true or spvpVerified then
+        local reliableMapFailure = not results.mapDisabled and results.mapCheck == false and IsReliableMapFailure(results, results.mapSource, spvpVerified)
+        if not reliableMapFailure then
+            locationOK = true
+            alertTypes = {} -- CLEAR ALERTS on success!
+
+            -- FORCE NOTIFICATION TO SHOW SUCCESS
+            if spvpVerified and results.phaseCheck ~= true then
+                results.phaseCheck = true
+                results.phaseSource = results.spvpSource or "spvp"
+                results.phaseMethod = "spvp"
+                checkDetails.phase.result = true
+                checkDetails.phase.source = results.phaseSource
+                checkDetails.phase.method = results.phaseMethod
+            end
+            TRP3FW:Debug("  Final decision for "..playerName..": ALLOW", "location")
+        end
+    end
+
+    local alertType = #alertTypes > 0 and table.concat(alertTypes, "+") or nil
+    TRP3FW.profiler.stop("CheckLocationCascading")
+    if results.callback and not results.resolved then
+        -- N3: mark resolved BEFORE invoking callback so any late handlers (SPVP arriving
+        -- after early-success, deadline firing during callback, etc.) bail out cleanly.
+        results.resolved = true
+        results.callback(locationOK, alertType, "combined", results.mapCacheAge, results.theirZone, results.myZone, results.cacheInfo, results.recentTransition, results.timeSinceTransition, checkDetails)
+        results.callback = nil
+    end
+end
+
+local function HandleMapResult(results, found, source, age, method, tMapID, tZone)
+    if results.resolved then return end  -- N3: discard late results
+    if results.mapCheck ~= nil then return end
+    results.mapCheck, results.mapSource, results.mapMethod, results.mapCacheAge = found, source, method or source, age
+    results.theirMapID, results.theirZone = tMapID or results.theirMapID, tZone or results.theirZone
+    MarkComplete(results, "map")
+    EvaluateResults(results)
+end
+
+local function RunMapCheck(results, priority)
+    if not results.mapCheckEnabled or results.mapCheck ~= nil or results.mapCheckStarted then return end
+    results.mapCheckStarted = true
+
+    local playerName = results.playerName
+    local sendId = results.sendId
+
+    local function startMapScan()
+        if results.mapCheck ~= nil or results.mapScanTriggered then return end
+        results.mapScanTriggered = true
+        if TRP3FW.detectedAddons.MapScanner then
+            TRP3FW:MapScan(playerName, sendId, function(f, s, a)
+                if s:find("cached") then results.cacheInfo.mapCache = "hit" end
+                HandleMapResult(results, f, s, a)
+            end, priority)
+        else
+            -- No scanner, fail map check
+            HandleMapResult(results, false, "no_scanner")
+        end
+    end
+
+    local whoService = TRP3FW.ServiceContainer:Get("WhoService")
+    local whoBusy = whoService and (whoService.pendingQuery or whoService.cooldownActive)
+
+    if TRP3FW.Prefs.useWhoQuery and TRP3FW.hasEpsilonAPI and not (priority == "HIGH" and whoBusy) then
+        -- Trigger WHO
+        TRP3FW:CheckPlayerViaWho(playerName, sendId, function(found, source, age, zone, tMapID)
+            if source == "cached" then results.cacheInfo.whoCache = "hit" end
+
+            -- If we already have a map result (e.g. from parallel scan), don't trigger another one
+            if results.mapCheck ~= nil then return end
+
+            if (source:find("timeout") or source:find("backoff") or source:find("rate_limit")) then
+                -- WHO failed/timed out, start map scan if not already running
+                startMapScan()
+            else
+                local f = found
+                if not zone and tMapID and results.myMapID and tMapID ~= results.myMapID then f = false end
+                HandleMapResult(results, f, source, age, source, tMapID, zone)
+            end
+        end, true, results.whoNameOnly or false, priority)
+
+        -- FAST FALLBACK for WHO:
+        -- If HIGH priority, don't wait for WHO to timeout. Start Map Scan after 0.3s.
+        if priority == "HIGH" then
+            C_Timer.After(0.3, function()
+                startMapScan()
+            end)
+        end
+    else
+        startMapScan()
+    end
+end
+
+local function HandlePhaseResult(results, inPhase, source, theirMapID, phaseMethod, priority)
+    if results.resolved then return end  -- N3: discard late results
+    -- Idempotence guard, mirroring HandleMapResult. Without it a repeat delivery re-ran this
+    -- whole body including the RunMapCheck dispatch; the phase side quietly absorbing a
+    -- duplicate callback is why one went unnoticed for so long.
+    if results.phaseCheck ~= nil then return end
+    results.phaseCheck, results.theirMapID, results.phaseSource, results.phaseMethod = inPhase, theirMapID, source, phaseMethod
+    MarkComplete(results, "phase")
+    if source and source:find("cached") then results.cacheInfo.phaseCache = "hit" end
+
+    if results.mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted and inPhase == true and IsMethodStrong(phaseMethod) then
+        results.mapCheck, results.mapSource, results.mapMethod, results.mapSkippedBecausePhase = true, "skipped_phase_verified", "skipped", true
+        MarkComplete(results, "map")
+        EvaluateResults(results)
+    else
+        if results.mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
+            RunMapCheck(results, priority)
+        else
+            EvaluateResults(results)
+        end
+    end
+end
+
+local function StartStandardChecks(results, priority)
+    local phaseCheckEnabled = results.phaseCheckEnabled
+    local playerName = results.playerName
+    local sendId = results.sendId
+
+    if phaseCheckEnabled and results.phaseCheck == nil and not results.phaseCheckStarted then
+        results.phaseCheckStarted = true
+        TRP3FW:CheckPlayerPhase(playerName, sendId, function(inPhase, source, theirMapID, phaseMethod)
+            HandlePhaseResult(results, inPhase, source, theirMapID, phaseMethod, priority)
+        end, priority, function()
+            -- Targeting just started for real (queue/mutex/token wait is over) - extend the
+            -- deadline to cover the actual per-check timeout (3.0s NORMAL / 1.5s HIGH) plus
+            -- margin for the manual fallback check + cleanup, so the deadline can't preempt
+            -- a check that's genuinely still in flight.
+            local targetingTimeout = (priority == "HIGH") and 1.5 or 3.0
+            if results.ArmDeadline then results.ArmDeadline(targetingTimeout + 1.0) end
+        end)
+
+        -- FAST FALLBACK: If high priority (like scan replies), don't wait for the full targeting timeout.
+        -- If targeting hasn't finished in 0.2s, start map checks in parallel to meet the 3s window.
+        if priority == "HIGH" then
+            C_Timer.After(0.2, function()
+                if results.mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
+                    TRP3FW:Debug("[Fast Fallback] Targeting taking too long for "..playerName..", starting map checks", "location")
+                    RunMapCheck(results, priority)
+                end
+            end)
+        end
+    elseif results.phaseCheck ~= nil then
+        if results.mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
+            RunMapCheck(results, priority)
+        end
+    else
+        -- Start map check if phase is disabled or not started
+        if results.mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
+            RunMapCheck(results, priority)
+        end
+    end
+end
+
+local function OnSPVPResult(results, verified, source)
+    -- N3: SPVP can return after EvaluateResults already invoked the callback via the
+    -- early-success branch. Prior to this guard, late SPVP success would re-fire phase
+    -- target queries (visible target-frame flicker after the request was already allowed)
+    -- and SPVP-failed-preferred would re-trigger StartStandardChecks on a resolved request.
+    if results.resolved then
+        TRP3FW:Debug("[SPVP] Late result for "..results.playerName.." discarded (already resolved)", "spvp")
+        return
+    end
+
+    local playerName = results.playerName
+    local sendId = results.sendId
+    local mapCheckEnabled = results.mapCheckEnabled
+    local spvpMode = results.spvpMode or "off"
+
+    results.spvpCheck, results.spvpSource = verified, source
+    MarkComplete(results, "spvp")
+    if source == "cached" then results.cacheInfo.spvpCache = "hit" end
+
+    if verified and (spvpMode == "preferred" or spvpMode == "required") then
+        results.phaseCheck, results.phaseSource, results.phaseMethod = true, "spvp", "spvp"
+        -- N7: Maintain the implicit invariant "phase resolved => phaseCheckStarted true".
+        -- StartStandardChecks reads `phaseCheck ~= nil` first today, but if anyone reorders
+        -- those checks, the absence of phaseCheckStarted would re-fire phase queries on an
+        -- already-SPVP-verified request. Set it explicitly.
+        results.phaseCheckStarted = true
+        if results.phaseCheckEnabled then
+            results.expected.phase = true
+            MarkComplete(results, "phase")
+        end
+        if mapCheckEnabled then
+            results.expected.map = true
+            TRP3FW:CheckPlayerPhase(playerName, sendId, function(inPhase, s, tMapID, pMethod)
+                    if inPhase then
+                        results.mapCheck, results.mapSource, results.mapMethod, results.theirMapID = true, "target_verification", "target", tMapID
+                        results.mapCheckStarted = true  -- N7: same invariant for map.
+                        MarkComplete(results, "map")
+                        EvaluateResults(results)
+                    else
+                        -- H3: was passing the category "who_map_verification" as priority.
+                        -- That string falls through every `priority == "HIGH"` branch silently.
+                        -- This is the SPVP-verified-also-need-map path; NORMAL is correct.
+                        StartStandardChecks(results, "NORMAL")
+                    end
+                end, "who_map_verification", function()
+                    -- Falls through to the NORMAL (3.0s) targeting timeout, see H3 above.
+                    if results.ArmDeadline then results.ArmDeadline(3.0 + 1.0) end
+                end)
+        else
+            EvaluateResults(results)
+        end
+    elseif not verified and spvpMode == "preferred" then
+        -- SPVP failed in preferred mode: fall back to standard phase+map. Re-expand `expected`.
+        if results.phaseCheckEnabled then results.expected.phase = true end
+        if results.mapCheckEnabled then results.expected.map = true end
+        StartStandardChecks(results, "HIGH")
+    else
+        EvaluateResults(results)
+    end
+end
+
 -- ===================== Cascading Location Check =====================
--- Check location with multiple methods: Phase check AND/OR Map scan/WHO query
 
 function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
     options = options or {}
     TRP3FW.profiler.start("CheckLocationCascading")
-    self:Debug("=== Starting cascading location check for "..playerName.." ===", "location")
-    
+
     local now = self:GetCurrentTime()
 
-    -- OPTIMIZATION #1: Start Phase Early Exit (Fail Fast)
-    if TRP3FW.Prefs.blockStartPhase then
-        local currentPhaseID = self:GetCurrentPhaseID()
-        if currentPhaseID == START_PHASE_ID then
-            TRP3FW.profiler.stop("CheckLocationCascading")
-            if callback then callback(false, "start_phase_block", "start_phase", 0, nil, nil, {}, false, 0, nil) end
-            return
-        end
+    -- OPTIMIZATION: Start Phase Early Exit (Fail Fast)
+    if TRP3FW.Prefs.blockStartPhase and self:GetCurrentPhaseID() == START_PHASE_ID then
+        TRP3FW.profiler.stop("CheckLocationCascading")
+        if callback then callback(false, "start_phase_block", "start_phase", 0, nil, nil, {}, false, 0, nil) end
+        return
     end
 
-    -- OPTIMIZATION #2: Interaction Cache Fast-Path (Success Fast)
+    -- OPTIMIZATION: Interaction Cache Fast-Path (Success Fast)
     local CI = self.CacheInterface
     local interaction = CI and CI:Get("interaction", playerName)
     if interaction and (now - interaction.timestamp) < TRP3FW.Prefs.interactionCacheDuration then
@@ -38,458 +406,153 @@ function TRP3FW:CheckLocationCascading(playerName, sendId, callback, options)
 
     local myMapID = C_Map.GetBestMapForUnit("player")
     local myZone = GetRealZoneText()
-    
-    local timeSinceZoneChange = now - (self.lastZoneChangeTime or 0)
-    local timeSincePhaseChange = now - (self.lastPhaseChangeTime or 0)
-    local timeSinceTransition = math.min(timeSinceZoneChange, timeSincePhaseChange)
+    local timeSinceTransition = math.min(now - (self.lastZoneChangeTime or 0), now - (self.lastPhaseChangeTime or 0))
     local inTransitionGracePeriod = timeSinceTransition < (TRP3FW.Prefs.transitionGracePeriod or 3)
 
     local phaseCheckEnabled = self.hasEpsilonAPI and (options.phaseCheckEnabled ~= false and self:IsPhaseCheckEnabled())
     local mapCheckEnabled = options.mapCheckEnabled ~= false and self:IsMapCheckEnabled()
-    local spvpEnabled = options.spvpEnabled
-    local spvpPhaseID = options.spvpPhaseID
-    local spvpSalt = options.spvpSalt
 
-    -- Fallback: If SPVPStage skipped it (e.g. during async load), try to resolve now
+    -- BUG FIX: options.priority was never read. hooks/trp3_scan_pipeline.lua sets
+    -- `priority = "HIGH"` on every TRP3 scan reply (which must resolve inside TRP3's ~3s
+    -- reply window), but StartStandardChecks was called with no priority at all, so every
+    -- HIGH-keyed path downstream was unreachable from the only caller that asks for it:
+    --   * StartStandardChecks' 0.2s parallel map-check fast fallback
+    --   * RunMapCheck's 0.3s parallel map-scan fast fallback and its skip-WHO-when-busy rule
+    --   * CheckPlayerPhase's 1.5s targeting timeout (stayed 3.0s) and QueuePhaseCheck's
+    --     immediate-fire (stayed behind the 1.0s batch-accumulation delay)
+    --   * MapScan's 5s rate limit (stayed 60s) and 2.5s scan timeout (stayed 5s)
+    -- Net effect: a scan reply could not resolve before ~4s even in the good case, so it
+    -- always lost the race to the 2.0s deadline below and to TRP3's own window. Note
+    -- OnSPVPResult still chooses its own priorities deliberately (see H3 there); this only
+    -- restores the priority the caller actually supplied.
+    local priority = options.priority
+
+    local spvpEnabled = options.spvpEnabled
+    local spvpMode = options.spvpMode or TRP3FW.Prefs.spvpMode or "off"
+
+    -- Late SPVP Resolution
+    -- BUG FIX: GetPhaseSalt returns nil on negative cache hit (no salt configured for this
+    -- phase) and "" is never returned by current code paths. The previous `~= ""` check
+    -- treated nil-salt as "salt present" because `nil ~= ""` is true, enabling SPVP for
+    -- phases without salts. This caused SPVP INIT packets to be sent into the void, the
+    -- handshake to time out at 5s, and meanwhile the cascading flow allocated `expected.spvp`
+    -- which the 2.0s deadline force-completed alongside falsely-failing phase/map. Result:
+    -- phantom blocks with `phase=fail (timeout), map=fail (timeout)` for all sends in
+    -- phases without an SPVP salt configured.
     if spvpEnabled == nil and TRP3FW.Prefs.spvpEnabled and self.hasEpsilonAPI then
         local currentPhaseID = self:GetCurrentPhaseID()
-        local salt = self:GetPhaseSalt(currentPhaseID)
-        if salt and salt ~= "" then
-            spvpEnabled = true
-            spvpPhaseID = currentPhaseID
-            spvpSalt = salt
-            TRP3FW:Debug("SPVP enabled via late-resolution in Cascading Check", "location")
-        end
-    end
-
-    -- MUTUAL EXCHANGE OPTIMIZATION: Check for existing SPVP session
-    local existingSessionID = nil
-    if spvpEnabled then
-        for id, session in pairs(self.spvpSessions or {}) do
-            if session.playerName == playerName then
-                existingSessionID = id
-                break
+        if currentPhaseID and currentPhaseID ~= 169 then
+            local salt = self:GetPhaseSalt(currentPhaseID)
+            if salt and salt ~= "" then
+                spvpEnabled = true
             end
         end
     end
 
-    local spvpMode = TRP3FW.Prefs.spvpMode or "off"
-
-    -- Results storage
     local results = {
-        phaseCheck = nil,    -- true/false/nil
-        mapCheck = nil,      -- true/false/nil
-        spvpCheck = nil,     -- true/false/nil
-        mapCacheAge = nil,
-        theirMapID = nil,
-        theirZone = nil,
-        theirMapFromWho = nil,
-        mapSource = nil,
-        spvpSource = nil,
-        phaseSource = nil,
-        phaseMethod = nil,
-        myMapID = myMapID,
-        myZone = myZone,
-        checksComplete = 0,
-        checksExpected = 0, -- Set dynamically
-        recentTransition = inTransitionGracePeriod,
-        timeSinceTransition = timeSinceTransition,
-        phaseDisabled = not phaseCheckEnabled,
-        mapDisabled = not mapCheckEnabled,
-        spvpDisabled = not spvpEnabled, -- SYNCED: correctly reflects late resolution
-        cacheInfo = {
-            interactionCache = nil,
-            phaseCache = nil,
-            whoCache = nil,
-            mapCache = nil,
-            spvpCache = nil,
-            allowedSenders = nil,
-        }
+        playerName = playerName, sendId = sendId, callback = callback,
+        phaseCheck = nil, mapCheck = nil, spvpCheck = nil,
+        mapCacheAge = nil, theirMapID = nil, theirZone = nil,
+        mapSource = nil, spvpSource = nil, phaseSource = nil, phaseMethod = nil,
+        myMapID = myMapID, myZone = myZone,
+        -- H8: Per-kind tracking. `expected` = which kinds will report; `done` = which have.
+        expected = {}, done = {},
+        recentTransition = inTransitionGracePeriod, timeSinceTransition = timeSinceTransition,
+        phaseDisabled = not phaseCheckEnabled, mapDisabled = not mapCheckEnabled, spvpDisabled = not spvpEnabled,
+        phaseCheckEnabled = phaseCheckEnabled, mapCheckEnabled = mapCheckEnabled,
+        spvpEnabled = spvpEnabled, spvpMode = spvpMode,
+        whoNameOnly = options.whoNameOnly,
+        cacheInfo = {}
     }
+    if phaseCheckEnabled then results.expected.phase = true end
+    if mapCheckEnabled then results.expected.map = true end
+    if spvpEnabled then results.expected.spvp = true end
 
-    local function evaluateResults()
-        -- OPTIMIZATION #3: Early Success (Don't wait for slow SPVP if standard checks pass)
-        if results.checksComplete < results.checksExpected then
-            local canEarlySuccess = (results.phaseCheck == true and results.mapCheck == true)
-            -- Only allow early success if phase verification is strong (Targeting/Nameplate/Group)
-            -- We don't trust "cached" alone for early exit without SPVP confirming
-            local function isMethodStrongLocal(m) 
-                return m and (m:find("target") or m:find("batch") or m == "nameplate" or m == "group") 
+    -- DEADLINE HANDLER (N2): Unconditional deadline. Without this, a hung phase or
+    -- WHO check leaves `results.callback` pending forever; `LocationStage`'s 30s housekeeping
+    -- timer then nils the pending state without ever invoking originalFunc, silently dropping
+    -- the send. Fast-fallbacks (0.2s phase, 0.3s WHO) remain HIGH-priority-only — those are
+    -- latency optimizations; this is a correctness rail.
+    --
+    -- BASE_DEADLINE covers the case where phase targeting never starts at all (queued
+    -- behind a busy mutex/token scarcity indefinitely, or checks that legitimately never
+    -- fire). It intentionally does NOT need to cover the targeting timeout itself
+    -- (currently 3.0s/1.5s) — once TargetUnit() is actually issued, ArmDeadline below
+    -- extends the clock to the real per-check timeout + margin, so this fixed constant
+    -- can stay short without racing the (independently tunable) targeting timeout.
+    local BASE_DEADLINE = 2.0
+    local deadlineTimer = nil
+
+    local function fireDeadline()
+        if results.callback and not results.resolved then
+            TRP3FW:Debug("[Deadline] Forcing location evaluation for "..playerName.." (deadline reached)", "location")
+            -- BUG FIX: Only force-fail checks that ACTUALLY STARTED. Forcing checks that
+            -- were never started (e.g. SPVP wrongly enabled with no salt, or phase queue
+            -- mutex held by a hung prior check) makes the deadline synthesize phantom
+            -- failures and produces false BLOCK notifications with "phase=fail (timeout),
+            -- map=fail (timeout)" reasons even when those checks should never have run.
+            --
+            -- Use `nil` (unknown) instead of `false` (definitively-not-in-phase) so
+            -- EvaluateResults treats them as `phase_unknown`/`map_unknown`, which only
+            -- alert (don't block) under the standard alert/block mode. A request that
+            -- legitimately can't be verified should fail open or alert-only — never block
+            -- with a false certainty.
+            if results.phaseCheck == nil and results.phaseCheckStarted then
+                results.phaseCheck = false
+                results.phaseSource = "deadline_timeout"
+                results.phaseMethod = "timeout"
             end
-            local isStrongPhase = isMethodStrongLocal(results.phaseMethod)
-            
-            if canEarlySuccess and isStrongPhase and spvpMode ~= "required" then
-                TRP3FW:Debug("Early Success triggered: Phase/Map verified via "..tostring(results.phaseMethod).." (skipping pending SPVP wait)", "location")
-                -- Proceed to evaluation logic below
-            else
-                return -- Wait for all checks
+            if results.mapCheck == nil and results.mapCheckStarted then
+                results.mapCheck = false
+                results.mapSource = "deadline_timeout"
+                results.mapMethod = "timeout"
             end
-        end
-
-        TRP3FW:Debug("=== All location checks complete ===", "location")
-        local locationOK = true
-        local alertType = nil
-        local alertTypes = {}
-        
-        local checkDetails = {
-            phase = { result = results.phaseCheck, source = results.phaseSource, method = results.phaseMethod, theirMapID = results.theirMapID, myMapID = results.myMapID, disabled = results.phaseDisabled },
-            map = { result = results.mapCheck, source = results.mapSource, method = results.mapMethod, cacheAge = results.mapCacheAge, theirZone = results.theirZone, myZone = results.myZone, theirMapID = results.theirMapFromWho or results.theirMapID, myMapID = results.myMapID, skippedBecausePhase = results.mapSkippedBecausePhase, disabled = results.mapDisabled },
-            spvp = { result = results.spvpCheck, source = results.spvpSource, disabled = results.spvpDisabled }
-        }
-
-        local spvpVerified = (results.spvpCheck == true) or (CI and CI:Get("spvpVerified", playerName) ~= nil)
-
-        -- 1. SPVP Required failure
-        if spvpEnabled and spvpMode == "required" and not spvpVerified then
-            locationOK = false
-            table.insert(alertTypes, results.spvpSource == "timeout" and "spvp_timeout" or "spvp_failed")
-        end
-
-        -- 2. Phase Check Evaluation
-        if phaseCheckEnabled then
-            if results.phaseCheck == false and not spvpVerified then
-                if self:ShouldAlertOnPhase() or self:ShouldBlockOnPhase() then
-                    locationOK = false
-                    table.insert(alertTypes, "phase")
-                end
-            elseif results.phaseCheck == nil and not spvpVerified then
-                if self:ShouldAlertOnPhase() or self:ShouldBlockOnPhase() then
-                    locationOK = false
-                    table.insert(alertTypes, "phase_unknown")
-                end
+            -- Force all expected kinds to be 'complete' so EvaluateResults proceeds
+            if results.expected then
+                for kind in pairs(results.expected) do MarkComplete(results, kind) end
             end
-        end
-
-        -- Update checkDetails for notification display
-        if spvpVerified then
-            checkDetails.phase.result = true
-            checkDetails.phase.source = results.spvpSource or "spvp"
-            checkDetails.phase.method = "spvp"
-        end
-
-        -- 3. Map Check Evaluation
-        local function IsReliableMapFailure(source)
-            if not source then return false end
-            
-            -- Throttles and backoffs are always unreliable signals of location
-            if source:find("backoff") or source:find("rate_limit") then return false end
-
-            local isVerified = results.phaseCheck == true or spvpVerified
-            -- Nearness signal: proves they are physically nearby (not just same-phase)
-            -- We check both phase and map methods for targeting evidence
-            local function isMethodTargeting(m) 
-                return m and (m:find("target") or m:find("batch") or m == "nameplate") 
-            end
-            local isNear = isMethodTargeting(results.phaseMethod) or isMethodTargeting(results.mapMethod)
-
-            if isVerified then
-                -- If we are SURE they are nearby (targeting confirmed), then timeouts and missing info are unreliable
-                if isNear then
-                    if source:find("timeout") or source == "who_not_found" or source == "cached" then return false end
-                end
-            end
-            
-            -- Standard reliable failure sources (mismatch, explicit who/scanned fail)
-            local isReliable = (source == "cached" or source:find("mismatch") or source:find("no_zone") or source:find("who") or source:find("scanned"))
-            
-            -- Timeouts are considered reliable failures if we don't have a nearness signal (Targeting)
-            -- (Unless we are in a transition grace period where everything is unreliable)
-            if source:find("timeout") and not results.recentTransition then
-                isReliable = not isNear
-            end
-
-            return isReliable
-        end
-
-        local function isMethodStrong(m) 
-            return m and (m:find("target") or m:find("batch") or m == "nameplate" or m == "group") 
-        end
-        local isPhaseStrong = isMethodStrong(results.phaseMethod) or (results.phaseMethod == "spvp" and results.mapMethod == "target")
-
-        -- Cleanup confusion: If phase verified via strong signal, map check failure is irrelevant noise
-        if (results.phaseCheck == true or spvpVerified) and isPhaseStrong then
-            if results.mapCheck == false then
-                 results.mapCheck = true
-                 results.mapSource = "ignored_targeting_verified"
-                 results.mapSkippedBecausePhase = true
-                 
-                 -- Update details for display
-                 checkDetails.map.result = true
-                 checkDetails.map.source = "ignored_targeting_verified"
-                 checkDetails.map.skippedBecausePhase = true
-            end
-        end
-
-        if mapCheckEnabled then
-            if results.mapCheck == false then
-                if IsReliableMapFailure(results.mapSource) then
-                    if self:ShouldAlertOnMap() or self:ShouldBlockOnMap() then
-                        locationOK = false
-                        table.insert(alertTypes, "map")
-                    end
-                else
-                    if self:ShouldAlertOnMap() or self:ShouldBlockOnMap() then
-                        locationOK = false
-                        table.insert(alertTypes, "map_unknown")
-                    end
-                end
-            elseif results.mapCheck == nil then
-                if self:ShouldAlertOnMap() or self:ShouldBlockOnMap() then
-                    locationOK = false
-                    table.insert(alertTypes, "map_unknown")
-                end
-            end
-        end
-
-        -- 4. Overrides
-        if results.phaseCheck == true or spvpVerified then
-            local reliableMapFailure = mapCheckEnabled and results.mapCheck == false and IsReliableMapFailure(results.mapSource)
-            if not reliableMapFailure then
-                locationOK = true
-                alertTypes = {} -- CLEAR ALERTS on success!
-                
-                -- FORCE NOTIFICATION TO SHOW SUCCESS
-                if spvpVerified and results.phaseCheck ~= true then
-                    results.phaseCheck = true
-                    results.phaseSource = results.spvpSource or "spvp"
-                    results.phaseMethod = "spvp"
-                    
-                    -- Update checkDetails for notification
-                    checkDetails.phase.result = true
-                    checkDetails.phase.source = results.phaseSource
-                    checkDetails.phase.method = results.phaseMethod
-                end
-                
-                TRP3FW:Debug("  Final decision: ALLOW (Phase verified and no reliable map fail)", "location")
-            end
-        end
-
-        if #alertTypes > 0 then alertType = table.concat(alertTypes, "+") else alertType = nil end
-        TRP3FW.profiler.stop("CheckLocationCascading")
-        if callback then callback(locationOK, alertType, "combined", results.mapCacheAge, results.theirZone, results.myZone, results.cacheInfo, results.recentTransition, results.timeSinceTransition, checkDetails) end
-    end
-
-    local function startStandardChecks(priority)
-        -- Determine expected checks (Phase + Map)
-        -- We set this upfront so the cascading logic waits for both, even if serialized
-        if results.checksExpected == 0 or results.checksExpected == 1 then
-            results.checksExpected = results.checksComplete + (phaseCheckEnabled and (results.phaseCheck == nil and 1 or 0) or 0) + (mapCheckEnabled and (results.mapCheck == nil and 1 or 0) or 0)
-        end
-
-        local function runMapCheck()
-            if not mapCheckEnabled or results.mapCheck ~= nil or results.mapCheckStarted then
-                return
-            end
-
-            results.mapCheckStarted = true
-            
-            local function handleMap(found, source, age, method, tMapID, tZone)
-                -- Avoid double-resolving if fallback already triggered
-                if results.mapCheck ~= nil then return end
-                
-                results.mapCheck = found
-                results.mapSource = source
-                results.mapMethod = method or source
-                results.mapCacheAge = age
-                results.theirMapID = tMapID or results.theirMapID
-                results.theirZone = tZone or results.theirZone
-                results.checksComplete = results.checksComplete + 1
-                evaluateResults()
-            end
-
-            local function runMapScan()
-                TRP3FW:Debug("Starting map scan (final fallback)...", "location")
-                self:MapScan(playerName, sendId, function(found, source, age)
-                    if source:find("cached") then results.cacheInfo.mapCache = "hit" end
-                    handleMap(found, source, age)
-                end)
-            end
-
-            -- Priority 1: WHO Query (Epsilon only, silent)
-            if useWhoInsteadOfMapScan then
-                TRP3FW:Debug("Starting WHO query sequence (preferred over map scan)...", "location")
-                
-                self:CheckPlayerViaWho(playerName, sendId, function(found, source, age, zone, tMapID)
-                    if source == "cached" then results.cacheInfo.whoCache = "hit" end
-                    
-                    -- Check if we should fall back to Map Scan
-                    -- Technical failures (timeout, backoff, rate limit) should trigger Map Scan
-                    -- Definitive results (who_query, who_not_found, cached) should NOT.
-                    local isTechnicalFailure = source:find("timeout") or source:find("backoff") or source:find("rate_limit") or source:find("error") or source:find("full")
-                    
-                    if isTechnicalFailure and TRP3FW.detectedAddons.MapScanner then
-                         -- If WHO failed due to technical reasons, try Map Scan if available.
-                         TRP3FW:Debug("WHO failed technically ("..tostring(source).."), falling back to Map Scan", "location")
-                         runMapScan()
-                    else
-                        local f = found
-                        -- Verify map ID match if zone was returned but mapID is available
-                        if not zone and tMapID and myMapID and tMapID ~= myMapID then f = false end
-                        handleMap(f, source, age, source, tMapID, zone)
-                    end
-                end, true, forceWhoNameOnly, priority)
-            else
-                -- Priority 2: Map Scan (Visible broadcast)
-                runMapScan()
-            end
-        end
-
-        local function handlePhaseResult(inPhase, source, theirMapID, phaseMethod)
-            results.phaseCheck, results.theirMapID, results.phaseSource, results.phaseMethod = inPhase, theirMapID, source, phaseMethod
-            results.checksComplete = results.checksComplete + 1
-            if source and source:find("cached") then results.cacheInfo.phaseCache = "hit" end
-            
-            -- CHECK: Can we skip the map check?
-            if mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
-                local isStrongSignal = phaseMethod and (phaseMethod:find("target") or phaseMethod == "nameplate" or phaseMethod == "group")
-                if inPhase == true and isStrongSignal then
-                    TRP3FW:Debug("Skipping map check (Phase check passed via "..tostring(phaseMethod)..")", "location")
-                    results.mapCheck = true
-                    results.mapSource = "skipped_phase_verified"
-                    results.mapMethod = "skipped"
-                    results.mapSkippedBecausePhase = true
-                    results.checksComplete = results.checksComplete + 1
-                    evaluateResults()
-                    return
-                else
-                    -- Phase check failed or wasn't authoritative about location - Proceed to Map Check
-                    runMapCheck()
-                end
-            else
-                evaluateResults()
-            end
-        end
-
-        -- Standard Phase Check
-        if phaseCheckEnabled and results.phaseCheck == nil and not results.phaseCheckStarted then
-            -- MUTUAL EXCHANGE OPTIMIZATION: Check if already targeting this player
-            local existingCheckIdx = nil
-            for i, check in ipairs(self.pendingPhaseChecks or {}) do
-                if check.playerName == playerName then
-                    existingCheckIdx = i
-                    break
-                end
-            end
-
-            if existingCheckIdx then
-                TRP3FW:Debug("Attaching to existing phase check for "..playerName, "location")
-                results.phaseCheckStarted = true
-                local originalCallback = self.pendingPhaseChecks[existingCheckIdx].callback
-                self.pendingPhaseChecks[existingCheckIdx].callback = function(inPhase, source, theirMapID, phaseMethod)
-                    if originalCallback then originalCallback(inPhase, source, theirMapID, phaseMethod) end
-                    handlePhaseResult(inPhase, source, theirMapID, phaseMethod)
-                end
-            else
-                results.phaseCheckStarted = true
-                TRP3FW:Debug("Starting standard phase check...", "location")
-                self:CheckPlayerPhase(playerName, sendId, handlePhaseResult, priority)
-            end
-        elseif results.phaseCheck ~= nil then
-            TRP3FW:Debug("Skipping standard phase check (Already set: "..tostring(results.phaseCheck)..")", "location")
-            -- If phase check was already done (e.g. SPVP path fallback?), we might need to trigger map check if it wasn't done
-            if mapCheckEnabled and results.mapCheck == nil and not results.mapCheckStarted then
-                 runMapCheck()
-            end
-        else
-            -- Phase check disabled, go straight to map
-            runMapCheck()
+            EvaluateResults(results)
         end
     end
 
-    -- Execution Flow based on SPVP Mode
-    if spvpEnabled and (spvpMode == "preferred" or spvpMode == "required") then
-        -- SEQUENTIAL: SPVP handshake first
-        results.checksExpected = 1
-        TRP3FW:Debug("Starting sequential SPVP check (Mode: "..spvpMode..")...", "location")
-        
-        local function onSPVPResult(verified, source)
-            results.spvpCheck = verified
-            results.spvpSource = source
-            results.checksComplete = results.checksComplete + 1
-            if source == "cached" then results.cacheInfo.spvpCache = "hit" end
+    -- Push the deadline out to cover the real targeting timeout once targeting has
+    -- actually started (mutex acquired, TargetUnit() issued). Without this, a check that
+    -- spent most of BASE_DEADLINE queued behind a busy mutex/batch-accumulation delay
+    -- would get force-failed by the deadline before its own (independently tunable)
+    -- targeting timeout ever got a chance to resolve via TARGET_CHANGED or its manual
+    -- fallback check — a phantom "block even though clearly nearby" false negative.
+    local function ArmDeadline(minDuration)
+        if results.resolved then return end
+        if deadlineTimer then deadlineTimer:Cancel() end
+        deadlineTimer = C_Timer.NewTimer(minDuration, fireDeadline)
+    end
 
-            if verified then
-                TRP3FW:Debug("SPVP Verified! Validating map via target...", "location")
-                results.phaseCheck = true
-                results.phaseSource = "spvp"
-                results.phaseMethod = "spvp"
-                
-                if mapCheckEnabled then
-                    -- Try to validate map via targeting (fastest/most reliable for same-map)
-                    TRP3FW:CheckPlayerPhase(playerName, sendId, function(inPhase, source, theirMapID, phaseMethod)
-                         if inPhase then
-                             TRP3FW:Debug("SPVP + Target confirmed same map.", "location")
-                             results.mapCheck = true
-                             results.mapSource = "target_verification"
-                             results.mapMethod = "target"
-                             results.theirMapID = theirMapID
-                             results.checksComplete = results.checksComplete + 1
-                             
-                             -- Ensure expected count covers this manual map check
-                             if results.checksExpected < results.checksComplete then
-                                 results.checksExpected = results.checksComplete
-                             end
-                             evaluateResults()
-                         else
-                             TRP3FW:Debug("SPVP valid, but targeting failed. Checking Who/MapScan...", "location")
-                             -- Fallback to standard map checks (Who/Scan)
-                             startStandardChecks("who_map_verification")
-                         end
-                     end, "who_map_verification")
-                else
-                    locationOK = true
-                    alertTypes = {}
-                    evaluateResults()
-                end
-            else
-                TRP3FW:Debug("SPVP Failed/Timeout ("..tostring(source)..").", "location")
-                if spvpMode == "required" then
-                    evaluateResults() -- Fail now
-                else
-                    TRP3FW:Debug("Falling back to standard checks (Preferred Mode).", "location")
-                    -- Use HIGH priority for fallback to recover from the timeout delay
-                    startStandardChecks("HIGH")
-                end
-            end
-        end
+    ArmDeadline(BASE_DEADLINE)
+    -- Exposed so StartStandardChecks/OnSPVPResult can push the deadline out once a phase
+    -- check actually starts targeting (see onTargetingStarted below).
+    results.ArmDeadline = ArmDeadline
 
-        if existingSessionID then
-            TRP3FW:Debug("Attaching to existing SPVP session: "..existingSessionID, "location")
-            local session = self.spvpSessions[existingSessionID]
-            local originalCallback = session.callback
-            session.callback = function(v, s)
-                if originalCallback then originalCallback(v, s) end
-                onSPVPResult(v, s)
-            end
-        else
-            self:CheckPlayerViaSPVP(playerName, sendId, onSPVPResult)
-        end
+    -- Wrap callback to cancel timer
+    local originalCallback = results.callback
+    results.callback = function(...)
+        if deadlineTimer then deadlineTimer:Cancel() deadlineTimer = nil end
+        if originalCallback then originalCallback(...) end
+    end
+
+    -- SPVP Execution
+    -- preferred/required SPVP: gate phase+map behind SPVP first (only `spvp` is initially expected;
+    -- OnSPVPResult re-expands `expected` to phase/map as it discovers what else is needed).
+    if results.spvpEnabled and (results.spvpMode == "preferred" or results.spvpMode == "required") then
+        results.expected = { spvp = true }
+        self:CheckPlayerViaSPVP(playerName, sendId, function(verified, source)
+            OnSPVPResult(results, verified, source)
+        end)
     else
-        -- PARALLEL: Optional/Off or other
-        results.checksExpected = (phaseCheckEnabled and 1 or 0) + (mapCheckEnabled and 1 or 0) + (spvpEnabled and 1 or 0)
-        
-        if spvpEnabled then
-            local function onSPVPResult(verified, source)
-                results.spvpCheck = verified
-                results.spvpSource = source
-                results.checksComplete = results.checksComplete + 1
-                if source == "cached" then results.cacheInfo.spvpCache = "hit" end
-                
-                evaluateResults()
-            end
-
-            if existingSessionID then
-                TRP3FW:Debug("Attaching to existing SPVP session (Parallel): "..existingSessionID, "location")
-                local session = self.spvpSessions[existingSessionID]
-                local originalCallback = session.callback
-                session.callback = function(v, s)
-                    if originalCallback then originalCallback(v, s) end
-                    onSPVPResult(v, s)
-                end
-            else
-                self:CheckPlayerViaSPVP(playerName, sendId, onSPVPResult)
-            end
+        if results.spvpEnabled then
+            self:CheckPlayerViaSPVP(playerName, sendId, function(verified, source)
+                OnSPVPResult(results, verified, source)
+            end)
         end
-        startStandardChecks()
+        StartStandardChecks(results, priority)
     end
 end

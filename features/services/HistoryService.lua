@@ -6,8 +6,8 @@ local addonName, TRP3FW = ...
 local HistoryService = TRP3FW.Service:New("HistoryService")
 
 function HistoryService:Initialize()
-    TRP3FW.Service.Initialize(self)
-    
+    TRP3FW.Service.Initialize(self)  -- Base init; called as function because subclass `self` carries the override
+
     self.notificationHistory = {}
     self.profileSendHistory = {}
     self.sessionStats = {
@@ -17,6 +17,14 @@ function HistoryService:Initialize()
         phaseAlerts = 0,
         mapAlerts = 0,
         startPhaseBlocks = 0,
+        -- Per-type block/ghost breakdown (consumed by /trp3fw stats). Previously the
+        -- status display read these fields but nothing ever populated them, so the
+        -- breakdown always showed 0 despite blocks/ghosts occurring.
+        phaseBlocks = 0,
+        mapBlocks = 0,
+        phaseGhost = 0,
+        mapGhost = 0,
+        startPhaseGhost = 0,
         requestsByAddon = {TRP3=0, MRP=0, XRP=0, MSP=0},
         cacheStats = {
             allowedSendersCacheHits = 0,
@@ -54,12 +62,12 @@ function HistoryService:Initialize()
             totalTime = 0,
             totalRequests = 0,
             peakTime = 0,
-        
+
             -- "Live" Window Stats (Last 1s)
             lastWindowTime = 0,
             windowRequests = 0,
             windowTime = 0,
-            
+
             -- Snapshot for Display
             lastSecondRequests = 0,
             lastSecondTime = 0,
@@ -71,7 +79,7 @@ function HistoryService:Initialize()
             intervalPeakLatency = 0,
             intervalPeakLoad = 0,
             intervalPeakThroughput = 0,
-            
+
             -- Last Completed Interval (Snapshot for UI)
             lastInterval = {
                 duration = 1,
@@ -81,7 +89,7 @@ function HistoryService:Initialize()
                 peakLoad = 0,
                 peakThroughput = 0
             },
-            
+
             -- Interval Context Stats (Accumulating)
             intervalContextStats = {}, -- [context] = { count, total, peak }
 
@@ -94,7 +102,7 @@ function HistoryService:Initialize()
         },
         performanceHistory = {} -- Array of {ts, lat, load, tput, peakLat, peakLoad, memory}
     }
-    
+
     -- Register legacy aliases
     TRP3FW.notificationHistory = self.notificationHistory
     TRP3FW.profileSendHistory = self.profileSendHistory
@@ -103,14 +111,14 @@ end
 
 function HistoryService:RecordPerformance(duration, context)
     local stats = self.sessionStats.performance
-    
+
     -- Update global stats
     stats.totalTime = stats.totalTime + duration
     stats.totalRequests = stats.totalRequests + 1
     if duration > stats.peakTime then
         stats.peakTime = duration
     end
-    
+
     -- Track Context Stats for Interval
     if context then
         local iStats = stats.intervalContextStats
@@ -122,7 +130,7 @@ function HistoryService:RecordPerformance(duration, context)
         entry.total = entry.total + duration
         if duration > entry.peak then entry.peak = duration end
     end
-    
+
     -- Update 1-second window (Instant Display)
     local now = TRP3FW:GetCurrentTime()
     if (now - stats.lastWindowTime) > 1.0 then
@@ -131,7 +139,7 @@ function HistoryService:RecordPerformance(duration, context)
         if currentLoad > stats.intervalPeakLoad then
             stats.intervalPeakLoad = currentLoad
         end
-        
+
         -- Capture current throughput for interval peak tracking
         if stats.windowRequests > stats.intervalPeakThroughput then
             stats.intervalPeakThroughput = stats.windowRequests
@@ -140,18 +148,18 @@ function HistoryService:RecordPerformance(duration, context)
         -- Roll over window
         stats.lastSecondRequests = stats.windowRequests
         stats.lastSecondTime = stats.windowTime
-        
+
         stats.windowRequests = 0
         stats.windowTime = 0
         stats.lastWindowTime = now
     end
-    
+
     stats.windowRequests = stats.windowRequests + 1
     stats.windowTime = stats.windowTime + duration
 
     -- Update Interval Stats (Always track for UI Window Avg)
     local refreshRate = TRP3FW.Prefs.statusRefreshRate or 30
-    
+
     -- Initialize interval start if needed
     if stats.intervalStart == 0 then stats.intervalStart = now end
 
@@ -160,7 +168,7 @@ function HistoryService:RecordPerformance(duration, context)
     if duration > stats.intervalPeakLatency then
         stats.intervalPeakLatency = duration
     end
-    
+
     if (now - stats.intervalStart) >= refreshRate then
         -- Snapshot for UI (Average over the window)
         stats.lastInterval.duration = refreshRate
@@ -177,23 +185,23 @@ function HistoryService:RecordPerformance(duration, context)
             table.insert(cpuList,  { context = ctx, value = data.total })
             table.insert(tputList, { context = ctx, value = data.count / refreshRate })
         end
-        
+
         local function sortDesc(a,b) return a.value > b.value end
         table.sort(latList, sortDesc)
         table.sort(cpuList, sortDesc)
         table.sort(tputList, sortDesc)
-        
+
         -- Unpack first 5 (or fewer) into new arrays
         local function slice(t, n)
             local res = {}
             for i = 1, math.min(#t, n) do res[i] = t[i] end
             return res
         end
-        
+
         stats.topStats.latency = slice(latList, 5)
         stats.topStats.cpu = slice(cpuList, 5)
         stats.topStats.throughput = slice(tputList, 5)
-        
+
         -- Reset Interval Context Stats (Reuse table to reduce GC churn)
         if wipe then
             wipe(stats.intervalContextStats)
@@ -206,13 +214,17 @@ function HistoryService:RecordPerformance(duration, context)
             local avgLat = stats.intervalRequests > 0 and (stats.intervalTime / stats.intervalRequests) or 0
             local avgLoad = (stats.intervalTime / (refreshRate * 1000)) * 100
             local tput = stats.intervalRequests / refreshRate
-            
+
             -- Capture memory usage (expensive operation)
             UpdateAddOnMemoryUsage()
             local memKB = GetAddOnMemoryUsage("TRP3FW")
 
             table.insert(self.sessionStats.performanceHistory, {
+                -- See RecordHistory: `timestamp` is monotonic (used for the
+                -- already-rendered? check in historywindow), `wallTime` is the epoch
+                -- value the perf-graph tooltip feeds to date().
                 timestamp = now,
+                wallTime = time(),
                 avgLatency = avgLat,
                 peakLatency = stats.intervalPeakLatency,
                 avgLoad = avgLoad,
@@ -221,12 +233,12 @@ function HistoryService:RecordPerformance(duration, context)
                 peakThroughput = stats.intervalPeakThroughput,
                 memory = memKB
             })
-            
+
             while #self.sessionStats.performanceHistory > 50 do
                 table.remove(self.sessionStats.performanceHistory, 1)
             end
         end
-        
+
         -- Reset Interval
         stats.intervalStart = now
         stats.intervalTime = 0
@@ -239,24 +251,72 @@ end
 
 function HistoryService:RecordHistory(playerName, addon, wasAlert, wasBlocked, wasGhost, alertType)
     if not TRP3FW.Prefs.trackHistory then return end
-    
-    -- Use SecurityService for sanitization
+
+    -- Use SecurityService for sanitization.
+    -- CleanPlayerName, NOT SanitizePlayerName: the latter escapes quotes/backslashes so
+    -- the name can be embedded in a RunPrivileged() code string ("Il'tar" -> "Il\'tar",
+    -- literal backslash byte). This value is displayed to the user (Status tab "Recent
+    -- events", history window) and used as a dedup key in ui/settings.lua, so it must be
+    -- the canonical unescaped form every other consumer uses. Same confusion as the
+    -- allowedSenders cache-key bug fixed in 30ee55c.
     local security = TRP3FW.ServiceContainer:Get("SecurityService")
     local cleanPlayer = playerName
     if security then
-        cleanPlayer = security:SanitizePlayerName(playerName) or security:CleanPlayerName(playerName) or playerName
+        cleanPlayer = security:CleanPlayerName(playerName) or playerName
     end
 
     table.insert(self.notificationHistory, 1, {
         player = cleanPlayer,
         addon = addon,
+        -- Two clocks on purpose. `timestamp` is GetCurrentTime() (GetTimePreciseSec:
+        -- seconds since client start) and is what elapsed-time math must use.
+        -- `wallTime` is time() (Unix epoch) and is what the UI must pass to date():
+        -- rendering the monotonic value printed every event as a Jan-1970 time that
+        -- drifted with client uptime.
         timestamp = TRP3FW:GetCurrentTime(),
+        wallTime = time(),
         wasAlert = wasAlert,
         wasBlocked = wasBlocked,
         wasGhost = wasGhost,
         alertType = alertType
     })
-    
+
+    -- Increment session stats. Single source of truth: callers MUST NOT also call
+    -- IncrementStat for these top-level counters. Use :find so combined alertTypes
+    -- like "phase+map" bump both phaseAlerts and mapAlerts.
+    if wasAlert then self.sessionStats.alerts = self.sessionStats.alerts + 1 end
+    if wasBlocked then
+        if wasGhost then
+            self.sessionStats.ghostSends = self.sessionStats.ghostSends + 1
+        else
+            self.sessionStats.blocks = self.sessionStats.blocks + 1
+        end
+    end
+
+    if alertType then
+        if alertType == "start_phase_block" then
+            self.sessionStats.startPhaseBlocks = self.sessionStats.startPhaseBlocks + 1
+            if wasGhost then
+                self.sessionStats.startPhaseGhost = self.sessionStats.startPhaseGhost + 1
+            end
+        else
+            if alertType:find("phase") then self.sessionStats.phaseAlerts = self.sessionStats.phaseAlerts + 1 end
+            if alertType:find("map")   then self.sessionStats.mapAlerts   = self.sessionStats.mapAlerts + 1 end
+
+            -- Per-type block/ghost breakdown for /trp3fw stats. A combined "phase+map"
+            -- alertType bumps both, mirroring the alert counters above.
+            if wasBlocked then
+                if wasGhost then
+                    if alertType:find("phase") then self.sessionStats.phaseGhost = self.sessionStats.phaseGhost + 1 end
+                    if alertType:find("map")   then self.sessionStats.mapGhost   = self.sessionStats.mapGhost + 1 end
+                else
+                    if alertType:find("phase") then self.sessionStats.phaseBlocks = self.sessionStats.phaseBlocks + 1 end
+                    if alertType:find("map")   then self.sessionStats.mapBlocks   = self.sessionStats.mapBlocks + 1 end
+                end
+            end
+        end
+    end
+
     while #self.notificationHistory > TRP3FW.Prefs.maxHistorySize do
         table.remove(self.notificationHistory)
     end
@@ -266,16 +326,68 @@ function HistoryService:GetSessionStats()
     return self.sessionStats
 end
 
+-- Read send-history entry (timestamp, suppressedCount) for a player.
+function HistoryService:GetSendHistory(playerName)
+    return self.profileSendHistory[playerName]
+end
+
+-- Determine whether the next send for `playerName` is a "first send" relative to the
+-- suppression window. Returns (isFirstTime, suppressedCount).
+function HistoryService:IsFirstSend(playerName, now, suppressionTime)
+    local entry = self.profileSendHistory[playerName]
+    if not entry then return true, 0 end
+    local isFirst = (now - entry.timestamp) > (suppressionTime or 0)
+    return isFirst, entry.suppressedCount or 0
+end
+
+-- Stamp `playerName` as having just sent now (resets suppressedCount).
+-- Use this when a notification is shown/refreshed and we want the suppression
+-- window to start over.
+function HistoryService:RecordSend(playerName, now)
+    now = now or TRP3FW:GetCurrentTime()
+    local entry = self.profileSendHistory[playerName]
+    if entry then
+        entry.timestamp = now
+        entry.suppressedCount = 0
+    else
+        self.profileSendHistory[playerName] = { timestamp = now, suppressedCount = 0 }
+    end
+end
+
 function HistoryService:IncrementStat(category, subcategory, amount)
     amount = amount or 1
     if subcategory then
-        if self.sessionStats[category] and self.sessionStats[category][subcategory] then
+        if self.sessionStats[category] and self.sessionStats[category][subcategory] ~= nil then
             self.sessionStats[category][subcategory] = self.sessionStats[category][subcategory] + amount
         end
     else
-        if self.sessionStats[category] then
+        if self.sessionStats[category] ~= nil then
             self.sessionStats[category] = self.sessionStats[category] + amount
         end
+    end
+end
+
+function HistoryService:TrackAddonRequest(addon, sendId)
+    if not addon or type(addon) ~= "string" then return end
+
+    local addonKey = addon:upper()
+    if not self.sessionStats.requestsByAddon[addonKey] then return end
+
+    -- Deduplicate by sendId.
+    -- A nil sendId can't be deduplicated (and `t[nil] = true` is a hard "table index is
+    -- nil" error, which would propagate out into the intercepting hook), so count the
+    -- request but skip the bookkeeping. Every current caller supplies one - hooks default
+    -- to 0 when CreateVerifiedSendId fails - but this runs inside a hook, where an
+    -- uncaught error is disproportionately expensive. WhoService guards the same pattern.
+    TRP3FW.lastAddonRequestSendId = TRP3FW.lastAddonRequestSendId or {}
+    if sendId == nil then
+        self.sessionStats.requestsByAddon[addonKey] = self.sessionStats.requestsByAddon[addonKey] + 1
+        TRP3FW:Debug("Tracked addon request: "..addon.." (no sendId - not deduplicated)", "send")
+    elseif not TRP3FW.lastAddonRequestSendId[sendId] then
+        self.sessionStats.requestsByAddon[addonKey] = self.sessionStats.requestsByAddon[addonKey] + 1
+        TRP3FW.lastAddonRequestSendId[sendId] = true
+        TRP3FW.lastAddonRequestSendIdCount = (TRP3FW.lastAddonRequestSendIdCount or 0) + 1
+        TRP3FW:Debug("Tracked addon request: "..addon.." (sendId: "..tostring(sendId)..")", "send")
     end
 end
 

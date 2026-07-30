@@ -400,9 +400,28 @@ function TRP3FW:InstallMSPHooks()
                 end
             end
 
-            -- Store detected addon for use in Chomp hook (send)
-            if not TRP3FW.detectedAddons then TRP3FW.detectedAddons = {} end
-            TRP3FW.detectedAddons[name] = detectedAddon
+            -- Store detected addon for use in Chomp hook (send).
+            -- Keyed by player name, so it must NOT go in detectedAddons - that table is
+            -- keyed by capability name (TRP3/MRP/XRP/MSP/MapScanner) and the two keyspaces
+            -- collide on any player whose name matches one. See core/init.lua.
+            if not TRP3FW.playerAddonProtocol then TRP3FW.playerAddonProtocol = {} end
+
+            -- Bound it. This grows one entry per unique player who ever requests our
+            -- profile, and the entries are bare strings with no timestamp to age out on.
+            -- Under the conflated detectedAddons table it could never be pruned at all
+            -- without destroying the capability flags sharing the keyspace. A crowded zone
+            -- is hundreds of players; the cap only has to stop unbounded session growth,
+            -- and a dropped entry costs nothing but a re-detect on the next handshake.
+            if TRP3FW.playerAddonProtocol[name] == nil then
+                local count = (TRP3FW.playerAddonProtocolCount or 0) + 1
+                if count > (TRP3FW.PLAYER_ADDON_PROTOCOL_LIMIT or 500) then
+                    TRP3FW.playerAddonProtocol = {}
+                    count = 1
+                    TRP3FW:Debug("[LibMSP Callback] playerAddonProtocol hit its cap, cleared", "hooks")
+                end
+                TRP3FW.playerAddonProtocolCount = count
+            end
+            TRP3FW.playerAddonProtocol[name] = detectedAddon
 
             TRP3FW:Debug(detectedAddon.." profile request detected from: "..name.." (sendId: "..sendId..") via LibMSP callback", "hooks")
 

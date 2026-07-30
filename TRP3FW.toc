@@ -2,18 +2,17 @@
 ## Title: TRP3 Firewall
 ## Notes: Blocks or alerts on profile requests from players not nearby
 ## Author: Community
-## Version: 2.9.2-hotfix
+## Version: 1.6.0
 ## SavedVariables: TRP3FW_DB, TRP3FW_Settings, TRP3FW_MinimapSettings, TRP3FW_ValidatedNames
 ## OptionalDeps: TotalRP3, MyRolePlay, XRP
 
 # Core systems (load first)
+core\utils.lua
 core\init.lua
 core\Service.lua
 core\ServiceContainer.lua
-core\Context.lua
+core\EventService.lua
 core\Pipeline.lua
-core\utils.lua
-core\types.lua
 core\cache_interface.lua
 core\feature_flags.lua
 
@@ -23,6 +22,7 @@ features\encryption\spvp.lua
 # Services
 features\services\SecurityService.lua
 features\services\HistoryService.lua
+features\services\WhoService.lua
 features\services\NotificationService.lua
 features\services\CacheService.lua
 
@@ -31,7 +31,6 @@ location\maps.lua
 location\phase.lua
 location\who.lua
 location\cascading.lua
-location\check_interface.lua
 
 # Hook systems
 hooks\gradient.lua
@@ -46,6 +45,7 @@ hooks\installer.lua
 
 # Profile adapters (for cross-addon compatibility)
 features\profiles\adapter_interface.lua
+features\profiles\adapter_msp_shared.lua
 features\profiles\adapter_trp3.lua
 features\profiles\adapter_mrp.lua
 features\profiles\adapter_xrp.lua
@@ -54,7 +54,6 @@ features\profiles\adapter_factory.lua
 # Stages
 core\Stage.lua
 features\stages\WhitelistStage.lua
-features\stages\PhaseInStage.lua
 features\stages\SPVPStage.lua
 features\stages\BurstStage.lua
 features\stages\InteractionStage.lua
@@ -68,7 +67,6 @@ features\pipelines\DecisionPipeline.lua
 # Features
 features\ghostmode.lua
 features\ghostmode_trp3.lua
-features\ghost_provider.lua
 features\profileswitch.lua
 features\notifications.lua
 features\decision.lua
@@ -78,6 +76,16 @@ features\encryption\spvp_handlers.lua
 features\encryption\spvp_auto_init.lua
 
 # UI
+ui\Theme.lua
+ui\TabManager.lua
+ui\tabs\Dashboard.lua
+ui\tabs\Status.lua
+ui\tabs\Notifications.lua
+ui\tabs\Alerts.lua
+ui\tabs\Security.lua
+ui\tabs\Filters.lua
+ui\tabs\Debug.lua
+ui\tabs\Profiles.lua
 ui\settings.lua
 ui\debugwindow.lua
 ui\historywindow.lua

@@ -40,13 +40,23 @@ function TRP3FW:GetGhostDataForInformationType(informationType, profileID)
             self:Debug("[GetGhostData] No profileID, using blank characteristics", "ghost")
             ghostData = self:GetBlankCharacteristicsData()
         end
-        -- Safety: ensure required fields exist
+        -- Safety: ensure required fields exist.
+        --
+        -- These two defaults are applied to a COPY. GetProfileCharacteristics returns a live
+        -- reference into TRP3_Profiles (features/profiles/adapter_trp3.lua:125 hands back
+        -- profile.data.player.characteristics itself, not a copy), so assigning here wrote
+        -- into the user's actual saved ghost profile - permanently stamping FN and CH onto it
+        -- the first time a ghost send used it. ValidateGhostTRP3Payload below does copy
+        -- before it sanitizes (:174), which is why only these two assignments leaked.
         if ghostData then
-            if not ghostData.FN or ghostData.FN == "" then
-                ghostData.FN = UnitName("player")
-            end
-            if not ghostData.CH or ghostData.CH == "" then
-                ghostData.CH = "ffffff"  -- White color (6-char RGB hex only)
+            local needsFN = not ghostData.FN or ghostData.FN == ""
+            local needsCH = not ghostData.CH or ghostData.CH == ""
+            if needsFN or needsCH then
+                local copy = {}
+                for k, v in pairs(ghostData) do copy[k] = v end
+                if needsFN then copy.FN = UnitName("player") end
+                if needsCH then copy.CH = "ffffff" end  -- White (6-char RGB hex only)
+                ghostData = copy
             end
         end
     elseif informationType == registerInfoTypes.ABOUT then
@@ -290,13 +300,58 @@ function TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queu
         end
     end
 
-    local playerName = target and self:CleanPlayerName(target)
-    if not playerName then
+    -- Two different nil causes here, and they need opposite handling.
+    --
+    -- (a) No target at all: a broadcast/channel send with no specific recipient. There is no
+    --     per-recipient gating decision to make, and dropping these would break TRP3's normal
+    --     protocol traffic. Pass through, as before.
+    --
+    -- (b) A target that CleanPlayerName could not parse: under 2 chars, over 50, control
+    --     characters, or SecurityService unavailable. This previously fell into the same
+    --     pass-through branch, sending to a specific, named recipient with the entire pipeline
+    --     skipped -- no whitelist, no cache, no location check, no ghosting. That is the one
+    --     case where the addon is supposed to be deciding something and instead decided
+    --     nothing.
+    --
+    -- Case (b) is not reachable for a real character name (WoW caps names at 12 chars plus
+    -- realm, the value is server-supplied, and services initialise a full second before hooks
+    -- install), so this is a "should never happen" branch. Those are exactly the ones that must
+    -- not silently transmit: if we cannot identify the recipient, we cannot conclude they are
+    -- allowed. Matches the fail-closed handling at :327 (ghost payload generation) and in the
+    -- scan-reply pipeline.
+    if not target then
         return originalFunc(prefix, text, chatType, target, priority, queue, callback, callbackArg)
+    end
+
+    local playerName = self:CleanPlayerName(target)
+    if not playerName then
+        self:Warn("[Chomp Hook] Unparseable target name ("..tostring(target)
+            .."); blocking send rather than transmitting ungated")
+        return
     end
 
     local sendIdObj = self:CreateVerifiedSendId()
     local sendId = sendIdObj and sendIdObj.id or 0
+
+    -- Stage 1b: MSP ghost-payload replacement.
+    -- The ghost decision is made asynchronously (ApplyLocationDecision -> EnableGhostForNextSend),
+    -- which then re-invokes originalFunc; that re-send lands back here with the ghost flag set.
+    -- TRP3 data sends are ghosted in the sendObject hook (pre-serialization), but MSP sends are
+    -- raw payloads that only pass through Chomp, so we must replace the payload here. Previously
+    -- this keyed off `locationResult.shouldGhost` (never set by the gating stage) so it never ran.
+    -- Detect an MSP data send (contains field/CRC markers; '?' requests are harmless and skipped).
+    local isMSPData = prefix and tostring(prefix):find("MSP") and type(text) == "string" and text:find("[:!]")
+    if isMSPData and self:ShouldGhostSendTo(playerName) then
+        local ghostPayload = self:GenerateMSPGhostPayload(playerName)
+        if ghostPayload and ghostPayload ~= "" then
+            self:Debug("[Chomp Hook] Ghost mode: replacing MSP payload for "..tostring(playerName).." and sending", "ghost")
+            self:ClearGhostFlag(playerName)
+            return originalFunc(prefix, ghostPayload, chatType, target, priority, queue, callback, callbackArg)
+        else
+            self:Warn("[Chomp Hook] Ghost mode enabled but failed to generate MSP payload for "..tostring(playerName)..", blocking send")
+            return -- fail closed: never leak the real profile when ghosting was intended
+        end
+    end
 
     -- Stage 2: Phase-in delay (skipped for replays)
     if not skipPhaseIn then
@@ -305,9 +360,6 @@ function TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queu
             return -- Queued for later replay
         end
     end
-
-    -- Stage 3: Mutual exchange detection (currently just informational)
-    local mutualResult = self:ChompPipeline_MutualExchange_V2(playerName)
 
     -- Stage 4: Start phase blocking/ghosting
     local startPhaseResult = self:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatType, target, priority, queue, callback, callbackArg)
@@ -329,9 +381,11 @@ function TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queu
     local addon = "TRP3"
     if prefix and tostring(prefix):find("MSP") then
         addon = "MSP"
-        -- Try to resolve specific addon from MSP handshake
-        if TRP3FW.detectedAddons and playerName and TRP3FW.detectedAddons[playerName] then
-             addon = TRP3FW.detectedAddons[playerName]
+        -- Try to resolve specific addon from MSP handshake. Reads the player-keyed table,
+        -- not detectedAddons - see core/init.lua for why those are separate.
+        local resolved = TRP3FW.playerAddonProtocol and playerName and TRP3FW.playerAddonProtocol[playerName]
+        if type(resolved) == "string" then
+            addon = resolved
         end
     end
 
@@ -344,32 +398,12 @@ function TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queu
             return originalFunc(unpack(args))
         end,
         args,
-        { isMutual = mutualResult and mutualResult.isMutual or false }
+        -- `context` is currently unused by ChompPipeline_LocationGating_V2. This previously
+        -- referenced an undefined `mutualResult` upvalue (always nil → isMutual always false),
+        -- a leftover from a removed mutual-exchange computation. Pass nil until/unless the
+        -- gating stage actually consumes a context.
+        nil
     )
-
-    if locationResult and locationResult.shouldGhost then
-        -- If ghost mode is active, we might need to substitute the payload
-        -- For TRP3, this was handled by sendObject hook (pre-serialization)
-        -- For MSP (or raw MSP2 sends), we must replace it here
-        if addon == "MSP" and type(text) == "string" and text:find("[:!]") then
-            -- Only replace payload if it looks like data fields (contains : or !)
-            -- Requests (?) are harmless and shouldn't be ghosted
-            -- Tooltip requests (?TT) or partials (?) are also harmless queries
-            
-            -- Generate ghost payload for this target
-            local ghostPayload = self:GenerateMSPGhostPayload(playerName)
-            if ghostPayload and ghostPayload ~= "" then
-                self:Debug("[Chomp Hook] Ghost mode: Replacing MSP payload for "..tostring(playerName), "ghost")
-                -- Update args with new payload
-                args[2] = ghostPayload
-                -- We don't need to update locationResult.result because that's just the return value
-                -- But we need to ensure the callback (originalFunc) uses the new args
-                -- The callback closure above captured 'args', so updating the table works!
-            else
-                self:Warn("[Chomp Hook] Ghost mode enabled but failed to generate payload for "..tostring(playerName))
-            end
-        end
-    end
 
     return locationResult and locationResult.result
 end
@@ -400,14 +434,44 @@ function TRP3FW:InstallChompHook()
 
     AddOn_Chomp.SmartAddonMessage = function(prefix, text, chatType, target, priority, queue, callback, callbackArg)
         local start = debugprofilestop()
-        local ret = TRP3FW:ChompHookPipeline(prefix, text, chatType, target, priority, queue, callback, callbackArg, originalSend)
+
+        -- FAIL CLOSED. This function REPLACES AddOn_Chomp.SmartAddonMessage globally, so the
+        -- whole decision pipeline (7 stages, plus the location checks and SPVP beneath them)
+        -- runs inside TRP3's own send call for every profile message.
+        --
+        -- The pcall exists to stop a pipeline error propagating out into TRP3, where it aborts
+        -- TRP3's send mid-flight, leaves Chomp's queue inconsistent, and is reported as a TRP3
+        -- bug against a stack that never mentions TRP3FW.
+        --
+        -- On error we DROP the send. Not passing it through: this is a privacy tool, and the
+        -- code most likely to be executing when the pipeline throws is the code deciding NOT to
+        -- transmit real profile data -- ShouldBlockForStartPhase, EnableGhostForNextSend, the
+        -- location gating. Recovering by calling originalSend would take a crash in exactly
+        -- that logic and turn it into a full unfiltered send of the real profile, to the one
+        -- player the user configured this addon to hide from, with no way for them to know it
+        -- happened. A profile that fails to arrive is visible and recoverable (/reload, retry);
+        -- a disclosure is neither.
+        --
+        -- This also matches the convention already used everywhere else in the addon: the
+        -- sendObject hook aborts the send when the original throws (:620) and blocks it when
+        -- ghost data cannot be obtained (:611); the phase-in replay path (
+        -- trp3_chomp_pipeline.lua:142) pcalls only to restore its guard flag and likewise does
+        -- not re-send. Dropping is also what the UNGUARDED code did -- the error killed the
+        -- send -- so this preserves the original security behaviour and only adds containment.
+        local ok, ret = pcall(TRP3FW.ChompHookPipeline, TRP3FW, prefix, text, chatType, target, priority, queue, callback, callbackArg, originalSend)
+        if not ok then
+            TRP3FW:Error("Chomp hook pipeline error; send dropped (failing closed to avoid "
+                .. "transmitting an unfiltered profile): " .. tostring(ret))
+            ret = nil
+        end
+
         local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService")
-        if hs then 
+        if hs then
             local addon = "TRP3"
             if prefix and tostring(prefix):find("MSP") then
                 addon = "MSP"
             end
-            hs:RecordPerformance(debugprofilestop() - start, addon) 
+            hs:RecordPerformance(debugprofilestop() - start, addon)
         end
         return ret
     end
@@ -437,6 +501,9 @@ function TRP3FW:InstallSendObjectHook()
     local conflict = self:CheckHookConflict("sendObject", comms.sendObject, originals.sendObject, nil)
     if conflict.action == "skip" then
         self:Debug("sendObject hook already installed; skipping", "hooks")
+        -- Still ours, so TRP3 ghosting is available - see the flag note at the
+        -- successful-install site below.
+        self.hasTRP3ExchangeHooks = true
         return true
     elseif conflict.action == "refuse" then
         self.hookStatus.sendObject = "refused"
@@ -582,15 +649,14 @@ function TRP3FW:InstallSendObjectHook()
         return result
     end
 
+    -- This hook IS the TRP3 exchange hook: it is the only thing that replaces outgoing
+    -- SI profile payloads with ghost data. `hasTRP3ExchangeHooks` gates whether TRP3
+    -- ghosting is considered available, but nothing ever set it - it was declared false
+    -- in core/init.lua and never assigned again, so every reader saw a permanent false.
+    self.hasTRP3ExchangeHooks = true
+
     self:Debug("Installed AddOn_TotalRP3.Communications.sendObject hook (pre-serialization ghost mode)", "hooks")
     return true
-end
-
--- Install TRP3 communication hooks
-function TRP3FW:InstallTRP3Hooks()
-    -- DEPRECATED: TRP3_API.Ellyb.AddonCommunication no longer exists in modern TRP3.
-    -- Logic has been moved to InstallSendObjectHook (for ghost mode) and Chomp hooks (for blocking).
-    self:Debug("InstallTRP3Hooks is deprecated and has been removed.", "hooks")
 end
 
 -- Install TRP3 map scan response notification

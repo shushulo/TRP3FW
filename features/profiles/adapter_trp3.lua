@@ -44,7 +44,7 @@ function TRP3Adapter:GetProfiles()
     -- Sort by name
     table.sort(profiles, function(a, b) return a.name < b.name end)
 
-    if TRP3FW:ShouldLogProfileCount() then
+    if TRP3FW:ShouldLogProfileCount("TRP3") then
         TRP3FW:Debug("TRP3 adapter: Found "..#profiles.." profiles", "hooks")
     end
     return profiles
@@ -83,7 +83,10 @@ function TRP3Adapter:GetProfileByID(id)
 
     -- IMPORTANT: Check YOUR profiles first (for ghost mode alternate profiles)
     -- Then fallback to register (for viewing other players' profiles)
-    local profileData = TRP3_API.profile.getProfiles()[id]
+    -- Guard the table: getProfiles() can return nil during early load, and indexing
+    -- nil here would crash (GetProfiles() above already guards this same call).
+    local ownProfiles = TRP3_API.profile.getProfiles()
+    local profileData = ownProfiles and ownProfiles[id]
 
     -- If not found in your profiles, try register (other players)
     if not profileData and TRP3_API.register.getProfileOrNil then

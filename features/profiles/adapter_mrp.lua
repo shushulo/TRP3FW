@@ -42,7 +42,7 @@ function MRPAdapter:GetProfiles()
         return a.name < b.name
     end)
 
-    if TRP3FW:ShouldLogProfileCount() then
+    if TRP3FW:ShouldLogProfileCount("MRP") then
         TRP3FW:Debug("MRP adapter: Found "..#profiles.." profiles", "hooks")
     end
     return profiles
@@ -96,101 +96,17 @@ function MRPAdapter:GetProfileByID(id)
     }
 end
 
--- Get characteristics data from profile
--- MRP uses flat MSP structure, so we map to TRP3-like format
-function MRPAdapter:GetCharacteristics(id)
-    local profile = self:GetProfileByID(id)
-    if not profile or not profile.data then
-        TRP3FW:Debug("MRP adapter: No profile data for GetCharacteristics", "hooks")
-        return nil
-    end
-
-    local data = profile.data
-
-    -- Map MRP MSP fields to TRP3-like characteristics structure
-    return {
-        v = 1,
-        FN = data.NA or "",      -- Name
-        RA = data.RA or "",      -- Race
-        CL = data.RC or "",      -- Class (RC in MSP)
-        IC = data.IC or "",      -- Icon
-        TI = data.NT or "",      -- Title
-        NH = data.NH or "",      -- House/nickname house
-        NI = data.NI or "",      -- Nickname
-        AG = data.AG or "",      -- Age
-        AE = data.AE or "",      -- Eye color
-        AH = data.AH or "",      -- Height
-        AW = data.AW or "",      -- Weight
-        HB = data.HB or "",      -- Birthplace
-        HH = data.HH or "",      -- Home/residence
-        MI = {},                 -- Misc traits (MRP doesn't have this structure)
-        PS = {},                 -- Personality traits (MRP doesn't have this structure)
-    }
-end
-
--- Get about data from profile
-function MRPAdapter:GetAbout(id)
-    local profile = self:GetProfileByID(id)
-    if not profile or not profile.data then
-        TRP3FW:Debug("MRP adapter: No profile data for GetAbout", "hooks")
-        return nil
-    end
-
-    local data = profile.data
-
-    -- Map MRP MSP fields to TRP3-like about structure
-    return {
-        v = 1,
-        TE = 1,                  -- Template type (1 = simple text, closest to MRP)
-        BK = 1,                  -- Background
-        MU = data.MU or "",      -- Music
-        T1 = {
-            TX = data.DE or "",  -- Description (short) - map to template 1 text
-        },
-        -- Note: MRP has HI (history/long description) separate, but TRP3 template 1 only has one text field
-        -- We'll use DE for simplicity, or could create T3 structure with separate HI
-    }
-end
-
--- Get misc data from profile
-function MRPAdapter:GetMisc(id)
-    local profile = self:GetProfileByID(id)
-    if not profile or not profile.data then
-        TRP3FW:Debug("MRP adapter: No profile data for GetMisc", "hooks")
-        return nil
-    end
-
-    local data = profile.data
-
-    -- Map MRP MSP fields to TRP3-like misc structure
-    return {
-        v = 1,
-        PE = {},                 -- Peek/glance slots (MRP has custom glances field, not included here)
-        ST = {},                 -- RP styles (MRP doesn't have this)
-        CU = data.CU or "",      -- Currently (included here for convenience)
-        CO = data.CO or "",      -- Currently OOC
-    }
-end
-
--- Get character data from profile
-function MRPAdapter:GetCharacter(id)
-    local profile = self:GetProfileByID(id)
-    if not profile or not profile.data then
-        TRP3FW:Debug("MRP adapter: No profile data for GetCharacter", "hooks")
-        return nil
-    end
-
-    local data = profile.data
-
-    -- Map MRP MSP fields to TRP3-like character structure
-    return {
-        v = 1,
-        CU = data.CU or "",      -- Currently IC
-        CO = data.CO or "",      -- Currently OOC
-        RP = 1,                  -- RP status (1=IC) - MRP uses FC field differently
-        XP = 1,                  -- Experience level (MRP doesn't have this)
-    }
-end
+-- Characteristics / About / Misc / Character.
+--
+-- These four getters were near-identical copies of XRP's, differing only by where the MSP
+-- fields live (MRP: profile.data, XRP: profile.data.fields), the adapter name in the debug
+-- string, and comment wording -- the field mappings themselves were the same. That is the
+-- shape that let the FC/FR hardcode exist twice and need fixing twice. They now come from
+-- one implementation in adapter_msp_shared.lua.
+TRP3FW.MSPAdapterShared.Apply(MRPAdapter, "MRP", function(profile)
+    -- MRP stores MSP fields flat on the profile itself.
+    return profile.data
+end)
 
 -- Validate that a profile ID exists
 function MRPAdapter:ValidateProfileID(id)

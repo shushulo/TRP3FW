@@ -249,7 +249,7 @@ local function CreateGraphWidget(parent, title, width, height)
 
                     local tooltipText = string.format(
                         "|cffaaaaaa%s|r\n|cff00ff00Avg: %.2f|r%s",
-                        date("%Y-%m-%d %H:%M:%S", frame.tooltipData.timestamp),
+                        frame.tooltipData.timestamp and date("%Y-%m-%d %H:%M:%S", frame.tooltipData.timestamp) or "--",
                         frame.tooltipData.avg,
                         frame.tooltipData.peak and string.format("\n|cffff0000Peak: %.2f|r", frame.tooltipData.peak) or ""
                     )
@@ -314,7 +314,9 @@ local function CreateGraphWidget(parent, title, width, height)
             if not hoverFrame.tooltipData then
                 hoverFrame.tooltipData = {}
             end
-            hoverFrame.tooltipData.timestamp = entry.timestamp
+            -- wallTime (epoch) is what the tooltip's date() call needs; entry.timestamp
+            -- is client uptime. See HistoryService:RecordPerformance.
+            hoverFrame.tooltipData.timestamp = entry.wallTime
             hoverFrame.tooltipData.avg = val1
             hoverFrame.tooltipData.peak = val2
         end
@@ -637,13 +639,13 @@ local function UpdateBudgetPanel()
     -- Update reusable table values
     reusableBudgets.latency.budget = GetLatencyBudget()
     reusableBudgets.latency.current = latest.peakLatency or 0
-    
+
     reusableBudgets.load.budget = BUDGETS.load
     reusableBudgets.load.current = latest.maxLoad or 0
-    
+
     reusableBudgets.throughput.budget = BUDGETS.throughput
     reusableBudgets.throughput.current = latest.peakThroughput or 0
-    
+
     reusableBudgets.memory.budget = BUDGETS.memory
     reusableBudgets.memory.current = latest.memory or 0
 

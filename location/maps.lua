@@ -5,24 +5,17 @@ local addonName, TRP3FW = ...
 
 -- ===================== Map Helpers =====================
 
-local mapNameCache = {}
-local mapNameCacheSize = 0
-local MAP_CACHE_SIZE = 200
-local MAP_CACHE_TTL = 3600 -- 1 hour
 local MAP_SCAN_MIN_INTERVAL = 60 -- do not trigger new scans more often than once per minute
 
 function TRP3FW:GetMapName(mapID)
     if not mapID then return "Unknown" end
 
-    -- Check cache first
-    local cached = mapNameCache[mapID]
-    if cached then
-        local age = self:GetCurrentTime() - cached.timestamp
-        if age < MAP_CACHE_TTL then
-            return cached.name -- Cache hit
-        else
-            mapNameCache[mapID] = nil
-            mapNameCacheSize = math.max(mapNameCacheSize - 1, 0)
+    -- Check unified cache first
+    local CI = self.CacheInterface
+    if CI then
+        local cached = CI:Get("mapName", mapID)
+        if cached then
+            return cached
         end
     end
 
@@ -30,23 +23,45 @@ function TRP3FW:GetMapName(mapID)
     local mapInfo = C_Map.GetMapInfo(mapID)
     local name = mapInfo and mapInfo.name or ("Map "..tostring(mapID))
 
-    -- Enforce cache size with simple oldest-eviction
-    if mapNameCacheSize >= MAP_CACHE_SIZE then
-        local oldest, oldestTime = nil, math.huge
-        for id, entry in pairs(mapNameCache) do
-            if entry.timestamp < oldestTime then
-                oldest, oldestTime = id, entry.timestamp
-            end
-        end
-        if oldest then
-            mapNameCache[oldest] = nil
-            mapNameCacheSize = mapNameCacheSize - 1
+    -- Update unified cache
+    if CI then
+        CI:Set("mapName", mapID, name)
+    end
+
+    return name
+end
+
+function TRP3FW:FormatLocation(zone, map, phase)
+    --[[
+        Formats location information for display
+
+        @param zone string - Zone name (e.g., "Stormwind City")
+        @param map number|string - Map ID or map name (optional)
+        @param phase number|string - Phase ID (optional)
+        @return string - Formatted location string
+
+        Examples:
+        - FormatLocation("Stormwind", 1453) → "Stormwind (Stormwind City)"
+        - FormatLocation("Stormwind", nil, 169) → "Stormwind (Phase 169)"
+        - FormatLocation("Stormwind") → "Stormwind"
+    --]]
+
+    local parts = {zone or "Unknown"}
+
+    if phase then
+        table.insert(parts, "Phase " .. tostring(phase))
+    elseif map then
+        local mapName = type(map) == "number" and self:GetMapName(map) or map
+        if mapName and mapName ~= zone then
+            table.insert(parts, mapName)
         end
     end
 
-    mapNameCache[mapID] = {name = name, timestamp = self:GetCurrentTime()}
-    mapNameCacheSize = mapNameCacheSize + 1
-    return name
+    if #parts > 1 then
+        return parts[1] .. " (" .. table.concat(parts, ", ", 2) .. ")"
+    end
+
+    return parts[1]
 end
 
 function TRP3FW:GetCurrentMapID()
@@ -86,8 +101,25 @@ local mapScanFrame = CreateFrame("Frame")
 mapScanFrame:RegisterEvent("CHAT_MSG_ADDON")
 
 -- Active scan tracking
-local activeScanCallbacks = {} -- playerName -> {callback, timer, found, scanMapID, nonce}
+-- playerName -> {callbacks = {fn...}, timer, found, scanMapID, nonce}
+-- `callbacks` is a list, not a single slot: several independent requests can be waiting on
+-- one in-flight scan for the same player (see the attach path in MapScan below).
+local activeScanCallbacks = {}
 local activeScanForMap = false -- Are we currently scanning our current map?
+
+-- Deliver a scan outcome to every caller waiting on it. Callers are pcall'd individually
+-- so one throwing handler can't strand the others (they are hook/pipeline continuations).
+local function ResolveScanCallbacks(scanInfo, found, source, age)
+    if not scanInfo or not scanInfo.callbacks then return end
+    for _, cb in ipairs(scanInfo.callbacks) do
+        if cb then
+            local ok, err = pcall(cb, found, source, age)
+            if not ok then
+                TRP3FW:Debug("[Map Scan] Callback error for source "..tostring(source)..": "..tostring(err), "channel")
+            end
+        end
+    end
+end
 
 -- Hook into TRP3's map scan events to auto-enable caching
 -- Track which map is currently being scanned
@@ -152,7 +184,11 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
     local start = debugprofilestop()
     if event == "CHAT_MSG_ADDON" and prefix == "RPB1" then
         local senderName = TRP3FW:CleanPlayerName(sender)
-        local strictNonceRequired = TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
+        -- Hard-disabled: nothing transmits the nonce, so no reply can ever carry one and
+        -- this would reject every scan reply. See TRP3FW:IsScanNonceVerificationAvailable.
+        local strictNonceRequired = TRP3FW.IsScanNonceVerificationAvailable
+            and TRP3FW:IsScanNonceVerificationAvailable()
+            and TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
 
         -- Safety check: If CleanPlayerName returns nil, use raw sender name for debugging
         if not senderName then
@@ -218,7 +254,7 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
         end
 
         local scanInfo = activeScanCallbacks[senderName]
-        
+
         -- If no specific callback, check if we are in a global scan mode (manual scan initiated by user)
         if not scanInfo and not activeScanForMap then
             TRP3FW:Debug("[WHISPER Response] No active scan awaiting "..senderName.." and no global scan active, ignoring unsolicited response", "whisper")
@@ -269,7 +305,7 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
             return
         end
         local CI = TRP3FW.CacheInterface
-        
+
         local wasInCache = false
         if CI then
             wasInCache = CI:Get("broadcast", senderName) ~= nil
@@ -302,10 +338,11 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
             if scanInfo.timer then
                 scanInfo.timer:Cancel()
             end
-            if scanInfo.callback then
-                scanInfo.callback(true, verifiedNonce and "scanned_verified" or "scanned", 0)
-            end
+            -- Clear the entry BEFORE dispatching: a callback can re-enter MapScan for the
+            -- same player, and it must register a fresh scan rather than attach to the one
+            -- that is already resolving.
             activeScanCallbacks[senderName] = nil
+            ResolveScanCallbacks(scanInfo, true, verifiedNonce and "scanned_verified" or "scanned", 0)
         end
     end
 
@@ -313,7 +350,11 @@ mapScanFrame:SetScript("OnEvent", function(self, event, prefix, message, channel
     if hs then hs:RecordPerformance(debugprofilestop() - start, "Map Scan Response") end
 end)
 
-function TRP3FW:MapScan(name, sendId, callback)
+function TRP3FW:MapScan(name, sendId, callback, priority)
+    -- `priority == "HIGH"` tightens the scan rate limit (5s) and timeout (2.5s) for
+    -- latency-sensitive scan replies. Previously this was (incorrectly) keyed off `sendId`
+    -- being the string "HIGH", which no caller ever passed, so the fast-path was dead.
+    local isHighPriority = (priority == "HIGH")
     if not self:IsMapCheckEnabled() then
         self:Debug("Map scan skipped: disabled by user setting", "channel")
         if callback then callback(false, "disabled") end
@@ -331,7 +372,12 @@ function TRP3FW:MapScan(name, sendId, callback)
 
     -- Check cache first
     local CI = self.CacheInterface
-    local strictNonceRequired = TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
+    -- Hard-disabled: every cached entry has verified=false because nothing transmits the
+    -- nonce, so this would invalidate the entire mapScan/broadcast cache. See
+    -- TRP3FW:IsScanNonceVerificationAvailable.
+    local strictNonceRequired = TRP3FW.IsScanNonceVerificationAvailable
+        and TRP3FW:IsScanNonceVerificationAvailable()
+        and TRP3FW.Prefs and TRP3FW.Prefs.scanResponseRequireNonce
     local cached = nil
     if CI then
         cached = CI:Get("mapScan", name)
@@ -409,12 +455,12 @@ function TRP3FW:MapScan(name, sendId, callback)
     -- This is more reliable than triggering a new scan
     -- Players broadcast when: opening map, changing zones, periodically
     self:Debug("[Map Scan] Checking recentBroadcasts for '"..name.."'", "channel")
-    
+
     local recentBroadcast = nil
     if CI then
         recentBroadcast = CI:Get("broadcast", name)
     end
-    
+
     if recentBroadcast then
         local timestamp = type(recentBroadcast) == "table" and recentBroadcast.timestamp or recentBroadcast
         local cachedMapID = type(recentBroadcast) == "table" and recentBroadcast.mapID or nil
@@ -483,10 +529,39 @@ function TRP3FW:MapScan(name, sendId, callback)
 
     self:Debug("Map scan: No recent broadcast from "..name.." found in cache", "channel")
 
+    -- BUG FIX: activeScanCallbacks is keyed by player name alone, and a second scan for
+    -- the same player used to OVERWRITE the first entry. Two things went wrong:
+    --   1. The first caller's callback was discarded - it was never told found, not-found
+    --      or timed out, so whatever awaited it just hung until its own deadline.
+    --   2. The first entry's timer was never cancelled. When it fired it looked up
+    --      activeScanCallbacks[name], found the SECOND entry, saw found == false, and
+    --      resolved it as a timeout early - and wrote a `found = false` mapScan cache
+    --      entry, which then suppressed this player for scanCacheFailureDuration.
+    -- Reachable in one request: on the HIGH-priority path RunMapCheck arms a 0.3s parallel
+    -- startMapScan while CheckPlayerViaWho is still running, and a WHO failure routes
+    -- through TryMapFallbackForWho, which calls MapScan for the same player directly.
+    -- Attach to the in-flight scan instead (same shape as WhoService's queue dedupe and
+    -- pendingPhaseCheckWaiters). The attaching caller inherits the running scan's timeout
+    -- window rather than getting its own.
+    local inFlight = activeScanCallbacks[name]
+    if inFlight and not inFlight.found then
+        if callback then table.insert(inFlight.callbacks, callback) end
+        self:Debug("[Map Scan] Scan already awaiting a response from '"..name.."' - attached to it, not re-registered", "channel")
+        return
+    end
+
     -- Decide if we can proceed with a scan (or piggyback on one)
     local now = self:GetCurrentTime()
     local minInterval = (TRP3FW.Prefs and TRP3FW.Prefs.mapScanMinInterval) or MAP_SCAN_MIN_INTERVAL
     if minInterval < 0 then minInterval = MAP_SCAN_MIN_INTERVAL end
+
+    -- DYNAMIC RATE LIMITING:
+    -- For HIGH priority requests (scan replies), we allow a much tighter interval (5s)
+    -- to ensure we can always respond to new scanners if they aren't in cache.
+    if isHighPriority then
+        minInterval = 5 -- Allow fresh scans every 5s for scan replies
+    end
+
     local lastScanAt = self.lastMapScanAt or 0
     local sinceLastScan = now - lastScanAt
     local scanInProgress = activeScanForMap
@@ -506,7 +581,7 @@ function TRP3FW:MapScan(name, sendId, callback)
     currentScanMapID = currentScanMapID or self:GetCurrentMapID()
 
     activeScanCallbacks[name] = {
-        callback = callback,
+        callbacks = callback and { callback } or {},
         timer = nil, -- Will be set below
         found = false,
         scanMapID = currentScanMapID,
@@ -524,15 +599,20 @@ function TRP3FW:MapScan(name, sendId, callback)
         self:Debug("[Map Scan Started] Will cache responses for next 5 seconds (scanning mapID: "..tostring(scannedMapID)..")", "channel")
     end
 
-    -- Use 5 second timeout for this specific player
-    local timerId = C_Timer.NewTimer(5, function()
+    -- Use 5 second timeout for this specific player (shorter for HIGH priority)
+    local timeoutDuration = 5
+    if isHighPriority then
+        timeoutDuration = 2.5
+    end
+
+    local timerId = C_Timer.NewTimer(timeoutDuration, function()
         local scanInfo = activeScanCallbacks[name]
         if scanInfo and not scanInfo.found then
             TRP3FW:Debug("Map scan timeout for "..name.." - not found", "channel")
 
             -- Cache negative result with the map we intended to scan (fallback to current map)
             local timeoutMapID = scanInfo.scanMapID or scannedMapID or TRP3FW:GetCurrentMapID()
-            
+
             local CI = TRP3FW.CacheInterface
             if CI then
                 CI:Set("mapScan", name, {
@@ -543,10 +623,10 @@ function TRP3FW:MapScan(name, sendId, callback)
                 TRP3FW:Debug("[Cache Add] recentScans: Added "..name.." (NOT FOUND - timeout, mapID: "..tostring(timeoutMapID)..")", "cache")
             end
 
-            if scanInfo.callback then
-                scanInfo.callback(false, "timeout", 0) -- 0 = fresh scan just completed
-            end
+            -- Clear before dispatching, for the same re-entrancy reason as the WHISPER
+            -- response path above.
             activeScanCallbacks[name] = nil
+            ResolveScanCallbacks(scanInfo, false, "timeout", 0) -- 0 = fresh scan just completed
         end
 
         -- If no more active callbacks, disable the global scan flag

@@ -118,9 +118,7 @@ function TRP3FW:InstallHooks()
     self:InstallSendQueryHook()      -- Track user-initiated TRP3 profile requests
     self:InstallMSPRequestHook()     -- Track user-initiated MSP/MRP/XRP profile requests
     self:InstallChompHook()          -- Location gating for TRP3/MSP sends
-    -- self:InstallTRP3Hooks()       -- DEPRECATED: Removed (targeted non-existent API)
     self:InstallSendObjectHook()     -- TRP3 sendObject hook (pre-serialization ghost mode)
-    -- self:InstallTRP3ExchangeHooks() -- DEPRECATED: Removed (redundant with SendObject hook)
     self:InstallMSPExchangeHooks()   -- LibMSP field exchange hooks (for ghost mode)
     self:InstallMSPHooks()
     self:InstallGradientHooks()

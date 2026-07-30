@@ -13,85 +13,10 @@ local START_PHASE_ID = 169
 
 function CacheService:Initialize()
     TRP3FW.Service.Initialize(self)
-    
-    self:InitializeCaches()
+
     self:InitializeCacheCleanup()
     self:InitializeZoneCacheClearing()
     self:InitializeInteractionTracking()
-end
-
--- ===================== Cache Initialization =====================
-
-function CacheService:InitializeCaches()
-    local CI = TRP3FW.CacheInterface
-    if not CI then
-        TRP3FW:Error("CacheInterface not loaded!")
-        return
-    end
-
-    -- Send Cache (Allowed Senders)
-    CI:Register("allowedSenders", {
-        ttl = TRP3FW.Prefs.sendCacheDuration,
-        maxSize = 1000
-    })
-
-    -- Interaction Cache
-    CI:Register("interaction", {
-        ttl = TRP3FW.Prefs.interactionCacheDuration,
-        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
-    })
-
-    -- Phase Check Cache
-    CI:Register("phaseCheck", {
-        ttl = TRP3FW.Prefs.phaseCacheDuration,
-        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
-    })
-
-    -- WHO Name Cache
-    CI:Register("whoName", {
-        ttl = TRP3FW.Prefs.whoNameCacheDuration,
-        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
-    })
-
-    -- WHO Zone Cache
-    CI:Register("whoZone", {
-        ttl = TRP3FW.Prefs.whoZoneCacheDuration,
-        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
-    })
-
-    -- Map Scan Cache (recentScans)
-    CI:Register("mapScan", {
-        ttl = TRP3FW.Prefs.scanCacheDuration,
-        maxSize = 1000
-    })
-
-    -- Broadcast Cache (recentBroadcasts)
-    CI:Register("broadcast", {
-        ttl = TRP3FW.Prefs.scanCacheDuration,
-        maxSize = 1000
-    })
-
-    -- SPVP Verified Cache
-    CI:Register("spvpVerified", {
-        ttl = TRP3FW.Prefs.spvpVerifiedCacheDuration or 300,
-        maxSize = 1000
-    })
-
-    -- SPVP Phase Salt Cache
-    CI:Register("spvpPhaseSalt", {
-        ttl = TRP3FW.Prefs.spvpSaltCacheDuration or 10800,
-        maxSize = 500
-    })
-
-    -- Name Normalization Caches (Utility)
-    CI:Register("cleanName", {
-        maxSize = TRP3FW.Prefs.cleanNameCacheSize or 500
-    })
-    CI:Register("sanitizedName", {
-        maxSize = TRP3FW.Prefs.sanitizedNameCacheSize or 500
-    })
-
-    TRP3FW:Debug("[CacheService] Core caches registered with CacheInterface", "cache")
 end
 
 -- ===================== Cleanup Logic =====================
@@ -362,28 +287,6 @@ function CacheService:InitializeCacheCleanup()
                 end
             end
 
-            if TRP3FW.pendingPhaseInRequests then
-                local now = TRP3FW:GetCurrentTime()
-                local pruned = 0
-                local kept = {}
-
-                for i, request in ipairs(TRP3FW.pendingPhaseInRequests) do
-                    local age = now - (request.queuedAt or 0)
-
-                    if age < 60 then
-                        table.insert(kept, request)
-                    else
-                        pruned = pruned + 1
-                        TRP3FW:Debug("[Cache Prune] Removed stale phase-in request for "..tostring(request.playerName).." (age: "..string.format("%.1f", age).."s)", "cache")
-                    end
-                end
-
-                if pruned > 0 then
-                    TRP3FW.pendingPhaseInRequests = kept
-                    TRP3FW:Debug("[Cache Prune] pendingPhaseInRequests: Pruned "..pruned.." stale entries, "..#kept.." remaining", "cache")
-                end
-            end
-
             if TRP3FW.pendingPhaseInSends then
                 local now = TRP3FW:GetCurrentTime()
                 local ttl = math.max((TRP3FW.Prefs.phaseInDelay or 4) * 3, 10)
@@ -449,6 +352,14 @@ function CacheService:InitializeCacheCleanup()
                 self:CleanupTimestampCache(TRP3FW.pendingSends, 60, "pendingSends")
             end
 
+            -- Cleanup alertOnlyChecksInFlight (AlertFastPathStage's per-player dedup markers).
+            -- Entries are normally cleared by the cascading callback; this is the backstop for
+            -- a check whose callback never fires, so the table cannot grow with one entry per
+            -- player encountered in alert-only mode.
+            if TRP3FW.alertOnlyChecksInFlight then
+                self:CleanupTimestampCache(TRP3FW.alertOnlyChecksInFlight, 60, "alertOnlyChecksInFlight")
+            end
+
             -- FIX: Cleanup pendingPhaseChecks (phase check priority queue)
             if TRP3FW.pendingPhaseChecks then
                 local now = TRP3FW:GetCurrentTime()
@@ -474,6 +385,13 @@ function CacheService:InitializeCacheCleanup()
     -- OPTIMIZATION: TTL-based cleanup for validated names cache (user-configurable)
     -- Removes entries older than validatedNamesCacheDuration (default: 7 days)
     -- Also enforces hard limit of 5000 entries as safety fallback
+    --
+    -- N10 — CLOCK CONVENTION:
+    --   Persistent SavedVariables caches (TRP3FW_ValidatedNames) MUST use `time()` (Unix
+    --   epoch seconds). Session caches (anything keyed off TRP3FW:GetCurrentTime() or
+    --   GetTime()) MUST use session-relative seconds. Mixing the two produces ~1.7e9-second
+    --   age math and prunes everything on first cleanup. The assertion below guards writers
+    --   that get this wrong.
     C_Timer.NewTicker(3600, function()  -- Once per hour
         if not TRP3FW_ValidatedNames or not TRP3FW.Prefs then return end
 
@@ -481,17 +399,28 @@ function CacheService:InitializeCacheCleanup()
         local ttl = TRP3FW.Prefs.validatedNamesCacheDuration or 604800 -- Default: 7 days
         local pruned = 0
         local total = 0
+        local skippedBadClock = 0
 
         -- Prune expired entries based on TTL
         for name, entry in pairs(TRP3FW_ValidatedNames) do
             total = total + 1
             local timestamp = type(entry) == "table" and entry.timestamp or 0
-            local age = now - timestamp
 
-            if age > ttl then
-                TRP3FW_ValidatedNames[name] = nil
-                pruned = pruned + 1
+            -- N10 guard: session-relative timestamps will be tiny vs `time()` epoch values.
+            -- Skip them and warn rather than mass-pruning legitimate entries on first run.
+            if timestamp > 0 and timestamp < 1000000000 then
+                skippedBadClock = skippedBadClock + 1
+            else
+                local age = now - timestamp
+                if age > ttl then
+                    TRP3FW_ValidatedNames[name] = nil
+                    pruned = pruned + 1
+                end
             end
+        end
+
+        if skippedBadClock > 0 then
+            TRP3FW:Warn("[ValidatedNames] "..skippedBadClock.." entries have session-relative timestamps; writer is using GetTime() instead of time(). Skipping prune for those.")
         end
 
         local remaining = total - pruned
@@ -536,39 +465,27 @@ end
 -- ===================== Zone/Phase Change Logic =====================
 
 function CacheService:InitializeZoneCacheClearing()
-    local zoneChangeFrame = CreateFrame("Frame")
-    zoneChangeFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    zoneChangeFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    zoneChangeFrame:RegisterEvent("SCENARIO_UPDATE")
-    zoneChangeFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
-    
-    -- Epsilon-specific phase change event
-    if TRP3FW.hasEpsilonAPI then
-        pcall(function() zoneChangeFrame:RegisterEvent("EPSILON_PHASE_CHANGE") end)
-    end
+    local ES = TRP3FW.ServiceContainer:Get("EventService")
+    if not ES then return end
 
-    zoneChangeFrame:SetScript("OnEvent", function(frame, event)
+    local function HandleZonePhaseChange(event, ...)
         local start = debugprofilestop()
         local now = TRP3FW:GetCurrentTime()
         local CI = TRP3FW.CacheInterface
 
-        local zone = GetZoneText()
+        -- EPSILON FIX: Use GetRealZoneText first (more reliable for custom-renamed maps)
+        local zone = GetRealZoneText()
         if not zone or zone == "" then
-            zone = GetRealZoneText()
+            zone = GetZoneText()
         end
         if not zone or zone == "" then
             zone = GetMinimapZoneText()
         end
         TRP3FW.currentZoneName = (zone and zone ~= "") and zone or nil
 
-        -- Special handling for loading screen end: reset phase-in timer but don't clear caches
-        if event == "LOADING_SCREEN_DISABLED" then
-            TRP3FW:Debug("[Zone Change] Loading screen finished, resetting phase-in timer", "cache")
-            TRP3FW.lastZoneChangeTime = now
-            return
-        end
-
         local shouldClear = false
+        local isMergedEvent = false  -- Track if zone+phase events happened close together
+
         if event == "SCENARIO_UPDATE" or event == "EPSILON_PHASE_CHANGE" then
             shouldClear = TRP3FW.Prefs.clearCacheOnPhaseChange
             TRP3FW:Debug(string.format("[%s] Detected, clearCacheOnPhaseChange=%s", event, tostring(shouldClear)), "cache")
@@ -585,6 +502,7 @@ function CacheService:InitializeZoneCacheClearing()
 
             if (now - (TRP3FW.lastPhaseChangeTime or 0)) < 0.5 then
                 TRP3FW:Debug("[Zone Change] Phase event fired recently, merging clear settings", "cache")
+                isMergedEvent = true  -- Zone change happened right after phase change
             end
             TRP3FW.lastZoneEventTime = now
 
@@ -595,83 +513,78 @@ function CacheService:InitializeZoneCacheClearing()
 
         if not shouldClear then
             TRP3FW:Debug("[Cache] Skipping cache clear for "..event.." (disabled in settings)", "cache")
-            return
-        end
+            -- FALL THROUGH to prepopulate logic (don't return!)
+        else
+            TRP3FW:Debug("[Zone/Phase Change] Clearing caches due to "..event, "cache")
+            TRP3FW.lastZoneChangeTime = now
 
-        TRP3FW:Debug("[Zone/Phase Change] Clearing caches due to "..event, "cache")
-        TRP3FW.lastZoneChangeTime = now
+            if event == "SCENARIO_UPDATE" or event == "EPSILON_PHASE_CHANGE" then
+                if TRP3FW.Prefs.clearPhaseCheckOnPhaseChange then if CI then CI:Clear("phaseCheck") end end
+                if TRP3FW.Prefs.clearAllowedSendersOnPhaseChange then if CI then CI:Clear("allowedSenders") end end
+                if TRP3FW.Prefs.clearInteractionOnPhaseChange then if CI then CI:Clear("interaction") end end
+                if TRP3FW.Prefs.clearSuppressionOnPhaseChange then
+                    if TRP3FW.profileSendHistory then wipe(TRP3FW.profileSendHistory) end
+                    if TRP3FW.scanNotificationHistory then wipe(TRP3FW.scanNotificationHistory) end
+                end
+                if TRP3FW.Prefs.clearRecentBroadcastsOnPhaseChange then if CI then CI:Clear("broadcast") end end
+                if TRP3FW.Prefs.clearRecentScansOnPhaseChange then if CI then CI:Clear("mapScan") end end
+                if TRP3FW.Prefs.clearWhoZoneOnPhaseChange then if CI then CI:Clear("whoZone") end end
+                if TRP3FW.Prefs.clearWhoNameOnPhaseChange then if CI then CI:Clear("whoName") end end
+                if TRP3FW.Prefs.clearSpvpOnPhaseChange then
+                    if CI then
+                        CI:Clear("spvpVerified")
+                        CI:Clear("spvpPhaseSalt")
+                    end
+                end
 
-        local isMergedEvent = false
-        if event == "ZONE_CHANGED_NEW_AREA" and (now - (TRP3FW.lastPhaseChangeTime or 0)) < 0.5 then
-            isMergedEvent = true
-        end
+            elseif event == "ZONE_CHANGED_NEW_AREA" then
+                if TRP3FW.Prefs.clearPhaseCheckOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearPhaseCheckOnPhaseChange) then
+                    if CI then CI:Clear("phaseCheck") end
+                end
+                if TRP3FW.Prefs.clearAllowedSendersOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearAllowedSendersOnPhaseChange) then
+                    if CI then CI:Clear("allowedSenders") end
+                end
+                if TRP3FW.Prefs.clearInteractionOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearInteractionOnPhaseChange) then
+                    if CI then CI:Clear("interaction") end
+                end
+                if TRP3FW.Prefs.clearSuppressionOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearSuppressionOnPhaseChange) then
+                    if TRP3FW.profileSendHistory then wipe(TRP3FW.profileSendHistory) end
+                    if TRP3FW.scanNotificationHistory then wipe(TRP3FW.scanNotificationHistory) end
+                end
+                if TRP3FW.Prefs.clearRecentBroadcastsOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearRecentBroadcastsOnPhaseChange) then
+                    if CI then CI:Clear("broadcast") end
+                end
+                if TRP3FW.Prefs.clearRecentScansOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearRecentScansOnPhaseChange) then
+                    if CI then CI:Clear("mapScan") end
+                end
+                TRP3FW.recentScanRequests = {}
+                if TRP3FW.Prefs.clearWhoZoneOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearWhoZoneOnPhaseChange) then
+                    if CI then CI:Clear("whoZone") end
+                end
+                if TRP3FW.Prefs.clearWhoNameOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearWhoNameOnPhaseChange) then
+                    if CI then CI:Clear("whoName") end
+                end
+                if TRP3FW.Prefs.clearSpvpOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearSpvpOnPhaseChange) then
+                    if CI then
+                        CI:Clear("spvpVerified")
+                        CI:Clear("spvpPhaseSalt")
+                    end
+                end
 
-        if event == "SCENARIO_UPDATE" or event == "EPSILON_PHASE_CHANGE" then
-            if TRP3FW.Prefs.clearPhaseCheckOnPhaseChange then if CI then CI:Clear("phaseCheck") end end
-            if TRP3FW.Prefs.clearAllowedSendersOnPhaseChange then if CI then CI:Clear("allowedSenders") end end
-            if TRP3FW.Prefs.clearInteractionOnPhaseChange then if CI then CI:Clear("interaction") end end
-            if TRP3FW.Prefs.clearSuppressionOnPhaseChange then
-                TRP3FW.profileSendHistory = {}
-                TRP3FW.scanNotificationHistory = {}
-            end
-            if TRP3FW.Prefs.clearRecentBroadcastsOnPhaseChange then if CI then CI:Clear("broadcast") end end
-            if TRP3FW.Prefs.clearRecentScansOnPhaseChange then if CI then CI:Clear("mapScan") end end
-            if TRP3FW.Prefs.clearWhoZoneOnPhaseChange then if CI then CI:Clear("whoZone") end end
-            if TRP3FW.Prefs.clearWhoNameOnPhaseChange then if CI then CI:Clear("whoName") end end
-            if TRP3FW.Prefs.clearSpvpOnPhaseChange then 
-                if CI then 
+            elseif event == "PLAYER_ENTERING_WORLD" then
+                if CI then
+                    CI:Clear("phaseCheck")
+                    CI:Clear("allowedSenders")
+                    CI:Clear("interaction")
+                    CI:Clear("broadcast")
+                    CI:Clear("mapScan")
+                    CI:Clear("whoZone")
+                    CI:Clear("whoName")
                     CI:Clear("spvpVerified")
                     CI:Clear("spvpPhaseSalt")
-                end 
-            end
-
-        elseif event == "ZONE_CHANGED_NEW_AREA" then
-            if TRP3FW.Prefs.clearPhaseCheckOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearPhaseCheckOnPhaseChange) then
-                if CI then CI:Clear("phaseCheck") end
-            end
-            if TRP3FW.Prefs.clearAllowedSendersOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearAllowedSendersOnPhaseChange) then
-                if CI then CI:Clear("allowedSenders") end
-            end
-            if TRP3FW.Prefs.clearInteractionOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearInteractionOnPhaseChange) then
-                if CI then CI:Clear("interaction") end
-            end
-            if TRP3FW.Prefs.clearSuppressionOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearSuppressionOnPhaseChange) then
-                TRP3FW.profileSendHistory = {}
-                TRP3FW.scanNotificationHistory = {}
-            end
-            if TRP3FW.Prefs.clearRecentBroadcastsOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearRecentBroadcastsOnPhaseChange) then
-                if CI then CI:Clear("broadcast") end
-            end
-            if TRP3FW.Prefs.clearRecentScansOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearRecentScansOnPhaseChange) then
-                if CI then CI:Clear("mapScan") end
-            end
-            TRP3FW.recentScanRequests = {}
-            if TRP3FW.Prefs.clearWhoZoneOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearWhoZoneOnPhaseChange) then
-                if CI then CI:Clear("whoZone") end
-            end
-            if TRP3FW.Prefs.clearWhoNameOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearWhoNameOnPhaseChange) then
-                if CI then CI:Clear("whoName") end
-            end
-            if TRP3FW.Prefs.clearSpvpOnZoneChange or (isMergedEvent and TRP3FW.Prefs.clearSpvpOnPhaseChange) then
-                if CI then 
-                    CI:Clear("spvpVerified")
-                    CI:Clear("spvpPhaseSalt") 
                 end
+                TRP3FW.recentScanRequests = {}
             end
-
-        elseif event == "PLAYER_ENTERING_WORLD" then
-            if CI then
-                CI:Clear("phaseCheck")
-                CI:Clear("allowedSenders")
-                CI:Clear("interaction")
-                CI:Clear("broadcast")
-                CI:Clear("mapScan")
-                CI:Clear("whoZone")
-                CI:Clear("whoName")
-                CI:Clear("spvpVerified")
-                CI:Clear("spvpPhaseSalt")
-            end
-            TRP3FW.recentScanRequests = {}
         end
 
         -- After clears, enforce caps and drop cross-zone interaction entries
@@ -680,9 +593,16 @@ function CacheService:InitializeZoneCacheClearing()
 
         local shouldPrepopWho = TRP3FW.Prefs.prepopulateWhoCache ~= false and ((isMergedEvent and TRP3FW.Prefs.prepopulateWhoOnPhase ~= false) or (not isMergedEvent and TRP3FW.Prefs.prepopulateWhoOnZone ~= false))
 
+        TRP3FW:Debug(string.format("[Prepopulate] shouldPrepopWho=%s (prepopulateWhoCache=%s, isMergedEvent=%s, prepopulateWhoOnPhase=%s, prepopulateWhoOnZone=%s)",
+            tostring(shouldPrepopWho),
+            tostring(TRP3FW.Prefs.prepopulateWhoCache),
+            tostring(isMergedEvent),
+            tostring(TRP3FW.Prefs.prepopulateWhoOnPhase),
+            tostring(TRP3FW.Prefs.prepopulateWhoOnZone)), "cache")
+
         if shouldPrepopWho then
-            local configuredDelay = math.max(TRP3FW.Prefs.phaseInDelay or 4, 0)
-            local prepopulateDelay = configuredDelay > 2 and (configuredDelay - 2) or 0
+            local configuredDelay = math.max(TRP3FW.Prefs.phaseInDelay or 5, 0)
+            local prepopulateDelay = configuredDelay -- Use the configured delay (5s) directly
 
             local now = time()
             if TRP3FW.nextAllowedWhoPrepopulate and now < TRP3FW.nextAllowedWhoPrepopulate then
@@ -696,40 +616,80 @@ function CacheService:InitializeZoneCacheClearing()
 
             TRP3FW.pendingWhoPrepopulateTimer = C_Timer.NewTimer(prepopulateDelay, function()
                 TRP3FW.pendingWhoPrepopulateTimer = nil
+                TRP3FW:Debug("[Prepopulate] Timer fired, starting WHO prepopulation", "cache")
 
-                local zoneName
-                local mapID = C_Map.GetBestMapForUnit("player")
-                if mapID then
-                    local info = C_Map.GetMapInfo(mapID)
-                    if info and info.name and info.name ~= "" then
-                        zoneName = info.name
-                        TRP3FW.currentMapID = mapID
-                    end
+                -- EPSILON FIX: Prioritize actual zone text over map info (maps can be renamed on Epsilon)
+                local zoneName = GetRealZoneText()  -- Most reliable for current zone
+                if not zoneName or zoneName == "" then
+                    zoneName = GetZoneText()  -- Fallback to main zone
                 end
                 if not zoneName or zoneName == "" then
-                    zoneName = GetZoneText()
-                    if not zoneName or zoneName == "" then zoneName = GetRealZoneText() end
-                    if not zoneName or zoneName == "" then zoneName = GetMinimapZoneText() end
+                    zoneName = GetMinimapZoneText()  -- Fallback to minimap
                 end
 
+                -- Only use map info as last resort (may return default Blizzard name on Epsilon)
+                if not zoneName or zoneName == "" then
+                    local mapID = C_Map.GetBestMapForUnit("player")
+                    if mapID then
+                        local info = C_Map.GetMapInfo(mapID)
+                        if info and info.name and info.name ~= "" then
+                            zoneName = info.name
+                        end
+                    end
+                end
+
+                -- Store mapID separately for reference
+                local mapID = C_Map.GetBestMapForUnit("player")
+                if mapID then
+                    TRP3FW.currentMapID = mapID
+                end
+
+                TRP3FW:Debug("[Prepopulate] Detected zone: "..tostring(zoneName).." (mapID: "..tostring(mapID)..")", "cache")
+
+                -- Sanitize as a GATE on prepopulating, but do NOT write the sanitized form
+                -- back to currentZoneName.
+                --
+                -- currentZoneName is the RAW zone name (set from GetRealZoneText at :476) and
+                -- every consumer is built around that: WhoService sanitizes at the point of
+                -- use because the zone name crosses a RunPrivileged string boundary there
+                -- (see WhoService.lua:389-395). This line used to overwrite it with the
+                -- sanitized form, so the variable alternated between two forms depending on
+                -- which code path last ran -- and it is used as a `whoZone` CACHE KEY and
+                -- compared against entry.zone in PruneInteractionZoneMismatch, so two forms
+                -- mean two keyspaces and a prune that drops entries stored under the other.
                 local sanitized = zoneName and TRP3FW:SanitizeZoneName(zoneName) or nil
                 if not sanitized then
+                    TRP3FW:Debug("[Prepopulate] Zone sanitization failed, aborting prepopulation", "cache")
                     return
                 end
 
-                TRP3FW.currentZoneName = sanitized
+                TRP3FW:Debug("[Prepopulate] Zone validated: "..tostring(zoneName), "cache")
 
                 if TRP3FW.hasEpsilonAPI and TRP3FW.Prefs.useWhoQuery then
-                    TRP3FW:CheckPlayerViaWho("__PREPOPULATE__", 0, function(found, source, cacheAge, zone, mapID)
-                        TRP3FW:Debug("[Zone Change] WHO zone cache pre-populated (source: "..tostring(source)..")", "cache")
+                    TRP3FW:Debug("[Prepopulate] Epsilon API and useWhoQuery enabled, starting WHO query", "cache")
+                    -- Use player's own name for prepopulation to ensure it passes sanitization
+                    local myName = UnitName("player")
+                    TRP3FW:CheckPlayerViaWho(myName, 0, function(found, source, cacheAge, zone, mapID)
+                        TRP3FW:Debug("[Prepopulate] WHO query completed - found="..tostring(found)..", source="..tostring(source)..", zone="..tostring(zone), "cache")
                     end, false)
+                else
+                    TRP3FW:Debug("[Prepopulate] Skipped - hasEpsilonAPI="..tostring(TRP3FW.hasEpsilonAPI)..", useWhoQuery="..tostring(TRP3FW.Prefs.useWhoQuery), "cache")
                 end
             end)
+
+            TRP3FW:Debug("[Prepopulate] Timer scheduled for "..tostring(prepopulateDelay).."s", "cache")
         end
-        
+
         local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService")
         if hs then hs:RecordPerformance(debugprofilestop() - start, "Zone Change Cleanup") end
-    end)
+    end
+
+    ES:RegisterCallback(ES.Events.ZONE_CHANGED, HandleZonePhaseChange, 10)
+    ES:RegisterCallback(ES.Events.PHASE_CHANGED, HandleZonePhaseChange, 10)
+    ES:RegisterCallback("LOADING_FINISHED", function()
+        TRP3FW:Debug("[Zone Change] Loading screen finished, resetting phase-in timer", "cache")
+        TRP3FW.lastZoneChangeTime = TRP3FW:GetCurrentTime()
+    end, 10)
 end
 
 -- ===================== Interaction Tracking =====================
@@ -739,21 +699,26 @@ function CacheService:InitializeInteractionTracking()
         return
     end
 
-    local interactionFrame = CreateFrame("Frame")
-    -- OPTIMIZATION: Interaction refresh logic uses percentage of TTL
-    local refreshPercent = TRP3FW.Prefs.interactionRefreshRate or 10
-    local cacheDuration = TRP3FW.Prefs.interactionCacheDuration or 600
-    local refreshThreshold = cacheDuration * (refreshPercent / 100)
-    
+    local ES = TRP3FW.ServiceContainer:Get("EventService")
+    if not ES then return end
+
+    -- Interaction refresh logic uses a percentage of the TTL.
+    --
+    -- Read LIVE, not snapshotted into the closure at init. These two prefs are editable in the
+    -- settings UI and via /trp3fw, and capturing them here meant a change had no effect until
+    -- /reload -- with nothing in the UI saying so. The cost is two table reads and a multiply
+    -- on a path that already calls CleanPlayerName and is throttled to 2Hz besides, so the
+    -- perf argument for snapshotting does not survive contact with the numbers.
+    local function GetRefreshThreshold()
+        local refreshPercent = TRP3FW.Prefs.interactionRefreshRate or 10
+        local cacheDuration = TRP3FW.Prefs.interactionCacheDuration or 600
+        return cacheDuration * (refreshPercent / 100)
+    end
+
     local lastMouseoverProcess = 0
     local MOUSEOVER_THROTTLE = 0.5  -- OPTIMIZATION: Reduced from 0.1s (10Hz) to 0.5s (2Hz) for 80% event reduction
 
-    interactionFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
-    interactionFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
-    self.interactionTrackingInitialized = true
-    TRP3FW:Debug("[CacheService] Interaction tracking enabled (refresh threshold: "..string.format("%.1f", refreshThreshold).."s)", "cache")
-
-    interactionFrame:SetScript("OnEvent", function(frame, event)
+    local function OnInteractionEvent(event)
         local start = debugprofilestop()
         if TRP3FW.Prefs.blockStartPhase and TRP3FW.hasEpsilonAPI then
             local myPhaseID = tonumber(C_Epsilon.GetPhaseId())
@@ -773,27 +738,36 @@ function CacheService:InitializeInteractionTracking()
                 local unitName = UnitName("mouseover")
                 if not unitName then return end
 
-                -- OPTIMIZATION: Check cache BEFORE expensive CleanPlayerName call
-                -- This avoids regex pattern matching on cache hits (common case)
+                -- Read and write must use the SAME key. This used to read with the RAW
+                -- unitName but write with CleanPlayerName(unitName), justified as "check the
+                -- cache before the expensive CleanPlayerName call". CleanPlayerName truncates
+                -- at the first hyphen, so for any hyphenated name the read was a guaranteed
+                -- miss and every single mouseover redundantly re-Set the entry -- the same
+                -- defect class as the allowedSenders/interaction key mismatch in 30ee55c.
+                --
+                -- The optimization it bought was largely illusory anyway: CleanPlayerName is
+                -- cached twice over (the persistent TRP3FW_ValidatedNames cache plus the clean
+                -- -name cache), so the "expensive" path is a table lookup for any name seen
+                -- before -- which, on a repeat mouseover, is exactly the case being optimized.
                 local CI = TRP3FW.CacheInterface
                 local now = TRP3FW:GetCurrentTime()
-                local existing = CI and CI:Get("interaction", unitName)
+                local name = TRP3FW:CleanPlayerName(unitName)
+                if not name then return end
 
-                -- Only do expensive CleanPlayerName if cache miss or stale entry
-                if not existing or (now - existing.timestamp) > refreshThreshold then
-                    local name = TRP3FW:CleanPlayerName(unitName)
-                    if name then
-                        local zone = TRP3FW.currentZoneName or "Unknown"
-                        if CI then
-                            CI:Set("interaction", name, {
-                                timestamp = now,
-                                zone = zone,
-                                source = "mouseover"
-                            })
-                            TRP3FW:Debug(function()
-                                return "[Interaction Cache] Cached "..name.." from mouseover in "..zone
-                            end, "cache")
-                        end
+                local existing = CI and CI:Get("interaction", name)
+
+                if not existing or (now - existing.timestamp) > GetRefreshThreshold() then
+                    local zone = TRP3FW.currentZoneName or "Unknown"
+                    if CI then
+                        CI:Set("interaction", name, {
+                            timestamp = now,
+                            zone = zone,
+                            mapID = TRP3FW.currentMapID,
+                            source = "mouseover"
+                        })
+                        TRP3FW:Debug(function()
+                            return "[Interaction Cache] Cached "..name.." from mouseover in "..zone
+                        end, "cache")
                     end
                 end
             end
@@ -809,12 +783,13 @@ function CacheService:InitializeInteractionTracking()
                 if name then
                     local now = TRP3FW:GetCurrentTime()
                     local zone = TRP3FW.currentZoneName or "Unknown"
-                    
+
                     local CI = TRP3FW.CacheInterface
                     if CI then
                         CI:Set("interaction", name, {
                             timestamp = now,
                             zone = zone,
+                            mapID = TRP3FW.currentMapID,
                             source = "target"
                         })
                         TRP3FW:Debug(function()
@@ -827,7 +802,13 @@ function CacheService:InitializeInteractionTracking()
 
         local hs = TRP3FW.ServiceContainer and TRP3FW.ServiceContainer:Get("HistoryService")
         if hs then hs:RecordPerformance(debugprofilestop() - start, "Interaction Tracking") end
-    end)
+    end
+
+    ES:RegisterCallback(ES.Events.TARGET_CHANGED, OnInteractionEvent)
+    ES:RegisterCallback("MOUSEOVER_CHANGED", OnInteractionEvent)
+
+    self.interactionTrackingInitialized = true
+    TRP3FW:Debug("[CacheService] Interaction tracking enabled (refresh threshold: "..string.format("%.1f", GetRefreshThreshold()).."s)", "cache")
 end
 
 TRP3FW.ServiceContainer:Register(CacheService)

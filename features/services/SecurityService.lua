@@ -20,7 +20,17 @@ local function countChar(str, char)
 end
 
 -- Constants
-local SANITIZE_NAME_PATTERN = "^([%a_%s_%'\128-%255]+%-?[%a_%s_%'\128-%255]*)$"
+-- High-byte range must be written \128-\255 (decimal escapes). The previous form
+-- "\128-%255" was malformed: %2 is not a valid range endpoint, so the intended
+-- 128-255 accented-character range was broken AND digits 2/5 leaked into the class
+-- (letting names like "Bob2" pass). Mirrors the correct SANITIZE_ZONE_PATTERN below.
+--
+-- NOTE: This pattern has no digit class (%d) by design - player names are assumed
+-- letters/space/apostrophe/hyphen/high-byte only (confirmed for Epsilon as of 2026-07).
+-- If that assumption turns out wrong (server allows digits in character names, e.g.
+-- "Bob2"), every profile exchange with such a player silently fails sanitization here
+-- AND in CleanPlayerName's reject-class below (same missing %d) - add %d to both.
+local SANITIZE_NAME_PATTERN = "^([%a_%s%'\128-\255]+%-?[%a_%s%'\128-\255]*)$"
 local SANITIZE_ZONE_PATTERN = "^([%w%s'%-\128-\255]+)$"
 local CONTROL_CHAR_PATTERN = "%z"
 local CONTROL_CLASS_PATTERN = "%c"
@@ -35,10 +45,19 @@ local DEBUG_REDACTION_PATTERNS = {
     {category = "locations",pattern = "phase ID: %d+", replacement = "phase ID: [REDACTED]"},
     {category = "locations",pattern = "phaseID[=%s:]+%d+", replacement = "phaseID=[REDACTED]"},
     {category = "locations",pattern = "Phase ID[=%s:]+%d+", replacement = "Phase ID=[REDACTED]"},
-    {category = "spvp",     pattern = "salt: %x+:%d+", replacement = "salt: [REDACTED]"},
-    {category = "spvp",     pattern = "salt: %x+", replacement = "salt: [REDACTED]"},
-    {category = "spvp",     pattern = "INIT:%d+:%x+:%d+", replacement = "INIT:X:REDACTED:REDACTED"},
-    {category = "spvp",     pattern = "REPLY:%x+:%d+:%x+", replacement = "REPLY:REDACTED:REDACTED:REDACTED"},
+    -- SPVP. NOTE these are DEFENCE IN DEPTH, not the primary control: the real fix is that
+    -- production code no longer logs salt material at all (spvp_auto_init logs only a length,
+    -- and /trp3fw spvpdebug prints a fingerprint via TRP3FW:GetSaltFingerprint).
+    --
+    -- The character class is %w, not %x. These previously required HEX, but per the salt
+    -- contract Epsilon returns 15-char NON-HEX tickets, and any such value sailed straight
+    -- through unredacted. Order matters: the timestamped form must precede the bare form, or
+    -- the bare pattern consumes the leading hash and leaves the ":<timestamp>" dangling.
+    {category = "spvp",     pattern = "salt: %w+:%d+", replacement = "salt: [REDACTED]"},
+    {category = "spvp",     pattern = "salt: %w+", replacement = "salt: [REDACTED]"},
+    {category = "spvp",     pattern = "[Ss]alt for phase %d+: %w+", replacement = "salt for phase [REDACTED]: [REDACTED]"},
+    {category = "spvp",     pattern = "INIT:%d+:%w+:%d+", replacement = "INIT:X:REDACTED:REDACTED"},
+    {category = "spvp",     pattern = "REPLY:%w+:%d+:%w+", replacement = "REPLY:REDACTED:REDACTED:REDACTED"},
 }
 
 function SecurityService:Initialize()
@@ -99,7 +118,9 @@ function SecurityService:CleanPlayerName(name)
     if TRP3FW_ValidatedNames and TRP3FW_ValidatedNames[name] then
         local entry = TRP3FW_ValidatedNames[name]
         local timestamp = type(entry) == "table" and entry.timestamp or 0
-        local ttl = TRP3FW.Prefs.validatedNamesCacheDuration or 604800 -- Default: 7 days
+        -- Prefs may not be loaded yet: this is reachable from hooks that can fire before
+        -- LoadProfile runs. Every other Prefs read in this file guards; this one didn't.
+        local ttl = (TRP3FW.Prefs and TRP3FW.Prefs.validatedNamesCacheDuration) or 604800 -- Default: 7 days
         local age = time() - timestamp
 
         -- Only use cache if entry is still valid
@@ -121,6 +142,8 @@ function SecurityService:CleanPlayerName(name)
     local cleanName = name:match("^([^%-]+)") or name
     local normalized = cleanName -- Epsilon allows spaces in names, do not replace with underscores
 
+    -- NOTE: no %d here either - see SANITIZE_NAME_PATTERN comment above. Add %d to this
+    -- reject-class too if digit-containing character names ever turn out to be valid.
     if normalized:find("[^%a_%s_%-%'\128-\255]") then
         TRP3FW:Debug("[SECURITY] Rejected malformed player name in CleanPlayerName: "..tostring(name).." (invalid characters)", "security")
         return nil
@@ -168,23 +191,16 @@ function SecurityService:SanitizePlayerName(name)
 
     local sanitized = name:match(SANITIZE_NAME_PATTERN)
     if sanitized then
-        sanitized = sanitized:gsub("\\", "\\\\"):gsub("\"", "\\\"")
+        sanitized = sanitized:gsub("\\", "\\\\"):gsub("\"", "\\\""):gsub("'", "\\'")
     end
 
     if (not sanitized or #sanitized == 0) then
         local fallback = self:CleanPlayerName(name)
         if fallback then
-            fallback = fallback:gsub("[\"\\]", ""):gsub("%c", "")
-            if #fallback >= 2 and #fallback <= 50 and fallback:find("[^%z]") then
-                sanitized = fallback
-            end
-        end
-    end
-
-    if not sanitized or #sanitized == 0 then
-        local fallback = self:CleanPlayerName(name)
-        if fallback then
-            fallback = fallback:gsub("[\"\\]", ""):gsub("%c", "")
+            -- Also escape single quotes in fallback if needed, or strip them if that's safer for fallbacks.
+            -- The spec says "strip-all-quotes" as a fallback strategy if escaping fails.
+            -- Here we'll strip them for the fallback as it already stripped " and \.
+            fallback = fallback:gsub("['\"\\]", ""):gsub("%c", "")
             if #fallback >= 2 and #fallback <= 50 and fallback:find("[^%z]") then
                 sanitized = fallback
             end
@@ -205,7 +221,7 @@ function SecurityService:SanitizePlayerName(name)
             sanitized = strippedName
         end
     end
-    
+
     local hyphenCount = countChar(sanitized, "-")
     if hyphenCount > 1 then
         TRP3FW:Debug("[SECURITY] Rejected player name with multiple hyphens", "security")

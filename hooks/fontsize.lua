@@ -14,7 +14,21 @@ local HTML_PRIORITY = {
 
 local HTML_TAG_PATTERN = "<%s*(/?)%s*([hHpP])([123]?)([^>]*)>"
 
-local FONT_WRAPPER_PATTERN = "^%s*{%s*([Hh][123]|[Pp])([:cCrR])?%s*}"
+-- Matches a leading TRP3 structure tag: "{h1}", "{h2:c}", "{p}", "{p:r}" (with optional
+-- inner whitespace). Two captures: the tag body ("h1"/"p") and the optional alignment
+-- suffix (":c"/":r"), which is discarded.
+--
+-- Lua patterns have no alternation and no "?" quantifier on groups, so this cannot be a
+-- single expression - a previous version wrote it as "([Hh][123]|[Pp])([:cCrR])?" and, since
+-- "|" and "?" are literals here, the whole function matched nothing but the string
+-- "{h1|Pc?}". Kept as two patterns, tried in order, instead.
+--
+-- Case: TRP3's own structureTags table (totalRP3 core/impl/utils.lua) is lowercase-only, so
+-- "{H1}" is not a tag TRP3 renders and must not be stripped as if it were.
+local FONT_WRAPPER_PATTERNS = {
+    "^%s*{%s*(h[123])(:?[cr]?)%s*}",
+    "^%s*{%s*(p)(:?[cr]?)%s*}",
+}
 local LEGACY_CHARACTER_FIELDS = {"CU", "CO"}
 
 local function NormalizeHtmlTag(letter, digit)
@@ -94,30 +108,32 @@ function TRP3FW:NormalizeFontWrappers(text, force)
         return text
     end
 
-    local startBlock = text:match(FONT_WRAPPER_PATTERN)
-    if not startBlock then
-        return text
+    local tag, openPattern
+    for _, pattern in ipairs(FONT_WRAPPER_PATTERNS) do
+        local captured = text:match(pattern)
+        if captured then
+            tag = captured
+            openPattern = pattern
+            break
+        end
     end
 
-    local tag = startBlock:match("([Hh][123]|[Pp])")
     if not tag then
         return text
     end
-    local lowerTag = tag:lower()
+
     local closingPattern
-    if lowerTag == "p" then
-        closingPattern = "{%s*/%s*[Pp]%s*}%s*$"
+    if tag == "p" then
+        closingPattern = "{%s*/%s*p%s*}%s*$"
     else
-        local digit = lowerTag:sub(2, 2)
-        local letterPattern = "[Hh]" .. digit
-        closingPattern = "{%s*/%s*" .. letterPattern .. "%s*}%s*$"
+        closingPattern = "{%s*/%s*h" .. tag:sub(2, 2) .. "%s*}%s*$"
     end
 
     if not text:find(closingPattern) then
         return text
     end
 
-    local cleaned = text:gsub(FONT_WRAPPER_PATTERN, "", 1)
+    local cleaned = text:gsub(openPattern, "", 1)
     cleaned = cleaned:gsub(closingPattern, "", 1)
     return cleaned
 end

@@ -47,12 +47,6 @@ function TRP3FW:ChompPipeline_GuardChecks_V2(prefix, text, chatType, target, pri
         return {shouldContinue = false, reason = "replay_guard"}
     end
 
-    -- Check if addon is enabled
-    if not TRP3FW.Prefs.enabled then -- Assumes global enabled setting exists, otherwise check specific modules
-        -- For now, just continue as there isn't a global 'enabled' toggle in defaultSettings
-    end
-
-    -- Check if TRP3 is available (implied by Chomp hook existence, but safe to check)
     if not AddOn_Chomp then
         return {shouldContinue = false, reason = "chomp_not_available"}
     end
@@ -100,7 +94,7 @@ function TRP3FW:ChompPipeline_PhaseInDelay_V2(playerName, prefix, text, chatType
             end
 
             -- Queue this send to replay after delay
-            table.insert(queueList, {
+            local queuedSend = {
                 prefix = prefix,
                 text = text,
                 chatType = chatType,
@@ -110,29 +104,48 @@ function TRP3FW:ChompPipeline_PhaseInDelay_V2(playerName, prefix, text, chatType
                 callback = callback,
                 callbackArg = callbackArg,
                 queuedAt = now
-            })
+            }
+            table.insert(queueList, queuedSend)
 
             -- Set timer to replay this send after delay
             C_Timer.After(delayRemaining, function()
-                -- Find and replay this send
+                -- Locate by table identity, not by (target, queuedAt). GetCurrentTime() is
+                -- frame-granular, so two sends to the same target in one frame share a
+                -- `queuedAt`; the pair of timers then both matched the first entry - replaying
+                -- it twice and leaving the second queued until the TTL sweep dropped it unsent.
+                local index
                 for i = #self.pendingPhaseInSends, 1, -1 do
-                    local queuedSend = self.pendingPhaseInSends[i]
-                    if queuedSend.target == target and queuedSend.queuedAt == now then
-                        self:Debug(function()
-                            return "[Chomp Hook] Replaying queued send to "..tostring(self:CleanPlayerName(target) or target).." after phase-in delay"
-                        end, "hooks")
-                        table.remove(self.pendingPhaseInSends, i)
-
-                        -- Set replay flag to prevent re-queueing
-                        chompState.replayingPhaseInSend = true
-
-                        -- Replay the send - it will go through all normal logic (phase check, ghost mode, etc.)
-                        AddOn_Chomp.SmartAddonMessage(queuedSend.prefix, queuedSend.text, queuedSend.chatType, queuedSend.target, queuedSend.priority, queuedSend.queue, queuedSend.callback, queuedSend.callbackArg)
-
-                        -- Clear replay flag
-                        chompState.replayingPhaseInSend = false
+                    if self.pendingPhaseInSends[i] == queuedSend then
+                        index = i
                         break
                     end
+                end
+
+                -- Already replayed, or evicted by the TTL/limit sweep above.
+                if not index then return end
+
+                self:Debug(function()
+                    return "[Chomp Hook] Replaying queued send to "..tostring(self:CleanPlayerName(target) or target).." after phase-in delay"
+                end, "hooks")
+                table.remove(self.pendingPhaseInSends, index)
+
+                -- Set replay flag to prevent re-queueing
+                chompState.replayingPhaseInSend = true
+
+                -- Replay the send - it will go through all normal logic (phase check, ghost
+                -- mode, etc.). This re-enters our own SmartAddonMessage wrapper, so the flag
+                -- above is the only thing stopping an immediate re-queue. Nothing in that
+                -- chain is wrapped in pcall, so an error anywhere in it used to skip the
+                -- clear below and latch the flag `true` for the rest of the session -
+                -- silently disabling every Chomp guard (recursion, phase-in, gating) until
+                -- /reload. pcall so the flag is always restored.
+                local ok, err = pcall(AddOn_Chomp.SmartAddonMessage, queuedSend.prefix, queuedSend.text, queuedSend.chatType, queuedSend.target, queuedSend.priority, queuedSend.queue, queuedSend.callback, queuedSend.callbackArg)
+
+                -- Clear replay flag
+                chompState.replayingPhaseInSend = false
+
+                if not ok then
+                    self:Debug("[Chomp Hook] ERROR replaying phase-in send: "..tostring(err), "hooks")
                 end
             end)
 
@@ -141,33 +154,6 @@ function TRP3FW:ChompPipeline_PhaseInDelay_V2(playerName, prefix, text, chatType
     end
 
     return {shouldContinue = true, queued = false}
-end
-
-function TRP3FW:ChompPipeline_MutualExchange_V2(playerName)
-    --[[
-        Stage 3: Detect mutual exchanges (both players sending profiles)
-
-        Returns: {shouldContinue=bool, isMutual=bool}
-    ]]
-
-    -- Check if this is a user-initiated exchange
-    local isUserInitiated = self:IsUserInitiatedExchange(playerName)
-
-    -- Check if this is a pending automatic MSP reply (non-time-based detection)
-    -- This part requires access to pendingMSPAutoReplies which is in hooks/trp3.lua
-    -- Since we are inside TRP3FW, we can access self.pendingMSPAutoReplies
-
-    -- Logic for TRP3 auto-replies is inferred: if NOT user-initiated, it's likely auto
-    -- But we can't be 100% sure without inspecting message content deeper, which we do in main loop
-
-    -- For the pipeline, we just return the status. The decision to "allow without location check"
-    -- happens in the main hook logic or can be moved here.
-    -- In the original code, IsUserInitiatedExchange checks are scattered.
-
-    -- If it is a user initiated exchange, we might want to suppress notifications but still check blocks.
-    -- However, the original code says: "Check if this is a user-initiated exchange... determine if this is a REQUEST or REPLY"
-
-    return {shouldContinue = true, isMutual = isUserInitiated}
 end
 
 function TRP3FW:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatType, target, priority, queue, callback, callbackArg)
@@ -215,7 +201,8 @@ function TRP3FW:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatT
                 if TRP3FW.Prefs.notifyOnStartPhaseBlock and cleanTarget then
                     self:ShowStartPhaseBlockNotification(cleanTarget, "MSP (ghost)")
                 end
-                self.sessionStats.ghostSends = self.sessionStats.ghostSends + 1
+                local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
+                if historyService then historyService:IncrementStat("ghostSends") end
                 return {shouldContinue = false, blocked = false, ghost = true} -- Allow original call
             else
                 -- TRP3 GHOST MODE: Enable ghost flag
@@ -227,7 +214,8 @@ function TRP3FW:ChompPipeline_StartPhaseBlock_V2(playerName, prefix, text, chatT
                     if TRP3FW.Prefs.notifyOnStartPhaseBlock and cleanTarget then
                         self:ShowStartPhaseBlockNotification(cleanTarget, "TRP3 (ghost)")
                     end
-                    self.sessionStats.ghostSends = self.sessionStats.ghostSends + 1
+                    local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
+                if historyService then historyService:IncrementStat("ghostSends") end
                     return {shouldContinue = false, blocked = false, ghost = true} -- Allow original call
                 else
                     self:Debug("[Chomp Hook] Failed to enable ghost flag, blocking send", "ghost")
@@ -290,17 +278,28 @@ function TRP3FW:ChompPipeline_BurstDetection_V2(playerName, prefix, text, chatTy
         end
 
         -- Mark as pending
-        self.pendingChompSends[playerName] = {
+        local burstEntry = {
             timestamp = self:GetCurrentTime(),
             zoneSnapshot = self.lastZoneChangeTime,
             phaseSnapshot = self.lastPhaseChangeTime,
             settingsFingerprint = getBurstFingerprintSafe(),
             queuedRequests = {}
         }
+        self.pendingChompSends[playerName] = burstEntry
 
-        -- Timeout
+        -- Timeout: give-up path for a burst whose location check never resolved.
+        --
+        -- The guard must be identity-based, not just presence-based. This entry lives under a
+        -- player key with no other owner marker, and the branch above retires an entry older
+        -- than 2s by replacing it - so a second request from the same player inside this 30s
+        -- window installs a NEW entry under the same key. A presence-only check ("is there
+        -- something here?") then deleted the newer burst along with its queuedRequests, and
+        -- those requests are never replayed: ProcessBurstAllows/ProcessBurstBlocks
+        -- (features/decision.lua:289, :343) both no-op on a missing key, so the sends were
+        -- neither sent, ghosted, nor blocked - the profile silently never arrived. Same defect
+        -- as the LocationStage timer (features/stages/LocationStage.lua:79).
         C_Timer.After(30, function()
-            if self.pendingChompSends and self.pendingChompSends[playerName] then
+            if self.pendingChompSends and self.pendingChompSends[playerName] == burstEntry then
                 self.pendingChompSends[playerName] = nil
             end
         end)
@@ -325,4 +324,4 @@ function TRP3FW:ChompPipeline_LocationGating_V2(playerName, addon, sendId, origi
     return {result = result}
 end
 
-print("TRP3FW Chomp Pipeline (V2) loaded")
+TRP3FW:Debug("Chomp Pipeline (V2) loaded", "hooks")

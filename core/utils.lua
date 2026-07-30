@@ -36,6 +36,10 @@ function TRP3FW:Info(msg)
     self:PrintColored("info", msg)
 end
 
+function TRP3FW:Success(msg)
+    self:PrintColored("info", msg)
+end
+
 function TRP3FW:Warn(msg)
     self:PrintColored("warn", msg)
 end
@@ -59,7 +63,15 @@ local DEBUG_CATEGORIES = {
     utils = "debugUtils",
     security = "debugSecurity",  -- Security-related messages (sanitization, cache limits, queue limits)
     ghost = "debugGhost",  -- Ghost mode execution flow and exchange hook calls
-    spvp = "debugSPVP"  -- SPVP (Secure Phase Verification Protocol) handshake and verification
+    spvp = "debugSPVP",  -- SPVP (Secure Phase Verification Protocol) handshake and verification
+    cleanname = "debugCleanName",  -- Player name normalization (toggle was previously orphaned)
+    -- Core infrastructure categories. Previously unmapped, so they bypassed the filter and
+    -- printed unconditionally; route them through debugUtils so debugfilter can silence them.
+    init = "debugUtils",
+    core = "debugUtils",
+    pipeline = "debugUtils",
+    queue = "debugUtils",
+    refactor = "debugUtils"
 }
 
 -- SECURITY: Redact sensitive information from debug messages
@@ -110,34 +122,36 @@ function TRP3FW:Debug(msg, category)
     -- SECURITY: Redact sensitive information before output
     debugMsg = RedactSensitiveData(debugMsg)
 
-    -- Determine output destination
+    -- Determine chat output. The debug window buffer is always fed (see below), so the
+    -- destination setting only controls whether messages *also* print to chat.
     local outputToChat = TRP3FW.Prefs.debugOutputChat or TRP3FW.Prefs.debugOutputBoth
-    local outputToWindow = TRP3FW.Prefs.debugOutputWindow or TRP3FW.Prefs.debugOutputBoth
 
     -- Output to chat if enabled
     if outputToChat then
         self:PrintColored("debug", debugMsg)
     end
 
-    -- Output to debug window if enabled
-    if outputToWindow and self.AddDebugMessage then
+    -- Always buffer for the debug window while debug mode is on, whether or not the
+    -- window is open. This lets you open the window after an event and read the backlog
+    -- instead of having to leave it open waiting for a bug to happen.
+    if self.AddDebugMessage then
         self:AddDebugMessage(debugMsg, category)
     end
 end
 
 -- Time utilities
--- OPTIMIZATION: Cache monotonic time per frame (millisecond key) to avoid repeat syscalls in the same frame
--- Uses GetTimePreciseSec when available to stay monotonic and immune to system clock changes
+-- Uses GetTimePreciseSec when available to stay monotonic and immune to system clock changes.
+--
+-- This used to carry a "frame cache" (cachedTime/cachedTimeFrame) that saved nothing: the
+-- clock syscall ran UNCONDITIONALLY on the first line, before the cache was consulted, so the
+-- cache could only add a multiply/floor/compare/two writes on top of a syscall it never
+-- avoided. The key was milliseconds rather than frames besides -- at 60fps a frame is ~16.7ms,
+-- so it missed ~16x per frame even in principle. Removed rather than repaired: a real frame
+-- cache needs a permanent OnUpdate handler whose cost is unconditional, to buy a saving nobody
+-- has measured. If clock reads ever show up under `/trp3fw profile on`, build it then, against
+-- a real number.
 function TRP3FW:GetCurrentTime()
-    local now = (GetTimePreciseSec and GetTimePreciseSec() or GetTime())
-    local frameStamp = math.floor(now * 1000)
-
-    if TRP3FW.cachedTimeFrame ~= frameStamp then
-        TRP3FW.cachedTime = now
-        TRP3FW.cachedTimeFrame = frameStamp
-    end
-
-    return TRP3FW.cachedTime or now
+    return (GetTimePreciseSec and GetTimePreciseSec() or GetTime())
 end
 
 function TRP3FW:FormatTime(s)
@@ -224,41 +238,6 @@ function TRP3FW:SanitizeZoneName(zone)
     return sanitized
 end
 
--- ===================== Location Formatting =====================
-
-function TRP3FW:FormatLocation(zone, map, phase)
-    --[[
-        Formats location information for display
-
-        @param zone string - Zone name (e.g., "Stormwind City")
-        @param map number|string - Map ID or map name (optional)
-        @param phase number|string - Phase ID (optional)
-        @return string - Formatted location string
-
-        Examples:
-        - FormatLocation("Stormwind", 1453) → "Stormwind (Stormwind City)"
-        - FormatLocation("Stormwind", nil, 169) → "Stormwind (Phase 169)"
-        - FormatLocation("Stormwind") → "Stormwind"
-    --]]
-
-    local parts = {zone or "Unknown"}
-
-    if phase then
-        table.insert(parts, "Phase " .. tostring(phase))
-    elseif map then
-        local mapName = type(map) == "number" and self:GetMapName(map) or map
-        if mapName and mapName ~= zone then
-            table.insert(parts, mapName)
-        end
-    end
-
-    if #parts > 1 then
-        return parts[1] .. " (" .. table.concat(parts, ", ", 2) .. ")"
-    end
-
-    return parts[1]
-end
-
 -- ===================== Burst Queue Processing =====================
 
 function TRP3FW:ProcessBurstQueue(queueName, playerName, processor)
@@ -299,19 +278,53 @@ end
 
 local RATE_LIMIT = 10 -- Max tokens per second for RunPrivileged API
 
--- SECURITY: Peek token bucket without consuming (mirrors RunPrivilegedSafe defaults)
-function TRP3FW:GetAvailablePrivilegedTokens()
-    if not self.privilegedRate then
-        return RATE_LIMIT -- Default max if not initialized
-    end
-    
-    local now = self:GetCurrentTime()
-    local elapsed = now - self.privilegedRate.lastRefill
-    local refill = elapsed * RATE_LIMIT
-    local tokens = math.min(RATE_LIMIT, (self.privilegedRate.tokens or RATE_LIMIT) + refill)
-    
-    return tokens
+-- FileDataIDs of the sounds WoW plays when the target changes (select / lost). We mute
+-- these FILES, and only while our automated phase-check targeting is in flight, so
+-- manual targeting keeps its sound and no other SFX is affected.
+--
+-- TAINT NOTE: we do NOT wrap the global PlaySound (that taints Blizzard's secure
+-- logout/exit path). MuteSoundFile is taint-free and file-scoped.
+--
+-- FileDataIDs confirmed on Epsilon 9.2.5 (identified with Leatrix Sounds +
+-- MuteSoundFile). The trailing number in a sound path like
+-- "sound/interface/iselecttarget.ogg#567453" is the FileDataID, which is what
+-- MuteSoundFile takes. If a build/server plays a different file, edit this list.
+local TARGET_SELECT_SOUND_FILES = {
+    567453,  -- sound/interface/iselecttarget.ogg   (target select)
+    567520,  -- sound/interface/ideselecttarget.ogg (target deselect)
+}
+
+-- Prepare the target-select mute (once). No hooks, no global replacement — just seeds
+-- the file list. Idempotent.
+function TRP3FW:InstallTargetSoundMute()
+    if self._targetSoundMuteInstalled then return end
+
+    local files = {}
+    for _, fid in ipairs(TARGET_SELECT_SOUND_FILES) do files[fid] = true end
+    self.targetSoundFiles = files
+    self.targetSoundFilesMuted = false
+
+    self._targetSoundMuteInstalled = true
+    self:Debug(function()
+        local n = 0; for _ in pairs(files) do n = n + 1 end
+        return "[Sound] Target-select mute ready ("..n.." files)"
+    end, "utils")
 end
+
+-- Mute/unmute the target-select files. Called around automated targeting so the mute
+-- is scoped to our windows and never silences manual target selection. Taint-free.
+function TRP3FW:SetTargetSoundMuted(muted)
+    if not self._targetSoundMuteInstalled then return end
+    if type(MuteSoundFile) ~= "function" or type(UnmuteSoundFile) ~= "function" then return end
+    if muted == self.targetSoundFilesMuted then return end
+    self.targetSoundFilesMuted = muted
+    for fid in pairs(self.targetSoundFiles) do
+        if muted then MuteSoundFile(fid) else UnmuteSoundFile(fid) end
+    end
+end
+
+-- NOTE: GetAvailablePrivilegedTokens used to live here, but it needs both RESERVED_TOKENS and
+-- GetCategoryPriority, which are declared further down. It now sits just below them.
 
 -- ===================== Optimization #9: Three-Tier Priority System =====================
 
@@ -412,6 +425,42 @@ function TRP3FW:GetCategoryPriority(category)
     return "NORMAL", PRIORITY_CONFIG.NORMAL
 end
 
+-- SECURITY: Peek token bucket without consuming.
+--
+-- Now actually mirrors RunPrivilegedSafe, which its comment always claimed it did. It used to
+-- return the RAW bucket, ignoring reserved tokens entirely -- but RunPrivilegedSafe subtracts
+-- RESERVED_TOKENS for any priority whose config lacks canUseReserved (see the availableTokens
+-- calculation there). So a NORMAL-priority caller sizing work off this number was optimistic
+-- by exactly RESERVED_TOKENS, and the tail of a batch took rate_limit rejections it had
+-- already "budgeted" for.
+--
+-- Declared HERE rather than up with the other token helpers because it needs both
+-- RESERVED_TOKENS and GetCategoryPriority, which are locals declared above this point --
+-- referencing them any earlier would silently resolve to a nil global.
+--
+-- @param category string|nil - the same category string passed to RunPrivilegedSafe. Omitting
+--        it returns the raw bucket (previous behaviour), which is what a caller wants when it
+--        is reporting bucket health rather than sizing a batch.
+function TRP3FW:GetAvailablePrivilegedTokens(category)
+    if not self.privilegedRate then
+        return RATE_LIMIT -- Default max if not initialized
+    end
+
+    local now = self:GetCurrentTime()
+    local elapsed = now - self.privilegedRate.lastRefill
+    local refill = elapsed * RATE_LIMIT
+    local tokens = math.min(RATE_LIMIT, (self.privilegedRate.tokens or RATE_LIMIT) + refill)
+
+    if category then
+        local _, pConfig = self:GetCategoryPriority(category)
+        if pConfig and not pConfig.canUseReserved then
+            tokens = tokens - RESERVED_TOKENS
+        end
+    end
+
+    return tokens
+end
+
 -- OPTIMIZATION #5: Token Refund
 -- Refund a token if a privileged call was "wasted" (e.g., phase check on non-existent player didn't change target).
 -- SECURITY WARNING: This increases throughput for failed calls. Disabled by default.
@@ -444,6 +493,15 @@ function TRP3FW:RefundToken(category, amount)
             return "[Token Refund] Attempted refund for "..tostring(category).." but bucket already full ("..string.format("%.1f", before).."/"..RATE_LIMIT..")"
         end, "security")
     end
+end
+
+-- Returns true when the player has the armory/inspect window open. Automated
+-- phase-check targeting retargets the player, which pulls inspect data out from
+-- under InspectFrame, so callers skip targeting while this is true (gated by the
+-- pausePhaseCheckOnInspect setting at the call sites).
+function TRP3FW:IsInspectActive()
+    local f = _G.InspectFrame
+    return f ~= nil and f:IsShown()
 end
 
 -- SECURITY: Rate-limited wrapper for C_Epsilon.RunPrivileged() calls
@@ -515,7 +573,7 @@ function TRP3FW:RunPrivilegedSafe(code, category)
         local waitTime = math.max(0.1, tokensNeeded / RATE_LIMIT)
 
         self:Debug(function()
-            return "[PRIORITY - LOW] Deferring '"..category.."' for "..
+            return "[PRIORITY - LOW] Deferring '"..tostring(category).."' for "..
                     string.format("%.2f", waitTime).."s (tokens: "..
                     string.format("%.1f", self.privilegedRate.tokens).."/"..RATE_LIMIT..
                     ", effective: "..string.format("%.1f", availableTokens).."/"..RATE_LIMIT..
@@ -528,7 +586,7 @@ function TRP3FW:RunPrivilegedSafe(code, category)
     -- Enforce rate limit: Check if enough tokens are available for THIS priority level
     if availableTokens < 1 then
         self:Debug(function()
-            return "[SECURITY] RunPrivileged RATE LIMIT EXCEEDED for category '"..category.."' ("..pName.."). Blocking call."..
+            return "[SECURITY] RunPrivileged RATE LIMIT EXCEEDED for category '"..tostring(category).."' ("..pName.."). Blocking call."..
                     " (Tokens: "..string.format("%.1f", self.privilegedRate.tokens).."/"..RATE_LIMIT..
                     ", Effective: "..string.format("%.1f", availableTokens).."/"..RATE_LIMIT..")"
         end, "security")
@@ -545,17 +603,24 @@ function TRP3FW:RunPrivilegedSafe(code, category)
         self.privilegedCallStats.byCategory[category] = (self.privilegedCallStats.byCategory[category] or 0) + 1
     end
 
-    -- Execute privileged code with error handling
+    -- Execute privileged code with error handling.
+    -- Automated phase-check targeting (TargetUnit/ClearTarget/restore) triggers WoW's
+    -- "target acquired" sound. Suppression is handled surgically by the PlaySound hook
+    -- (InstallTargetSoundMute), gated on the phaseCheckTargeting flag, so only OUR
+    -- automated selects are silenced — manual targeting and all other SFX are untouched.
     local success, result = pcall(C_Epsilon.RunPrivileged, code)
 
     if not success then
-        self:Debug(function() return "[SECURITY] RunPrivileged FAILED for category '"..category.."': "..tostring(result).." | Code: "..code end, "security")
+        -- SECURITY: Do NOT log `code` here — it contains interpolated player/zone names
+        -- (TargetUnit("Name"), z-"Zone") that the redaction layer does not scrub, partially
+        -- defeating debug redaction. The category + error is enough to diagnose failures.
+        self:Debug(function() return "[SECURITY] RunPrivileged FAILED for category '"..tostring(category).."': "..tostring(result) end, "security")
         self.privilegedCallStats.errors = self.privilegedCallStats.errors + 1
         return false, "execution_error"
     end
 
     self:Debug(function()
-        return "[RunPrivileged] SUCCESS ("..pName.."): '"..category.."' (Tokens: "..string.format("%.1f", self.privilegedRate.tokens).."/"..RATE_LIMIT..")"
+        return "[RunPrivileged] SUCCESS ("..pName.."): '"..tostring(category).."' (Tokens: "..string.format("%.1f", self.privilegedRate.tokens).."/"..RATE_LIMIT..")"
     end, "security")
 
     return true, result
@@ -608,31 +673,44 @@ end
 function TRP3FW:ValidateSettings()
     if not TRP3FW.Prefs then return end
 
-    -- Validate numeric ranges with sensible bounds
+    -- M7: Bounds only. Defaults are pulled from `TRP3FW.defaultSettings` so there's a
+    -- single source of truth — bad input now resets to the documented default rather
+    -- than a separate (often stale) value local to this function.
+    --
+    -- Every name here must also exist in defaultSettings. A name that doesn't is read
+    -- as nil, fails the type check, and gets *written into the user's saved profile*
+    -- as a phantom key (falling back to setting.min), plus a misleading
+    -- "[SECURITY] Invalid ..." line every login. `phaseRefreshCooldown` was doing
+    -- exactly that — it existed only in this table and was read nowhere.
     local numericSettings = {
-        {name = "suppressionTime", min = 0, max = 3600, default = 300},
-        {name = "scanCacheDuration", min = 10, max = 600, default = 120},
-        {name = "sendCacheDuration", min = 60, max = 7200, default = 600},
-        {name = "phaseCacheDuration", min = 30, max = 600, default = 120},
-        {name = "whoZoneCacheDuration", min = 10, max = 300, default = 60},
-        {name = "whoNameCacheDuration", min = 10, max = 300, default = 60},
-        {name = "interactionCacheDuration", min = 30, max = 1800, default = 300},
-        {name = "cacheSizeLimit", min = 50, max = 10000, default = 500},
-        {name = "whoQueueLimit", min = 10, max = 500, default = 100},
-        {name = "interactionRefreshRate", min = 0, max = 100, default = 10},
-        {name = "sendCacheRefreshRate", min = 0, max = 100, default = 10},
-        {name = "whoCacheRefreshThreshold", min = 0, max = 100, default = 50},
-        {name = "phaseRefreshCooldown", min = 0, max = 300, default = 30},
-        {name = "statusRefreshRate", min = 2, max = 120, default = 30},
-        {name = "validatedNamesCacheDuration", min = 86400, max = 2592000, default = 604800}, -- 1-30 days (in seconds)
-        {name = "validatedNamesCacheLimit", min = 500, max = 10000, default = 5000}, -- 500-10000 entries
+        {name = "suppressionTime", min = 0, max = 3600},
+        {name = "scanCacheDuration", min = 10, max = 600},
+        {name = "sendCacheDuration", min = 60, max = 7200},
+        {name = "phaseCacheDuration", min = 30, max = 600},
+        {name = "whoZoneCacheDuration", min = 10, max = 300},
+        {name = "whoNameCacheDuration", min = 10, max = 300},
+        {name = "interactionCacheDuration", min = 30, max = 1800},
+        {name = "cacheSizeLimit", min = 50, max = 10000},
+        {name = "whoQueueLimit", min = 10, max = 500},
+        {name = "interactionRefreshRate", min = 0, max = 100},
+        {name = "sendCacheRefreshRate", min = 0, max = 100},
+        {name = "whoCacheRefreshThreshold", min = 0, max = 100},
+        {name = "statusRefreshRate", min = 2, max = 120},
+        {name = "validatedNamesCacheDuration", min = 86400, max = 2592000}, -- 1-30 days (in seconds)
+        {name = "validatedNamesCacheLimit", min = 500, max = 10000},        -- 500-10000 entries
     }
 
+    local defaults = TRP3FW.defaultSettings or {}
     for _, setting in ipairs(numericSettings) do
         local value = TRP3FW.Prefs[setting.name]
         if type(value) ~= "number" or value < setting.min or value > setting.max then
-            self:Debug("[SECURITY] Invalid "..setting.name..": "..tostring(value)..", resetting to "..setting.default, "security")
-            TRP3FW.Prefs[setting.name] = setting.default
+            local fallback = defaults[setting.name]
+            if type(fallback) ~= "number" then
+                -- Last-ditch fallback if defaults table is missing this entry: clamp to range.
+                fallback = setting.min
+            end
+            self:Debug("[SECURITY] Invalid "..setting.name..": "..tostring(value)..", resetting to "..tostring(fallback), "security")
+            TRP3FW.Prefs[setting.name] = fallback
         end
     end
 end
@@ -795,9 +873,42 @@ function TRP3FW:StripAllIcons(text)
     -- Strip WoW texture tags: |Tpath:size...|t
     -- Pattern matches: |T (or |t) followed by anything until |t (or |T)
     -- Non-greedy match (.-) ensures we don't consume multiple icons as one
-    text = text:gsub("|[Tt].-|[Tt]", "")
+    -- Trailing %s* also eats one run of whitespace after the tag, so "|T..|t Name" doesn't
+    -- leave a stray leading space in front of the remaining text.
+    text = text:gsub("|[Tt].-|[Tt]%s*", "")
 
     return text
+end
+
+-- Strip bare texture-tag payloads that survived with their |T/|t markers stripped off
+-- elsewhere (seen in the wild: a Name field containing literal
+-- "interface\icons\somename:0 Real Name" - the |T...|t was lost upstream but the
+-- "path:height:width:..." payload it wrapped was left behind as plain text).
+-- A real texture path always starts with Interface\ and the payload's numeric args are
+-- the giveaway that this is a lost tag rather than someone's actual chosen text, so this
+-- is safe against false positives on ordinary RP names.
+-- Deliberately NOT folded into StripAllIcons: Description/History are large rich-text
+-- fields where legitimate content is more likely to resemble this shape, and those fields
+-- are meant to keep supporting real icon tags, so this only applies to short Name-shaped fields.
+function TRP3FW:StripBarePathRemnants(text)
+    if not text or type(text) ~= "string" then
+        return text
+    end
+
+    return text:gsub("[Ii]nterface\\[%w_%-\\]+:%d+[%d:]*%s*", "")
+end
+
+-- MSP's IC field is a bare icon name (e.g. "inv_misc_book_09"), not a |T..|t tag - StripAllIcons
+-- is a no-op on it. Addons like MyRolePlay build their own tag around it unvalidated
+-- (string.format("|TInterface\\Icons\\%s:%i:%i|t", filename, w, h)), so a value containing "|",
+-- ":", or other format-breaking characters produces a malformed tag that WoW can't resolve to a
+-- texture and prints literally in chat instead. Restrict to characters a real icon path can contain.
+function TRP3FW:SanitizeIconName(text)
+    if not text or type(text) ~= "string" then
+        return text
+    end
+
+    return text:gsub("[^%w_%-/\\]", "")
 end
 
 -- OPTIMIZATION: Helper function to count table entries efficiently
@@ -810,10 +921,3 @@ function TRP3FW:CountTableEntries(tbl)
     return count
 end
 
--- Helper to create WHO cache entries (replaces removed pool)
-function TRP3FW:AcquireWhoResult()
-    return {}
-end
-
--- DEPRECATED: EnforceCacheLimit removed - all caches now use CacheInterface with O(1) LRU
--- CacheInterface automatically enforces size limits with O(1) eviction (no sorting overhead)

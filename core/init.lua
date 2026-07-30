@@ -3,8 +3,16 @@
 
 local addonName, TRP3FW = ...
 
--- Version info
-TRP3FW.VERSION = "2.9.2-hotfix"
+-- Version info. This is the single source of truth for the addon version:
+-- TRP3FW.toc, the README badge and the release tag are all checked against it
+-- by scripts/make-release.sh, which refuses to build if they disagree.
+--
+-- Numbering unified with the release branch line as of 1.6.0 (branch v1.6 ->
+-- version 1.6.0, tag v1.6.0). This is a deliberate step DOWN from the previous
+-- 2.9.x line: existing installs carry TRP3FW_DB.global.lastVersion = "2.9.2-hotfix",
+-- so any future upgrade check must not assume versions increase monotonically
+-- across this boundary.
+TRP3FW.VERSION = "1.6.0"
 TRP3FW.ADDON_NAME = addonName
 
 -- FIXED: HIGH-6 - SendId verification system (prevents spoofing)
@@ -80,6 +88,9 @@ TRP3FW.defaultSettings = {
 
     notifyOnBroadcast = false,
     notifyOnWhisper   = true,
+    -- INERT: declared here but read nowhere (verified repo-wide). Kept so an existing
+    -- SavedVariables entry is not silently dropped; changing it has no effect on behaviour.
+    -- Map-scan handling is gated by disableMapScanOnTRP3 and the scanResponse* settings.
     ignoreMapScan     = true,
     notifyOnScanResponse = false, -- Show notification when TRP3 responds to map scans (only if RPMapScan not installed)
     scanResponsePhaseMode = "alert", -- Phase mismatch behavior for scan replies: "alert" or "block"
@@ -105,6 +116,10 @@ TRP3FW.defaultSettings = {
     scanCacheFailureDuration = 10, -- Short TTL for failed/mismatched scan/broadcast entries
     mapScanMinInterval = 60,   -- Minimum seconds between map scans (manual or automatic)
     sendCacheDuration  = 600,
+    -- TRP3->MSP ghost-profile conversion cache. There is no profile-edited event anywhere in
+    -- the addon to invalidate on, so this TTL is what bounds how long an edit to the ghost
+    -- profile keeps transmitting the pre-edit version.
+    mspConversionCacheDuration = 300,
 
     spvpVerifiedCacheDuration = 300,    -- 5 minutes (cryptographic verification)
     spvpVerifiedRefreshRate = 50,       -- Refresh when age > 50% of TTL
@@ -113,7 +128,15 @@ TRP3FW.defaultSettings = {
     phaseCacheDuration = 300,    -- 5 minutes (up from 120s)
     phaseCacheRefreshThreshold = 0.5, -- Refresh when age > 50% of TTL (150s)
     phaseCacheFailureDuration = 10, -- Short cache duration for failed phase checks (allows quick retries)
-    
+
+    -- Phase-check targeting side-effect mitigations
+    muteTargetSound = true,             -- Suppress WoW's target-acquired sound during automated phase-check targeting
+    pausePhaseCheckOnInspect = false,   -- Skip/defer automated phase-check targeting while the armory/inspect frame is open
+    -- When paused for inspect, retry once/second for up to 10s. If inspect is still
+    -- open after that, resolve the check as this phase result (then the normal phase/map
+    -- modes and SPVP fallback decide the action): "in_phase" or "out_of_phase".
+    inspectTimeoutResolution = "out_of_phase",
+
     -- Batch Phase Check Settings (Optimization #2)
     phaseCheckBatchMode = true,         -- Enable batched phase checks
     phaseCheckBatchSize = 5,            -- Max batch size (2-10)
@@ -132,7 +155,7 @@ TRP3FW.defaultSettings = {
     whoNameCacheDuration = 180,  -- Cache WHO name lookups longer for stability (configurable via UI/command)
     whoCacheRefreshThreshold = 50, -- Refresh when age > 50% of TTL (0-100%)
     whoZoneQueryCooldown = 20,   -- Increased from 15s to be more server-friendly (configurable via UI/command)
-    
+
 
     suppressAllWhoOutput = true, -- Suppress ALL WHO output (not just TRP3FW queries) - helps reduce spam
     interactionCacheDuration = 600, -- LONG duration: Skip location checks for people you've interacted with (mouseover/target)
@@ -218,6 +241,13 @@ TRP3FW.defaultSettings = {
     debugOutputBoth   = false,  -- Output to both
 
     -- WHO backend selection (Epsilon)
+    --
+    -- INERT: all three are declared here and read NOWHERE (verified repo-wide). They describe a
+    -- configurable WHO backend that was never built -- WhoService has a single code path, and
+    -- its queue ordering is fixed rather than policy-driven. Left in place so existing
+    -- SavedVariables entries survive and so the intent is not lost, but nothing reads them:
+    -- changing any of these has no effect. Wire them up in WhoService before documenting them
+    -- as functional.
     useLibWhoBackend = true,   -- Use UI-bucket WHO queries (LibWho-style) when Epsilon API is available
     whoQueuePolicy = "addon_first", -- addon_first | user_first | fifo
     cacheUserWhoResults = false, -- Cache results from user /who queries (zone/name with map)
@@ -229,13 +259,32 @@ TRP3FW.defaultSettings = {
 
     -- Scan reply whitelist (one player per line)
     scanResponseWhitelist = "",
-
-    -- Ghosting via Chomp (TRP3/MSP payloads serialized through Chomp)
-    enableChompGhost = true,
 }
 
--- Fallback for early access
-TRP3FW.Prefs = TRP3FW.defaultSettings
+-- Fallback for early access, until LoadProfile repoints this at the real profile table.
+--
+-- This used to be a bare alias (`TRP3FW.Prefs = TRP3FW.defaultSettings`). If anything wrote a
+-- setting while the alias was live, it mutated defaultSettings itself -- and since LoadProfile
+-- backfills missing keys FROM defaultSettings, every profile created afterwards was born with
+-- the polluted value. That window is not hypothetical: TRP3FW.lua pcall-wraps
+-- InitializeSettings precisely because a throw there leaves this alias in place for the whole
+-- session (see the section-9 finding).
+--
+-- A copy costs one table at load and closes the hole. Table-valued defaults are deep-copied,
+-- for the same reason LoadProfile's copyDefault exists: a shallow copy would still share
+-- ghostProfileOverrides/spvpPerPhaseOverrides with defaultSettings, and the UI mutates those
+-- in place. (copyDefault itself is declared further down, next to LoadProfile, so this does
+-- the recursion inline rather than forward-referencing it.)
+do
+    local function deepCopy(value)
+        if type(value) ~= "table" then return value end
+        local copy = {}
+        for k, v in pairs(value) do copy[k] = deepCopy(v) end
+        return copy
+    end
+
+    TRP3FW.Prefs = deepCopy(TRP3FW.defaultSettings)
+end
 
 -- Hook state containers (recursion/replay guards and original proxies)
 TRP3FW.hookState = TRP3FW.hookState or {}
@@ -258,6 +307,28 @@ end
 
 function TRP3FW:IsMapCheckEnabled()
     return TRP3FW.Prefs.mapCheckMode ~= "off"
+end
+
+-- Scan-reply nonce verification is HARD-DISABLED: the half of the feature that would make it
+-- work does not exist.
+--
+-- MapScan generates a per-scan nonce and stores it on the activeScanCallbacks entry, but
+-- NOTHING EVER TRANSMITS IT. The scan request is TRP3's own MapScannersManager.launch
+-- ("playerScan") broadcast, which knows nothing about a TRP3FW nonce; and TRP3FW's own scan
+-- REPLY hook (hooks/trp3.lua) wraps TRP3's sendP2PMessage and forwards unpack(args) verbatim,
+-- appending nothing. So no responder -- not even another TRP3FW user -- can echo a nonce back,
+-- every reply lands in the "missing nonce" branch, and every cached entry has verified=false.
+--
+-- With the pref on, that means every scan reply is ignored and map checking fails SHUT. The
+-- pref, its checkbox (ui/tabs/Security.lua) and `/trp3fw scanreply nonce` are all still
+-- reachable, so gating on the raw pref anywhere is a live footgun. Every consumer must go
+-- through this accessor instead.
+--
+-- Wiring the nonce up needs protocol cooperation (a handshake that tells the responder which
+-- nonce to echo), which is a design decision, not a defect fix -- so the verification code is
+-- left intact and merely inert, ready for that work.
+function TRP3FW:IsScanNonceVerificationAvailable()
+    return false
 end
 
 function TRP3FW:ShouldAlertOnPhase()
@@ -317,7 +388,25 @@ function TRP3FW:IsGhostModeEnabled()
 end
 
 -- Runtime state
+-- Which RP addons/capabilities are present locally. Keyed by capability name:
+-- TRP3 / MRP / XRP / MSP (booleans) and MapScanner (the string "TRP3"/"RPMapScan").
+-- Written by hooks/installer.lua, read by status.lua, ui/, core/utils.lua, location/.
 TRP3FW.detectedAddons = {}
+-- Which RP addon a given REMOTE PLAYER is running, inferred from their MSP handshake.
+-- Keyed by cleaned player name, values are "TRP3"/"MRP"/"XRP"/"MSP".
+--
+-- Deliberately separate from detectedAddons: these were one table, and the two keyspaces
+-- collided on any player whose name happened to be a capability key. A player named
+-- "MapScanner" set detectedAddons.MapScanner to a truthy value, so location/maps.lua:361
+-- and location/cascading.lua:214 believed a map scanner existed when none did (and the
+-- Status tab reported one). In the other direction, a send to a player named "MSP" read
+-- back the installer's `detectedAddons.MSP = true` as that player's addon, putting a
+-- BOOLEAN where a string was expected: HistoryService:TrackAddonRequest type-guards and
+-- silently skips it, but NotificationService (:279, :506) formats it with "%s", which is a
+-- hard error in Lua 5.1.
+TRP3FW.playerAddonProtocol = {}
+TRP3FW.playerAddonProtocolCount = 0
+TRP3FW.PLAYER_ADDON_PROTOCOL_LIMIT = 500
 -- TRP3FW.notificationHistory managed by HistoryService
 -- TRP3FW.profileSendHistory managed by HistoryService
 TRP3FW.scanNotificationHistory = {}
@@ -346,6 +435,10 @@ TRP3FW.profiler = {
     stats = {},       -- Collected statistics: [name] = {count, totalTime, minTime, maxTime, calls}
 }
 
+-- How many recent samples each profiled name retains for percentile math. Held in a ring
+-- buffer (see profiler.stop), so this is also the buffer's fixed size.
+local PROFILER_SAMPLE_LIMIT = 1000
+
 -- Start profiling a function/block
 function TRP3FW.profiler.start(name)
     if not TRP3FW.profiler.enabled then return end
@@ -372,7 +465,8 @@ function TRP3FW.profiler.stop(name)
             totalTime = 0,
             minTime = math.huge,
             maxTime = 0,
-            calls = {}  -- Store recent calls for percentile calculations
+            calls = {},      -- Ring buffer of recent samples for percentile calculations
+            callCursor = 0   -- Write position within `calls`
         }
     end
 
@@ -382,13 +476,17 @@ function TRP3FW.profiler.stop(name)
     stats.minTime = math.min(stats.minTime, elapsed)
     stats.maxTime = math.max(stats.maxTime, elapsed)
 
-    -- Keep last 1000 calls for percentile calculations
-    table.insert(stats.calls, elapsed)
-    if #stats.calls > 1000 then
-        -- FIXED: MEDIUM-2 - Use random eviction instead of FIFO to prevent timing attacks
-        local randomIndex = math.random(1, #stats.calls)
-        table.remove(stats.calls, randomIndex)
-    end
+    -- Keep last 1000 calls for percentile calculations (FIFO; the previous random
+    -- eviction biased P95/P99 toward older outliers).
+    --
+    -- RING BUFFER, not table.insert + table.remove(calls, 1). The old form shifted 1000
+    -- elements on every single measurement once the buffer filled -- O(n) per sample, inside
+    -- the profiler itself, which is the one place added overhead corrupts the thing being
+    -- measured. Overwriting one slot is O(1). The only reader (profiler.report) copies the
+    -- array and sorts it, so slot order is irrelevant.
+    stats.callCursor = (stats.callCursor or 0) + 1
+    if stats.callCursor > PROFILER_SAMPLE_LIMIT then stats.callCursor = 1 end
+    stats.calls[stats.callCursor] = elapsed
 end
 
 -- Calculate percentile from sorted array
@@ -477,11 +575,8 @@ function TRP3FW:DebugRefactor(message, category)
     end
 
     local formatted = string.format("[REFACTOR] [%s] %s", category or "GENERAL", message)
+    -- Debug() feeds both chat and the debug window buffer, so no direct AddDebugMessage here.
     self:Debug(formatted, "refactor")
-
-    if self.AddDebugMessage then
-        self:AddDebugMessage(formatted, "refactor")
-    end
 end
 
 function TRP3FW:LogRefactorTransition(functionName, version, context)
@@ -507,21 +602,20 @@ end
 
 -- Pending sends
 TRP3FW.pendingSends = {}
+
+-- [playerName] = timestamp. AlertFastPathStage's dedup markers: alert-only mode sits before
+-- BurstStage, so a burst never queues and would otherwise start one location check per
+-- request. Cleared by the cascading callback; swept by CacheService as a backstop.
+TRP3FW.alertOnlyChecksInFlight = {}
 TRP3FW.pendingSendId = 0
 
--- Caches (DEPRECATED: Migrated to CacheInterface - kept for backwards compatibility)
--- All cache access now goes through TRP3FW.CacheInterface with O(1) LRU eviction
-TRP3FW.allowedSendersCache = {}  -- DEPRECATED: Use CacheInterface:Get/Set("allowedSenders", ...)
-TRP3FW.recentScans = {}  -- DEPRECATED: Use CacheInterface:Get/Set("mapScan", ...)
-TRP3FW.recentBroadcasts = {}  -- DEPRECATED: Use CacheInterface:Get/Set("broadcast", ...)
-TRP3FW.phaseCheckCache = {}  -- DEPRECATED: Use CacheInterface:Get/Set("phaseCheck", ...)
-TRP3FW.whoZoneCache = {}  -- DEPRECATED: Use CacheInterface:Get/Set("whoZone", ...)
-TRP3FW.whoNameCache = {}  -- DEPRECATED: Use CacheInterface:Get/Set("whoName", ...)
-TRP3FW.interactionCache = {}  -- DEPRECATED: Use CacheInterface:Get/Set("interaction", ...)
+-- L3: legacy cache table proxies removed. All cache access goes through
+-- TRP3FW.CacheInterface (O(1) LRU eviction). The deprecation-warning proxies
+-- previously here are no longer referenced anywhere outside their own declaration.
 
--- Performance: Frame-based monotonic time caching (eliminates ~95 syscalls per request)
-TRP3FW.cachedTime = nil
-TRP3FW.cachedTimeFrame = 0
+-- (TRP3FW.cachedTime / cachedTimeFrame removed: the "frame cache" they backed read the clock
+-- unconditionally before consulting itself, so it saved no syscalls and cost extra work on
+-- every call. See TRP3FW:GetCurrentTime in core/utils.lua.)
 
 -- OPTIMIZATION: Phase ID caching (eliminates redundant C_Epsilon.GetPhaseId() calls in ghost mode)
 -- Phase changes are rare relative to profile sends, so cache with 1-second TTL
@@ -529,16 +623,6 @@ TRP3FW.cachedTimeFrame = 0
 TRP3FW.cachedPhaseID = nil
 TRP3FW.cachedPhaseTimestamp = 0
 TRP3FW.PHASE_CACHE_TTL = 1  -- Cache phase ID for 1 second (balance between freshness and performance)
-
--- DEPRECATED: Hash-based player name normalization caches (migrated to CacheInterface)
--- These tables are kept for backwards compatibility but are no longer used
--- CleanPlayerName() and SanitizePlayerName() now use CacheInterface:Get/Set("cleanName"/"sanitizedName", ...)
-TRP3FW.cleanNameCache = {}  -- DEPRECATED
-TRP3FW.cleanNameCacheTimestamps = {}  -- DEPRECATED
-TRP3FW.sanitizedNameCache = {}  -- DEPRECATED
-TRP3FW.sanitizedNameCacheTimestamps = {}  -- DEPRECATED
-TRP3FW.cleanNameCacheCount = 0  -- DEPRECATED
-TRP3FW.sanitizedNameCacheCount = 0  -- DEPRECATED
 
 -- Performance: Object pools for WHO query results (reduces GC pressure)
 -- Removed pool (unused) - cache entries are created on demand
@@ -548,11 +632,10 @@ TRP3FW.sanitizedNameCacheCount = 0  -- DEPRECATED
 -- Cache persists for session (profiles rarely change during play session)
 TRP3FW.mspConversionCache = {}  -- [profileID] = {mspFields, timestamp}
 
--- Ghost mode state (REFACTORED: Single active ghost flag to eliminate target ambiguity)
--- BEFORE: ghostNextSend = {["PlayerA"] = {expires, addon}, ["PlayerB"] = {...}}
--- AFTER:  ghostNextSend = {target = "PlayerA", expires = time, profileID = nil}
--- This ensures GetCurrentGhostTarget() always knows the correct recipient
-TRP3FW.ghostNextSend = nil  -- Single ghost flag: {target, expires, addon, timestamp, profileID}
+-- Ghost mode state: single active ghost flag to eliminate target ambiguity.
+-- Shape: { target = "PlayerA", expires = time, addon, timestamp, profileID }
+-- Consumed by ShouldGhostSendTo / EnableGhostForNextSend (features/ghostmode_trp3.lua).
+TRP3FW.ghostNextSend = nil
 TRP3FW.ghostCleanupTimer = nil  -- Timer for auto-cleanup (cancelled when new ghost flag is set)
 
 -- Whitelist cache
@@ -577,9 +660,16 @@ TRP3FW.pendingPhaseChecks = {}  -- Queue for phase checks waiting for lock
 TRP3FW.lastZoneChangeTime = 0  -- Timestamp of last zone change (for phase-in delay)
 TRP3FW.lastPhaseChangeTime = 0  -- Timestamp of last phase change (for deduplication)
 TRP3FW.lastZoneEventTime = 0    -- Timestamp of last zone event (for deduplication)
-TRP3FW.pendingPhaseInRequests = {}  -- Queued profile requests during phase-in delay (DEPRECATED - use pendingPhaseInSends)
 TRP3FW.pendingPhaseInSends = {}  -- Queued Chomp sends during phase-in delay
 TRP3FW.PHASE_IN_QUEUE_LIMIT = 200
+
+-- Cap on BurstStage's per-player queue of requests waiting on an in-flight location check.
+-- This was the one unbounded collection in the addon, against CLAUDE.md's stated rule that
+-- every cache has a maxSize to prevent DoS. Bounded in practice by the check window (~2s via
+-- cascading's deadline), but a hung check widens that to 30s -- and each entry retains a full
+-- profile payload in originalArgs.
+TRP3FW.BURST_QUEUE_LIMIT = 100
+TRP3FW.burstQueueDrops = 0  -- Diagnostic counter; surfaced by /trp3fw stats
 
 -- Original function references (for hooks)
 TRP3FW.originalMSPSend = nil
@@ -596,22 +686,51 @@ function TRP3FW:MigrateSettings()
     TRP3FW_DB.profileKeys = TRP3FW_DB.profileKeys or {}
     TRP3FW_DB.global = TRP3FW_DB.global or { version = TRP3FW.VERSION }
 
+    -- `version` previously recorded the INSTALL-time version forever: it was set once, in the
+    -- table constructor above, and never written again. Nothing reads it today, but any future
+    -- migration keyed off it would have read a stale value and concluded no migration was
+    -- needed. Keep both halves, since they answer different questions:
+    --   * lastVersion  - the version that last ran. This is what a migration should compare
+    --                    against, and it is updated below AFTER migrations have had their
+    --                    chance to see the old value.
+    --   * firstVersion - the version that created this DB, preserved for diagnostics.
+    local g = TRP3FW_DB.global
+    g.firstVersion = g.firstVersion or g.version or TRP3FW.VERSION
+    g.previousVersion = g.lastVersion or g.version  -- what the migrations below should read
+
     -- Check if we have legacy data to migrate
     -- TRP3FW_Settings (legacy global) might contain data if it was just loaded
     if TRP3FW_Settings and next(TRP3FW_Settings) and not TRP3FW_Settings.profiles then
         self:Debug("Migration: Found legacy flat settings. Migrating to 'Default' profile.", "init")
-        
+
         -- Copy flat data to Default profile
         TRP3FW_DB.profiles["Default"] = CopyTable(TRP3FW_Settings)
-        
+
         -- Wipe legacy container (to avoid double-saving or confusion)
         for k in pairs(TRP3FW_Settings) do TRP3FW_Settings[k] = nil end
     end
-    
+
     -- Ensure at least one profile exists
     if not next(TRP3FW_DB.profiles) then
         TRP3FW_DB.profiles["Default"] = CopyTable(self.defaultSettings)
     end
+
+    -- Stamp LAST, so anything above can still read `previousVersion` to detect an upgrade.
+    -- `version` is kept in sync as the current version for anything already reading it.
+    TRP3FW_DB.global.lastVersion = TRP3FW.VERSION
+    TRP3FW_DB.global.version = TRP3FW.VERSION
+end
+
+-- Table-valued defaults must be copied, never aliased, when backfilled into a
+-- profile -- see the comment in LoadProfile below.
+local function copyDefault(value)
+    if type(value) ~= "table" then return value end
+
+    local copy = {}
+    for k, v in pairs(value) do
+        copy[k] = copyDefault(v)
+    end
+    return copy
 end
 
 function TRP3FW:LoadProfile(profileName)
@@ -620,47 +739,143 @@ function TRP3FW:LoadProfile(profileName)
         self:Debug("Profile '" .. profileName .. "' not found. Falling back to 'Default'.", "init")
         profileName = "Default"
     end
-    
+
     -- Point Prefs to the active profile table
     self.Prefs = db.profiles[profileName]
-    
-    -- Ensure all default keys exist in the profile
+
+    -- Ensure all default keys exist in the profile.
+    -- Table-valued defaults (ghostProfileOverrides, spvpPerPhaseOverrides) are copied
+    -- rather than assigned: assigning shares one table between defaultSettings and every
+    -- profile that backfills the key. Profiles saved before those settings existed all
+    -- lack them, so upgrading users hit this on the first profile switch -- and the UI
+    -- mutates these tables in place (ui/tabs/Alerts.lua writes ghostProfileOverrides
+    -- element-by-element), so an override set on one profile showed up on all of them
+    -- and on every profile later created from defaultSettings.
     for k, v in pairs(self.defaultSettings) do
         if self.Prefs[k] == nil then
-            self.Prefs[k] = v
+            self.Prefs[k] = copyDefault(v)
         end
     end
-    
+
     -- Update current character's key
     local charKey = self:GetCharacterKey()
     db.profileKeys[charKey] = profileName
-    
+
     -- Store reference to Global DB
     TRP3FW.GlobalDB = db
-    
+
     self:Debug("Loaded profile: " .. profileName, "init")
+end
+
+-- ===================== Cache Initialization =====================
+
+function TRP3FW:InitializeCaches()
+    local CI = TRP3FW.CacheInterface
+    if not CI then
+        TRP3FW:Error("CacheInterface not loaded!")
+        return
+    end
+
+    -- Send Cache (Allowed Senders)
+    CI:Register("allowedSenders", {
+        ttl = TRP3FW.Prefs.sendCacheDuration,
+        maxSize = 1000
+    })
+
+    -- Interaction Cache
+    CI:Register("interaction", {
+        ttl = TRP3FW.Prefs.interactionCacheDuration,
+        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
+    })
+
+    -- Phase Check Cache
+    CI:Register("phaseCheck", {
+        ttl = TRP3FW.Prefs.phaseCacheDuration,
+        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
+    })
+
+    -- WHO Name Cache
+    CI:Register("whoName", {
+        ttl = TRP3FW.Prefs.whoNameCacheDuration,
+        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
+    })
+
+    -- WHO Zone Cache
+    CI:Register("whoZone", {
+        ttl = TRP3FW.Prefs.whoZoneCacheDuration,
+        maxSize = TRP3FW.Prefs.cacheSizeLimit or 1000
+    })
+
+    -- Map Scan Cache (recentScans)
+    CI:Register("mapScan", {
+        ttl = TRP3FW.Prefs.scanCacheDuration,
+        maxSize = 1000
+    })
+
+    -- Broadcast Cache (recentBroadcasts)
+    CI:Register("broadcast", {
+        ttl = TRP3FW.Prefs.scanCacheDuration,
+        maxSize = 1000
+    })
+
+    -- SPVP Verified Cache
+    CI:Register("spvpVerified", {
+        ttl = TRP3FW.Prefs.spvpVerifiedCacheDuration or 300,
+        maxSize = 1000
+    })
+
+    -- SPVP Phase Salt Cache
+    CI:Register("spvpPhaseSalt", {
+        ttl = TRP3FW.Prefs.spvpSaltCacheDuration or 10800,
+        maxSize = 500
+    })
+
+    -- SPVP Session Cache (replay-attack protection; short-lived)
+    CI:Register("spvpSessions", {
+        ttl = 60,
+        maxSize = 1000
+    })
+
+    -- Name Normalization Caches (Utility)
+    CI:Register("cleanName", {
+        maxSize = TRP3FW.Prefs.cleanNameCacheSize or 500
+    })
+    CI:Register("sanitizedName", {
+        maxSize = TRP3FW.Prefs.sanitizedNameCacheSize or 500
+    })
+
+    -- Map Name Cache
+    CI:Register("mapName", {
+        ttl = 3600, -- 1 hour
+        maxSize = 200
+    })
+
+    TRP3FW:Debug("[Init] Core caches registered with CacheInterface", "cache")
 end
 
 -- Initialize settings
 function TRP3FW:InitializeSettings()
     -- 1. Perform Migration
     self:MigrateSettings()
-    
+
     -- 2. Identify active profile for current character
     local charKey = self:GetCharacterKey()
     local profileName = TRP3FW_DB.profileKeys[charKey] or "Default"
-    
+
     -- 3. Load the profile
     self:LoadProfile(profileName)
-    
-    -- 4. Set cache size constants
+
+    -- 4. Initialize Caches (Migrated from CacheService)
+    self:InitializeCaches()
+
+    -- 5. Set cache size constants
     TRP3FW.CLEAN_NAME_CACHE_MAX = self.Prefs.cleanNameCacheSize
     TRP3FW.SANITIZED_NAME_CACHE_MAX = self.Prefs.sanitizedNameCacheSize
 
-    -- 5. Persistent global caches
+    -- 6. Persistent global caches
     TRP3FW_ValidatedNames = TRP3FW_ValidatedNames or {}
 
-    -- 6. SPVP Migration (from InitializeSettings)
+    -- 7. SPVP Migration (from InitializeSettings)
     if self.hasEpsilonAPI and self.Prefs.spvpEnabled == false then
         if not self.Prefs.spvpExplicitlyDisabled then
             self.Prefs.spvpEnabled = true

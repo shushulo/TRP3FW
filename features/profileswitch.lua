@@ -878,13 +878,11 @@ function TRP3FW:ShouldUseBlankProfile()
     return false, nil
 end
 
+-- 선택한 (또는 선택한) 프로필로 전환
 -- Monitor phase/map changes and switch profiles automatically
-local profileSwitchFrame = CreateFrame("Frame")
-profileSwitchFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-profileSwitchFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-profileSwitchFrame:RegisterEvent("SCENARIO_UPDATE")  -- Phase changes
+local function OnProfileSwitchEvent(event)
+    local ES = TRP3FW.ServiceContainer:Get("EventService")
 
-profileSwitchFrame:SetScript("OnEvent", function(self, event)
     -- Initialize profile tracking on login
     if event == "PLAYER_ENTERING_WORLD" then
         InitializeProfileTracking()
@@ -982,6 +980,15 @@ profileSwitchFrame:SetScript("OnEvent", function(self, event)
             end
         end
     end)
+end
+
+-- Initialize the profile switch monitor when the addon is ready
+C_Timer.After(1, function()
+    local ES = TRP3FW.ServiceContainer:Get("EventService")
+    if ES then
+        ES:RegisterCallback(ES.Events.ZONE_CHANGED, OnProfileSwitchEvent)
+        ES:RegisterCallback(ES.Events.PHASE_CHANGED, OnProfileSwitchEvent)
+    end
 end)
 
 TRP3FW:Debug("[Profile Switch] Module loaded", "hooks")

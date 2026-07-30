@@ -56,10 +56,22 @@ local function MoveToTail(cache, key)
     local node = cache.data[key]
     if not node or key == cache.tail then return end -- Already at tail
 
-    -- Detach
     local prevKey = node.prev
     local nextKey = node.next
 
+    -- H1: defensive — the early return at the top covers `key == tail` (which implies
+    -- nextKey == nil), so under correct invariants nextKey is never nil here. Guard
+    -- anyway in case the list falls out of sync (partial Clear, interleaved
+    -- Remove/iterate), but bail BEFORE mutating anything: the previous version
+    -- detached the prev side first and only then returned, which left the node
+    -- orphaned — unlinked from its predecessor but never re-attached at the tail —
+    -- and, when prevKey was nil, set cache.head = nil while cache.size stayed > 0.
+    -- That permanently breaks head-based eviction (Set and PruneIncremental both
+    -- evict via cache.head), so the cache would grow past maxSize forever. Bailing
+    -- early leaves the list exactly as it was found.
+    if not nextKey then return end
+
+    -- Detach
     if prevKey then
         cache.data[prevKey].next = nextKey
     else
@@ -79,7 +91,10 @@ end
 -- Register a new cache
 function TRP3FW.CacheInterface:Register(name, options)
     if self.caches[name] then
-        TRP3FW:Warn("[CacheInterface] Overwriting existing cache: "..tostring(name))
+        -- Silent update of options if already exists, no need to warn in production
+        self.caches[name].options = options or {}
+        TRP3FW:Debug("[CacheInterface] Updated options for cache: "..tostring(name), "cache")
+        return
     end
 
     self.caches[name] = {
@@ -183,9 +198,16 @@ function TRP3FW.CacheInterface:Iterator(name)
     return function()
         if not current then return nil end
         local key = current
-        local value = cache.data[key].value
-        current = cache.data[key].prev
-        return key, value
+        -- Removing entries while iterating is a natural thing for a caller to do,
+        -- and would leave `current` pointing at a key that no longer exists. Stop
+        -- cleanly instead of indexing nil.
+        local node = cache.data[key]
+        if not node then
+            current = nil
+            return nil
+        end
+        current = node.prev
+        return key, node.value
     end
 end
 
@@ -198,8 +220,12 @@ function TRP3FW.CacheInterface:Prune(name)
     local ttl = cache.options.ttl
     local pruned = 0
 
+    -- `>=`, matching Get's expiry test (:125) and every TTL consumer in the codebase, all of
+    -- which treat age == ttl as already expired. Prune used a strict `>`, so an entry at
+    -- exactly the boundary was unreachable via Get (which reports it expired) yet retained by
+    -- a prune pass -- a slot held for a value nothing could ever read.
     for key, node in pairs(cache.data) do
-        if (now - node.timestamp) > ttl then
+        if (now - node.timestamp) >= ttl then
             RemoveNode(cache, key)
             pruned = pruned + 1
         end
@@ -238,14 +264,15 @@ function TRP3FW.CacheInterface:PruneIncremental(name, budget)
         local node = cache.data[cursorKey]
         -- Capture next key BEFORE potentially removing current node
         local nextKey = node.next
-        
+
         processed = processed + 1
 
-        if ttl and node.timestamp and (now - node.timestamp) > ttl then
+        -- `>=` for the same reason as Prune above: align with Get's boundary.
+        if ttl and node.timestamp and (now - node.timestamp) >= ttl then
             RemoveNode(cache, cursorKey)
             pruned = pruned + 1
         end
-        
+
         cursorKey = nextKey
     end
 

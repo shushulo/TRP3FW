@@ -11,12 +11,12 @@ end
 
 function NotificationService:Initialize()
     TRP3FW.Service.Initialize(self)
-    
+
     self.suppressionHistory = {} -- playerName -> {lastNotification, suppressedCount, lastType}
     self.startPhaseNotifications = {}
     self.lastGhostScreenNotification = {}
     self.lastGhostChatNotification = {}
-    
+
     -- Register legacy alias for suppressor
     TRP3FW.NotificationSuppressor = {
         ShouldSuppress = function(_, playerName, notificationType, settings)
@@ -133,27 +133,20 @@ function NotificationService:Notify(playerName, context)
     -- 3. Update History Timestamp (via HistoryService)
     local historyService = TRP3FW.ServiceContainer:Get("HistoryService")
     if historyService then
-        -- We need to update the timestamp of the last history entry or create a new one if needed
-        -- But HistoryService:RecordHistory adds a NEW entry.
-        -- The legacy logic in notification_service.lua updated TRP3FW.profileSendHistory directly.
-        -- We should probably expose a method in HistoryService to update the timestamp of the active session.
-        -- For now, let's replicate the legacy behavior by accessing the exposed table if needed, 
-        -- or better, add a method to HistoryService.
-        
-        -- Legacy behavior:
-        -- if TRP3FW.profileSendHistory[playerName] then ... else ... end
-        -- Since HistoryService exposes profileSendHistory via TRP3FW.profileSendHistory, we can use that for now
-        -- to maintain exact behavior, or use a new method.
-        -- Let's use the alias for now to be safe, as HistoryService manages it.
-        if TRP3FW.profileSendHistory[playerName] then
-            TRP3FW.profileSendHistory[playerName].timestamp = TRP3FW:GetCurrentTime()
-            TRP3FW.profileSendHistory[playerName].suppressedCount = 0
-        else
-            TRP3FW.profileSendHistory[playerName] = {timestamp = TRP3FW:GetCurrentTime(), suppressedCount = 0}
-        end
+        historyService:RecordSend(playerName)
     end
 
     -- 4. Display
+    --
+    -- `count` is how many notifications ShouldSuppress swallowed since the last one we
+    -- actually showed: 0 for a player we've never notified about (or one whose window
+    -- elapsed quietly), >0 for one that spammed us during the window. The display
+    -- functions gate the "(+N suppressed in last Xs)" rollup, the "(again)" marker and
+    -- the repeat colour on `not isFirstTime`, so passing a hardcoded `true` here made
+    -- all three unreachable and threw the count away. Deriving it from the count
+    -- matches ShowStartPhaseBlockNotification, which sets isFirstTime = false exactly
+    -- when it has a prior record to report.
+    local isFirstTime = (count == 0)
     local isAlert = (context.type == "alert")
     local isBlock = (context.type == "block")
     local isGhost = (context.type == "ghost")
@@ -162,7 +155,7 @@ function NotificationService:Notify(playerName, context)
     self:ShowChatNotification(
         playerName,
         context.addon,
-        true, -- isFirstTime (since we passed suppression check)
+        isFirstTime,
         count,
         isAlert,
         location.theirMap,
@@ -184,7 +177,7 @@ function NotificationService:Notify(playerName, context)
         self:ShowOnScreenNotification(
             playerName,
             context.addon,
-            true,
+            isFirstTime,
             isAlert,
             location.theirMap,
             location.ourMap,
@@ -435,6 +428,11 @@ function NotificationService:ShowChatNotification(playerName, addon, isFirstTime
 			tostring(TRP3FW.Prefs.showInChat), tostring(playerName), tostring(addon), tostring(isAlert), tostring(wasBlocked), tostring(isFirstTime))
 	end, "send")
 
+	if not TRP3FW.Prefs.notifyEnabled then
+		self:DebugNotificationSuppression("notifyEnabled=false", playerName, addon, nil, {notifyEnabled=false, isAlert=isAlert, wasBlocked=wasBlocked})
+		return
+	end
+
 	if not TRP3FW.Prefs.showInChat then
 		self:DebugNotificationSuppression("showInChat=false", playerName, addon, nil, {showInChat=false, isAlert=isAlert, wasBlocked=wasBlocked})
 		return
@@ -529,7 +527,14 @@ function NotificationService:ShowChatNotification(playerName, addon, isFirstTime
             end
         end
 
-        if hasPhaseUnknown then
+        -- The phase result was assumed (not measured) because the inspect/armory window
+        -- blocked targeting for the full retry window. Say so honestly rather than
+        -- claiming a real phase mismatch.
+        local phaseFromInspect = checkDetails and checkDetails.phase and checkDetails.phase.method == "inspect_timeout"
+
+        if phaseFromInspect and hasPhase then
+            msg = msg .. " |cffff0000(Assumed out of phase: inspect window was open)|r"
+        elseif hasPhaseUnknown then
             msg = msg .. " |cffff0000(Phase verification failed/error)|r"
         elseif hasPhase and hasMap then
             -- Both checks failed; only claim different map when we have evidence

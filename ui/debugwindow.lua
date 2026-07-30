@@ -39,8 +39,18 @@ local CATEGORY_LABELS = {
     { key = "utils", label = "Utils" },
     { key = "security", label = "Security" },
     { key = "ghost", label = "Ghost" },
+    { key = "spvp", label = "SPVP" },
+    { key = "cleanname", label = "Names" },
+    { key = "core", label = "Core" },
     { key = "general", label = "General" },
     { key = "refactor", label = "Refactor" },
+}
+
+-- Categories that share a filter bucket (see DEBUG_CATEGORIES in core/utils.lua)
+local CATEGORY_ALIASES = {
+    init = "core",
+    pipeline = "core",
+    queue = "core",
 }
 
 local CATEGORY_LOOKUP = {}
@@ -67,6 +77,13 @@ debugFrame.editBox = editBox
 
 local refreshPending = false
 
+-- Forward declaration: RefreshDebugOutput below reads this to decide whether to
+-- pin the view to the bottom, but the CheckButton itself is created further down
+-- (it anchors to the frame's bottom edge, after the scroll frame). Without this
+-- line the name inside RefreshDebugOutput resolved to a nil GLOBAL, so the
+-- auto-scroll branch never ran no matter how the checkbox was set.
+local autoScrollCheck
+
 -- Helper to rebuild output based on current filter (Optimized via table.concat)
 local function RefreshDebugOutput()
     refreshPending = false
@@ -74,11 +91,11 @@ local function RefreshDebugOutput()
 
     local lines = {}
     local count = 0
-    
+
     -- Only process the last 1000 messages to keep UI responsive even if array grows
     -- (Though array is capped at 1000 anyway)
     local startIdx = math.max(1, #debugMessages - 1000)
-    
+
     for i = startIdx, #debugMessages do
         local entry = debugMessages[i]
         if currentFilter == "all" or entry.category == currentFilter then
@@ -86,7 +103,7 @@ local function RefreshDebugOutput()
             lines[count] = entry.text
         end
     end
-    
+
     local text = table.concat(lines, "\n")
     editBox:SetText(text)
 
@@ -128,7 +145,9 @@ copyButton:SetScript("OnClick", function()
 end)
 
 -- Auto-scroll checkbox
-local autoScrollCheck = CreateFrame("CheckButton", nil, debugFrame, "UICheckButtonTemplate")
+-- Assignment, not `local` -- the forward declaration above is the one
+-- RefreshDebugOutput closes over. A second `local` here would shadow it.
+autoScrollCheck = CreateFrame("CheckButton", nil, debugFrame, "UICheckButtonTemplate")
 autoScrollCheck:SetPoint("BOTTOMLEFT", debugFrame, "BOTTOMLEFT", 8, 8)
 autoScrollCheck.text = autoScrollCheck:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 autoScrollCheck.text:SetPoint("LEFT", autoScrollCheck, "RIGHT", 0, 0)
@@ -158,10 +177,13 @@ UIDropDownMenu_SetText(filterDropdown, CATEGORY_LOOKUP.all)
 
 -- Function to add debug message
 function TRP3FW:AddDebugMessage(msg, category, timestamp)
-    -- Allow messages to accumulate even when window is closed
-    -- This lets users open the window later and see historical messages
+    -- Messages accumulate whenever debug mode is on, even with the window closed, so the
+    -- window can be opened after an event to read the backlog.
 
-    local categoryKey = CATEGORY_LOOKUP[category or ""] and category or "general"
+    local rawCategory = category or ""
+    local categoryKey = CATEGORY_ALIASES[rawCategory]
+        or (CATEGORY_LOOKUP[rawCategory] and rawCategory)
+        or "general"
     local timeStr = timestamp or date("%H:%M:%S")
     local entryText = string.format("[%s] %s", timeStr, TRP3FW:Redact(msg))
 
@@ -181,20 +203,28 @@ function TRP3FW:AddDebugMessage(msg, category, timestamp)
     end
 end
 
+-- Render the buffered backlog whenever the window becomes visible. RefreshDebugOutput()
+-- bails while the frame is hidden, so the refresh has to happen after Show().
+debugFrame:SetScript("OnShow", function()
+    RefreshDebugOutput()
+end)
+
 -- Function to toggle debug window
 function TRP3FW:ToggleDebugWindow()
     if debugFrame:IsShown() then
         debugFrame:Hide()
     else
-        RefreshDebugOutput()
-        debugFrame:Show()
+        debugFrame:Show()  -- OnShow renders the backlog
     end
 end
 
 -- Function to show debug window
 function TRP3FW:ShowDebugWindow()
-    RefreshDebugOutput()
-    debugFrame:Show()
+    if debugFrame:IsShown() then
+        RefreshDebugOutput()
+    else
+        debugFrame:Show()  -- OnShow renders the backlog
+    end
 end
 
 -- Function to hide debug window

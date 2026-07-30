@@ -66,6 +66,34 @@ function TRP3FW:ClearAdapterCache()
 	self.detectedProfileAddon = nil
 end
 
+-- Invalidate the cached adapter when an RP addon finishes loading.
+--
+-- ClearAdapterCache had no production caller at all (its only caller was a spec), so detection
+-- was frozen at first use for the session. Detection caches on the FIRST success and TRP3 is
+-- the highest priority, so a user whose TRP3 loaded after something already triggered
+-- detection kept the lower-priority adapter until /reload -- ghosting through the wrong addon's
+-- profile store.
+--
+-- Only clears for addons that can actually change the outcome; ADDON_LOADED fires for every
+-- addon on the system and re-detection on each would be pointless churn.
+local RP_ADDONS = {
+	totalRP3 = true,
+	MyRolePlay = true,
+	XRP = true,
+}
+
+function TRP3FW:OnAddonLoadedForAdapters(_, loadedAddon)
+	if not loadedAddon or not RP_ADDONS[loadedAddon] then return end
+	-- Nothing cached yet means nothing to invalidate; the next call detects fresh anyway.
+	if not self.cachedProfileAdapter then return end
+	-- Already on the highest-priority adapter, so a later load cannot improve on it.
+	if self.detectedProfileAddon == "TRP3" then return end
+
+	TRP3FW:Debug(loadedAddon.." loaded after adapter detection ("..tostring(self.detectedProfileAddon)
+		.." was cached) - forcing re-detection", "hooks")
+	self:ClearAdapterCache()
+end
+
 --- Get all available profiles from the detected RP addon
 -- @return array of Profile objects, or empty table if no addon detected
 -- Profile object: { id, name, addon, isCurrent, data }
@@ -221,6 +249,26 @@ function TRP3FW:GetProfileCharacter(id)
 	end
 
 	return adapter:GetCharacter(id)
+end
+
+-- Own frame rather than EventService: this file loads well before ServiceContainer is
+-- populated, and the whole point is to catch RP addons that load EARLY -- deferring the
+-- registration (as other modules do with C_Timer.After(1, ...)) would miss exactly the
+-- load-order window this exists to cover.
+local adapterEventFrame = CreateFrame("Frame")
+adapterEventFrame:RegisterEvent("ADDON_LOADED")
+adapterEventFrame:SetScript("OnEvent", function(_, event, loadedAddon)
+	if event == "ADDON_LOADED" then
+		TRP3FW:OnAddonLoadedForAdapters(event, loadedAddon)
+	end
+end)
+
+-- Conformance check. The factory loads after all three adapters (see the .toc order), so this
+-- is the first point at which the registry is complete. Reports missing methods to the debug
+-- log at STARTUP rather than letting them surface as "attempt to call a nil value" mid
+-- ghost-send.
+if TRP3FW.ValidateRegisteredAdapters then
+	TRP3FW:ValidateRegisteredAdapters()
 end
 
 TRP3FW:Debug("Profile adapter factory loaded", "hooks")

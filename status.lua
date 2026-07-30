@@ -52,7 +52,7 @@ function TRP3FW:ShowStats()
         if blocked > 0 then print("  Rate limited: |cffff0000"..blocked.."|r") end
         if errors > 0 then print("  Errors: |cffff0000"..errors.."|r") end
         if deferred > 0 then print("  Deferred (LOW): |cffffff00"..deferred.."|r") end
-        
+
         if refunded > 0 then
             local refundPct = total > 0 and (refunded / total * 100) or 0
             print("  Tokens refunded: |cffffaa00"..refunded.." ("..(string.format("%.1f", refundPct)).."%)|r")
@@ -107,7 +107,7 @@ function TRP3FW:ShowStatus()
     print("  Memory Usage: |cffffff00"..memStr.."|r")
 
     local perfStats = self.sessionStats.performance
-    
+
     -- Instant (Last 1s)
     local instLatency = perfStats.lastSecondRequests > 0 and (perfStats.lastSecondTime / perfStats.lastSecondRequests) or 0
     local instLoad = (perfStats.lastSecondTime / 1000) * 100
@@ -116,11 +116,11 @@ function TRP3FW:ShowStatus()
     -- Window Avg/Peak (Last Interval)
     local lastInt = perfStats.lastInterval
     local duration = lastInt and lastInt.duration or 1
-    
+
     local avgLatency = (lastInt and lastInt.requests > 0) and (lastInt.time / lastInt.requests) or 0
     local avgLoad = (lastInt and lastInt.time > 0) and ((lastInt.time / (duration * 1000)) * 100) or 0
     local avgThroughput = (lastInt and lastInt.requests > 0) and (lastInt.requests / duration) or 0
-    
+
     local peakLatency = lastInt and lastInt.peakLatency or 0
     local peakLoad = lastInt and lastInt.peakLoad or 0
     local peakThroughput = lastInt and lastInt.peakThroughput or 0
@@ -294,7 +294,7 @@ function TRP3FW:ShowHelp()
     self:Info("TRP3 Firewall v"..self.VERSION)
     print("|cffaaaaaa━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━|r")
     print("|cff00ccff=== Getting Started ===|r")
-    print("|cff00ff00/trp3fwui|r - Open settings UI (recommended)")
+    print("|cff00ff00/trp3fwui|r - Open settings UI (recommended; also /trp3fw ui)")
     print("|cff00ff00/trp3fw status|r - Show current settings and statistics")
     print("|cff00ff00/trp3fw stats|r - Show session stats (alerts/blocks/ghosts)")
     print("|cff00ff00/trp3fw location|r - Show current map ID and zone name")
@@ -323,15 +323,17 @@ function TRP3FW:ShowHelp()
     print("|cff00ff00/trp3fw phasecheck [verbose]|r - Scan zone for players in your phase (Epsilon only)")
     print("  |cffaaaaaaverbose: List all players found|r")
     print("|cff00ff00/trp3fw cache <type> <seconds>|r - Set cache duration")
-    print("  |cffaaaaaa<type>: phase, scan, whozone, whoname, send, interaction|r")
+    print("  |cffaaaaaa<type>: phase, phasefail, scan, scanfail, whozone, whoname, send, interaction|r")
     print("|cff00ff00/trp3fw clearcache [cache]|r - Clear specific cache")
     print("  |cffaaaaaaTypes: phasecheck, allowed, interaction, broadcasts, scans, whozone, whoname, all|r")
-    print("|cff00ff00/trp3fw phasedelay <seconds>|r - Phase-in delay (0-10, default: 3)")
+    print("|cff00ff00/trp3fw phasedelay <seconds>|r - Phase-in delay (0-10, default: 4)")
     print("")
     print("|cff00ccff=== Debugging ===|r")
     print("|cff00ff00/trp3fw debug|r - Toggle debug mode")
     print("|cff00ff00/trp3fw debugtime|r - Toggle debug timestamps")
     print("|cff00ff00/trp3fw debugfilter <category>|r - Filter debug output")
+    print("  |cffaaaaaachannel, whisper, who, phase, location, decision, hooks, cache,|r")
+    print("  |cffaaaaaasend, ui, utils, cleanname, security, ghost, spvp|r")
     print("|cff00ff00/trp3fw reloadhooks|r - Reinstall addon hooks")
     print("")
     print("|cff00ccff=== Other ===|r")
@@ -339,5 +341,5 @@ function TRP3FW:ShowHelp()
     print("|cff00ff00/trp3fw reset|r - Reset all settings to defaults")
     print("|cffaaaaaa━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━|r")
     print("|cffaaaaaaFor full control, use |r|cff00ff00/trp3fwui|r|cffaaaaaa or click the minimap button|r")
-    print("|cffaaaaaaBug reports: https://github.com/[your-repo]/issues|r")
+    print("|cffaaaaaaBug reports: https://github.com/shushulo/TRP3FW/issues|r")
 end
