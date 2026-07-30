@@ -206,7 +206,8 @@ ok "TRP3FW.toc stripped clean"
 # leftovers -- present on disk, but never part of the release commit. A filesystem test
 # fails on those for no reason; what ships is what git has staged.
 STRIP_FAIL=0
-for unwanted in tests thoughts CLAUDE.md scripts .gitea .gitignore .git-blame-ignore-revs; do
+for unwanted in tests thoughts CLAUDE.md scripts .gitea .gitignore .git-blame-ignore-revs \
+	other_addons .claude; do
 	if [[ -n "$(git ls-files -- "$unwanted")" ]]; then
 		echo "  FAIL: '$unwanted' is still tracked and would ship on the release branch" >&2
 		STRIP_FAIL=1
@@ -229,12 +230,51 @@ done < <(grep -E '^[^#[:space:]].*\.(lua|xml)[[:space:]]*$' TRP3FW.toc | tr -d '
 [[ "$MISSING" -eq 0 ]] || exit 1
 ok "all .toc-referenced files present"
 
-git add -A
+# Stage the strip.
+#
+# `git add -A` alone is NOT safe here: we just deleted .gitignore, so everything it was
+# suppressing (other_addons/ -- 2636 vendored third-party files, ~247 MB, not ours to
+# redistribute -- plus thoughts/debug/ and thoughts/errors/ scratch dumps) becomes stageable
+# and would be committed into the release. The pathspec exclusions below re-state those rules
+# so the build never depends on .gitignore still being around.
+git add -A -- . \
+	':(exclude)other_addons' \
+	':(exclude)thoughts' \
+	':(exclude).claude'
+
+# Belt and braces: if anything from those trees reached the index anyway, drop it rather than
+# shipping it. Cheap, and the failure mode it guards against is publishing other people's code.
+git rm -r --quiet --cached --ignore-unmatch other_addons thoughts .claude
 git commit --quiet -m "Release $VERSION: strip dev-only tree for distribution
 
 Regenerated from $DEV_BRANCH by scripts/make-release.sh. Removes tests/,
 thoughts/, CLAUDE.md, scripts/ and .gitea/, and drops the WoWUnit OptionalDep plus the
 test-loading lines from TRP3FW.toc so the addon loads cleanly without them."
+
+# Audit the COMMIT, which is the thing that actually gets pushed. The strip check above runs
+# before `git add`, so it cannot see anything introduced at staging time -- which is exactly
+# how other_addons/ (2636 third-party files) once reached a build, after .gitignore was
+# stripped and `git add -A` happily staged everything it had been suppressing.
+COMMIT_FAIL=0
+for unwanted in tests thoughts CLAUDE.md scripts .gitea .gitignore .git-blame-ignore-revs \
+	other_addons .claude; do
+	if git ls-tree -r --name-only HEAD | grep -qE "^${unwanted}(/|$)"; then
+		echo "  FAIL: '$unwanted' is IN the release commit" >&2
+		COMMIT_FAIL=1
+	fi
+done
+[[ "$COMMIT_FAIL" -eq 0 ]] || {
+	echo "  The release branch is left in place for inspection; nothing was pushed." >&2
+	exit 1
+}
+
+# A release is ~70 files. Anything wildly above that means a tree leaked in.
+TRACKED="$(git ls-tree -r --name-only HEAD | wc -l)"
+if [[ "$TRACKED" -gt 200 ]]; then
+	echo "  FAIL: release commit has $TRACKED files (expected ~70); something leaked" >&2
+	exit 1
+fi
+ok "release commit contains $TRACKED files, no dev-only trees"
 
 echo
 echo "==> Done. $RELEASE_BRANCH is built at $(git rev-parse --short HEAD)"
