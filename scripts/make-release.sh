@@ -200,14 +200,19 @@ ok "TRP3FW.toc stripped clean"
 
 # Verify the strip list actually took. Catches both directions: a dev-only path that
 # survived, and .gitattributes being swept up by a future broadened `git rm`.
+#
+# Tests the INDEX (git ls-files), not the filesystem. thoughts/debug/ and thoughts/errors/
+# are gitignored scratch dirs, so they survive `git rm` and the branch switch as untracked
+# leftovers -- present on disk, but never part of the release commit. A filesystem test
+# fails on those for no reason; what ships is what git has staged.
 STRIP_FAIL=0
 for unwanted in tests thoughts CLAUDE.md scripts .gitea .gitignore .git-blame-ignore-revs; do
-	if [[ -e "$unwanted" ]]; then
-		echo "  FAIL: '$unwanted' should not be on a release branch" >&2
+	if [[ -n "$(git ls-files -- "$unwanted")" ]]; then
+		echo "  FAIL: '$unwanted' is still tracked and would ship on the release branch" >&2
 		STRIP_FAIL=1
 	fi
 done
-[[ -f .gitattributes ]] || {
+[[ -n "$(git ls-files -- .gitattributes)" ]] || {
 	echo "  FAIL: .gitattributes must be KEPT (normalises the CRLF-stored blobs on checkout)" >&2
 	STRIP_FAIL=1
 }
