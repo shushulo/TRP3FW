@@ -33,11 +33,22 @@ T.describe("SecurityService:SanitizePlayerName", function()
         T.not_nil(svc:SanitizePlayerName(Zephyr), "Zéphyr should sanitize")
     end)
 
-    T.it("rejects names containing digits", function()
-        -- The bug: malformed %255 leaked digits 2/5 into the class, so "Bob2" passed.
-        -- After the fix, digits are not part of the allowed set.
-        T.is_nil(svc:SanitizePlayerName("Bob2"), "digit names must be rejected")
-        T.is_nil(svc:SanitizePlayerName("Player5"), "digit names must be rejected")
+    T.it("accepts names containing digits", function()
+        -- Regression: this spec used to assert digits were REJECTED, which pinned the side
+        -- effect of the old malformed "\128-%255" range rather than a real naming rule.
+        -- Epsilon allows digits, and rejecting them fails closed at the Chomp hook - the
+        -- live report was "Fallywix 420-Apertus" being blocked outright.
+        T.not_nil(svc:SanitizePlayerName("Bob2"), "digit names must be accepted")
+        T.not_nil(svc:SanitizePlayerName("Player5"), "digit names must be accepted")
+        -- The exact reported name: digits behind a space, plus a realm suffix.
+        T.not_nil(svc:SanitizePlayerName("Fallywix 420-Apertus"), "reported name must sanitize")
+    end)
+
+    T.it("still rejects injection metacharacters despite the digit widening", function()
+        -- %w widened the class to alphanumerics only; punctuation that could escape the
+        -- TargetUnit("<name>") string context must remain outside the whitelist.
+        T.is_nil(svc:SanitizePlayerName("Bob;evil"), "semicolons must stay rejected")
+        T.is_nil(svc:SanitizePlayerName("Bob)evil"), "parens must stay rejected")
     end)
 
     T.it("accepts apostrophes and single hyphen", function()
@@ -76,6 +87,13 @@ T.describe("SecurityService:CleanPlayerName", function()
 
     T.it("accepts accented names via the clean path too", function()
         T.not_nil(svc:CleanPlayerName(Bjorn))
+    end)
+
+    T.it("accepts digit-containing names and strips the realm", function()
+        -- This is the exact path that emitted "[Chomp Hook] Unparseable target name
+        -- (Fallywix 420-Apertus); blocking send rather than transmitting ungated".
+        T.eq(svc:CleanPlayerName("Fallywix 420-Apertus"), "Fallywix 420")
+        T.eq(svc:CleanPlayerName("Bob2-Stormwind"), "Bob2")
     end)
 
     T.it("rejects control chars and bad lengths", function()
