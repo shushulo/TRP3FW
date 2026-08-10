@@ -108,7 +108,7 @@ available, and whether the hooks installed cleanly.
 
 ## Project Info
 
-* **Version:** 1.6.0
+* **Version:** 1.6.1
 * **Interface:** 9.2.7+ (90207)
 * **License:** [GPL-3.0](LICENSE)
 
