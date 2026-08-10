@@ -69,6 +69,7 @@ local specs = {
     "tests.unit.spvp_prefix_confusion_spec",
     "tests.unit.alert_fastpath_dedup_spec",
     "tests.unit.profiles_widget_pool_spec",
+    "tests.unit.theme_font_refresh_spec",
 }
 
 local T = require("tests.framework")

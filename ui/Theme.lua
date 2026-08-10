@@ -201,9 +201,36 @@ Theme.metrics = {
 -- consistently larger text from one place. Change FONT_BUMP to rescale globally.
 Theme.FONT_BUMP = 2  -- points added to each role's Blizzard base size
 
-local function makeFont(name, baseObjectName, fallbackSize)
-    local base = _G[baseObjectName]
-    local fontObj = CreateFont(name)
+-- The Blizzard base each role derives from, and a size to fall back on if that
+-- base object is somehow missing. Kept as data so RefreshFonts can rebuild every
+-- role from the same declaration makeFont used.
+local FONT_ROLES = {
+    { role = "TITLE",   name = "TRP3FW_Font_Title",   base = "GameFontNormalLarge", fallback = 16 },
+    { role = "CAPTION", name = "TRP3FW_Font_Caption", base = "GameFontNormalLarge", fallback = 16 }, -- gold card headers; larger than body LABEL
+    { role = "HEADER",  name = "TRP3FW_Font_Header",  base = "GameFontNormal",      fallback = 12 },
+    { role = "LABEL",   name = "TRP3FW_Font_Label",   base = "GameFontHighlight",   fallback = 12 },
+    { role = "SUB",     name = "TRP3FW_Font_Sub",     base = "GameFontNormalSmall", fallback = 10 },
+    { role = "VALUE",   name = "TRP3FW_Font_Value",   base = "GameFontNormalHuge",  fallback = 24 },
+}
+
+-- Apply a role's size to its font object, creating the object on first call.
+--
+-- IMPORTANT -- why this must be re-run on viewport change:
+-- Blizzard's font objects are resolution-dependent; the client re-resolves their
+-- point sizes when the viewport changes, and any widget that merely REFERENCES
+-- GameFontNormal follows along automatically. CopyFontObject + SetFont does not:
+-- it snapshots the size resolved at load time and then pins it with an explicit
+-- SetFont, severing that link. So after a window resize/snap, Blizzard's text
+-- re-resolves and ours stays frozen at the old viewport's size -- the addon's
+-- text visibly changes size relative to everything else.
+--
+-- Re-reading base:GetFont() and re-applying the bump restores the relationship.
+-- Because Theme.fonts.* are font object NAMES (returned below) that widgets hold
+-- a live reference to, calling SetFont on the shared object updates every
+-- existing FontString at once -- no widget traversal, no relayout.
+local function applyFont(entry)
+    local fontObj = _G[entry.name] or CreateFont(entry.name)
+    local base = _G[entry.base]
     if base then
         fontObj:CopyFontObject(base)
         local file, size, flags = base:GetFont()
@@ -212,16 +239,70 @@ local function makeFont(name, baseObjectName, fallbackSize)
         end
     else
         -- Extremely defensive fallback if the base object is missing.
-        fontObj:SetFont(STANDARD_TEXT_FONT, (fallbackSize or 12) + Theme.FONT_BUMP, "")
+        fontObj:SetFont(STANDARD_TEXT_FONT, (entry.fallback or 12) + Theme.FONT_BUMP, "")
     end
-    return name
+    return entry.name
 end
 
-Theme.fonts = {
-    TITLE   = makeFont("TRP3FW_Font_Title",   "GameFontNormalLarge", 16),
-    CAPTION = makeFont("TRP3FW_Font_Caption", "GameFontNormalLarge", 16), -- gold card headers; larger than body LABEL
-    HEADER  = makeFont("TRP3FW_Font_Header",  "GameFontNormal",      12),
-    LABEL   = makeFont("TRP3FW_Font_Label",   "GameFontHighlight",   12),
-    SUB     = makeFont("TRP3FW_Font_Sub",     "GameFontNormalSmall", 10),
-    VALUE   = makeFont("TRP3FW_Font_Value",   "GameFontNormalHuge",  24),
-}
+Theme.fonts = {}
+for _, entry in ipairs(FONT_ROLES) do
+    Theme.fonts[entry.role] = applyFont(entry)
+end
+
+-- Re-derive every role from its (freshly re-resolved) Blizzard base. Safe to
+-- call at any time; idempotent when nothing changed. Returns true if any role's
+-- resulting size differs from what it was, so callers can skip needless work.
+function Theme:RefreshFonts()
+    local changed = false
+    for _, entry in ipairs(FONT_ROLES) do
+        local existing = _G[entry.name]
+        -- NOTE: `existing and existing:GetFont()` would truncate the multiple
+        -- return to one value, leaving `before` nil and making every refresh
+        -- report "changed". Read the size explicitly instead.
+        local before
+        if existing then before = select(2, existing:GetFont()) end
+        applyFont(entry)
+        local after = select(2, _G[entry.name]:GetFont())
+        if before ~= after then changed = true end
+    end
+    return changed
+end
+
+-- Rebuild the fonts whenever the viewport changes, so our sizes track Blizzard's
+-- re-resolved bases instead of staying pinned to the size captured at load.
+--
+-- Registered here rather than on the settings frame on purpose: the settings
+-- window is created lazily and may not exist (or may be hidden) when the resize
+-- happens, but the font objects are global and shared with the debug/history
+-- windows too. Refreshing them centrally keeps every window consistent.
+--
+-- DISPLAY_SIZE_CHANGED covers window resize/snap and resolution changes;
+-- UI_SCALE_CHANGED covers the uiScale slider and the "Use UI Scale" checkbox.
+-- Both are rare, and the handler is a 6-entry loop, so this is not hot.
+local fontWatcher = CreateFrame("Frame")
+fontWatcher:RegisterEvent("DISPLAY_SIZE_CHANGED")
+fontWatcher:RegisterEvent("UI_SCALE_CHANGED")
+fontWatcher:SetScript("OnEvent", function(_, event)
+    -- Blizzard re-resolves its font objects while handling the same event, and
+    -- ordering between addon and client handlers is not guaranteed. Defer a
+    -- frame so we read the NEW base sizes rather than the ones being replaced.
+    C_Timer.After(0, function()
+        local changed = Theme:RefreshFonts()
+        if not changed then return end
+
+        if TRP3FW.Debug then
+            TRP3FW:Debug("Fonts rebuilt after " .. tostring(event), "ui")
+        end
+
+        -- Existing FontStrings pick up the new size automatically (they hold a
+        -- live reference to the shared font object), but a few widgets size
+        -- themselves from MEASURED text -- Dashboard badges, TabManager chips,
+        -- history tooltips -- and those widths were computed at the old size.
+        -- Reflowing re-runs that measurement. Guarded because Theme.lua loads
+        -- before TabManager.lua and well before any card is built.
+        local TM = TRP3FW.TabManager
+        if TM and TM.ReflowAllCards and TM._cards then
+            TM:ReflowAllCards(TRP3FW.Prefs and TRP3FW.Prefs.uiComplexityLevel)
+        end
+    end)
+end)

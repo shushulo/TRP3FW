@@ -167,6 +167,56 @@ function FRAME_METHODS:CreateFontString() return newRegion("FontString") end
 function FRAME_METHODS:CreateTexture() return newRegion("Texture") end
 function FRAME_METHODS:CreateMaskTexture() return newRegion("MaskTexture") end
 
+-- Font objects. Real ones carry (file, size, flags) and are registered as globals
+-- under their name, which is how ui/Theme.lua finds both the Blizzard bases it
+-- derives from and its own objects on a rebuild. Enough state here to observe a
+-- size actually changing -- the whole point of the font-refresh specs.
+local FONT_METHODS = {}
+function FONT_METHODS:SetFont(file, size, flags)
+    self.file, self.size, self.flags = file, size, flags
+    return true
+end
+function FONT_METHODS:GetFont() return self.file, self.size, self.flags end
+function FONT_METHODS:CopyFontObject(other)
+    self.file, self.size, self.flags = other.file, other.size, other.flags
+end
+
+local fontMeta = {
+    __index = function(_, key)
+        return FONT_METHODS[key] or function() end
+    end
+}
+
+M.fonts = {}
+-- Create (or fetch) a font object registered under `name`, mirroring the real
+-- API: CreateFont on an existing name returns the SAME object, which is what
+-- lets Theme:RefreshFonts mutate fonts that live widgets already reference.
+function M.newFont(name, file, size, flags)
+    if _G[name] then return _G[name] end
+    local f = setmetatable({
+        fontName = name, file = file or "Fonts\\FRIZQT__.TTF",
+        size = size, flags = flags or "",
+    }, fontMeta)
+    _G[name] = f
+    M.fonts[name] = f
+    return f
+end
+_G.CreateFont = function(name) return M.newFont(name, nil, 12, "") end
+
+-- Install the Blizzard base font objects ui/Theme.lua derives its roles from, at
+-- the sizes given. Specs call this again with different sizes to simulate the
+-- client re-resolving its fonts after a viewport change.
+function M.setBlizzardFontSizes(sizes)
+    for baseName, size in pairs(sizes) do
+        local existing = _G[baseName]
+        if existing then
+            existing:SetFont(existing.file, size, existing.flags)
+        else
+            M.newFont(baseName, "Fonts\\FRIZQT__.TTF", size, "")
+        end
+    end
+end
+
 local frameMeta = {
     __index = function(_, key)
         if FRAME_FIELDS[key] then return nil end
