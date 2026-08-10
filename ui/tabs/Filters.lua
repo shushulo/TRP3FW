@@ -49,6 +49,8 @@ local function CreateFiltersTab(container)
         function(c) TRP3FW.Prefs.filterGradients = c; TRP3FW:Info("Filter change will take effect after /reload") end)
     toggleRow("filterIcons", "Strip icons from profiles", "Remove embedded icons from profile fields.",
         function(c) TRP3FW.Prefs.filterIcons = c; TRP3FW:Info("Filter change will take effect after /reload") end)
+    toggleRow("filterNameWhitespace", "Collapse padded names", "Collapse newlines and runs of spaces in names, titles, races, classes, nicknames, pronouns and glance titles.",
+        function(c) TRP3FW.Prefs.filterNameWhitespace = c; TRP3FW:Info("Filter change will take effect after /reload") end)
     toggleRow("filterMinimumFontSize", "Minimum font size", "Inject a minimum font size into incoming profiles.",
         function(c) TRP3FW.Prefs.filterMinimumFontSize = c; TRP3FW:RefreshUI() end, M.ROW_TALL)
 

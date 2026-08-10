@@ -186,6 +186,7 @@ function TRP3FW:ShowStatus()
     -- Filter settings
     print("|cff00ffffFilters:|r")
     print("  Gradient filter: "..self:EnabledDisabled(TRP3FW.Prefs.filterGradients))
+    print("  Whitespace filter: "..self:EnabledDisabled(TRP3FW.Prefs.filterNameWhitespace))
     print("  Font size filter: "..self:EnabledDisabled(TRP3FW.Prefs.filterMinimumFontSize))
     print("    Font size level: |cffffff00"..(TRP3FW.Prefs.minimumFontSizeLevel or "h3").."|r")
 

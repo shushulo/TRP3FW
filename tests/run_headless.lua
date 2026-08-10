@@ -28,6 +28,7 @@ local specs = {
     "tests.unit.npc_name_collision_spec",
     "tests.unit.target_exact_match_spec",
     "tests.unit.icon_filter_pe_spec",
+    "tests.unit.whitespace_filter_spec",
     "tests.unit.cache_stage_ttl_spec",
     "tests.unit.manual_retarget_race_spec",
     "tests.unit.phase_check_ttl_spec",

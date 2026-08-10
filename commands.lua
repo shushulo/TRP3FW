@@ -867,8 +867,18 @@ SlashCmdList.TRP3FW = function(msg)
                 TRP3FW:Info("Icons will be displayed normally")
                 TRP3FW:Warn("Please /reload to disable icon filter")
             end
+        elseif filter == "whitespace" or filter == "spaces" then
+            TRP3FW.Prefs.filterNameWhitespace = not TRP3FW.Prefs.filterNameWhitespace
+            TRP3FW:Info("Whitespace filter "..(TRP3FW.Prefs.filterNameWhitespace and "|cff00ff00enabled|r" or "|cffaaaaaadisabled|r"))
+            if TRP3FW.Prefs.filterNameWhitespace then
+                TRP3FW:Info("Padded names, titles, races, classes, nicknames, pronouns and glance titles will be collapsed")
+                TRP3FW:Warn("Please /reload for whitespace filter to take effect")
+            else
+                TRP3FW:Info("Profile whitespace will be displayed as-is")
+                TRP3FW:Warn("Please /reload to disable whitespace filter")
+            end
         else
-            TRP3FW:Warn("Usage: /trp3fw filter [gradient|fontsize|icon]")
+            TRP3FW:Warn("Usage: /trp3fw filter [gradient|fontsize|icon|whitespace]")
         end
 
     elseif cmd == "fontsize" then

@@ -254,6 +254,7 @@ TRP3FW.defaultSettings = {
 
 	filterGradients = false,
 	filterIcons = false,
+	filterNameWhitespace = false,  -- Collapse padded whitespace/newlines in short identity fields
 	filterMinimumFontSize = false,  -- Inject minimum font size into incoming profiles
 	minimumFontSizeLevel = "h3",    -- Font size level to inject (h1, h2, h3, p)
 
