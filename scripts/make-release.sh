@@ -124,6 +124,12 @@ edits = [
     # The badge escapes '-' as '--'; a plain X.Y.Z has none, but keep the
     # replacement confined to the version segment either way.
     ("README.md",     r'(badge/version-)[^-]*(-blue\.svg)',  rf'\g<1>{version}\g<2>'),
+    # The README states the version twice: the badge at the top and the Project
+    # Info list at the bottom. The footer was missed on the 1.6.1 bump and sat
+    # there reading 1.6.0. Note the "e.g. TRP3FW-1.6.0" in the install steps is
+    # deliberately NOT touched -- it illustrates the shape of a zip folder name
+    # and is not a claim about the current version.
+    ("README.md",     r'(?m)^(\*\s*\*\*Version:\*\*\s*).*$', rf'\g<1>{version}'),
 ]
 
 for path, pattern, repl in edits:
@@ -169,6 +175,16 @@ README_VERSION="$(git show "$DEV_BRANCH:README.md" \
 [[ "$README_VERSION" == "$VERSION" ]] || \
 	fail "README badge says '$README_VERSION' but core/init.lua says '$VERSION'"
 ok "README badge agrees"
+
+# README Project Info footer must agree too.  This is a SECOND version string in
+# the same file, and checking only the badge is how it silently sat at 1.6.0
+# through the 1.6.1 build.
+README_FOOTER="$(git show "$DEV_BRANCH:README.md" \
+	| sed -n 's|^\*[[:space:]]*\*\*Version:\*\*[[:space:]]*\(.*[^[:space:]]\)[[:space:]]*$|\1|p' \
+	| head -1)"
+[[ "$README_FOOTER" == "$VERSION" ]] || \
+	fail "README Project Info says '$README_FOOTER' but core/init.lua says '$VERSION'"
+ok "README Project Info agrees"
 
 # Branch name must agree with the version: v1.6 <-> 1.6.x
 BRANCH_SERIES="${RELEASE_BRANCH#v}"
