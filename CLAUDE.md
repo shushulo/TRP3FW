@@ -246,7 +246,8 @@ TRP3FW/
 │   ├── msp_exchange.lua        # MSP exchange hooks
 │   ├── fontsize.lua            # Minimum font size injection
 │   ├── icon.lua                # Icon tag filtering
-│   └── gradient.lua            # Gradient tag filtering
+│   ├── gradient.lua            # Gradient tag filtering
+│   └── whitespace.lua          # Padded-name whitespace collapsing
 │
 ├── ui/                         # User interface
 │   ├── settings.lua            # Settings panel + RefreshUI
@@ -702,12 +703,12 @@ Stored in: `WTF/Account/<account>/SavedVariables/TRP3FW.lua`
 
 ## Version Information
 
-**Current Version**: 1.6.0 (`core/init.lua` is the single source of truth; the .toc, the README
+**Current Version**: 1.6.1 (`core/init.lua` is the single source of truth; the .toc, the README
 badge and the release tag are all checked against it by `scripts/make-release.sh`)
 **Interface Version**: 90207 (WoW 9.2.7+)
-**Total Lines of Code**: ~21,300 across the 68 Lua files loaded by `TRP3FW.toc`
-(measured 2026-07-25; the previously documented "~3,400" was off by roughly 6x)
-**Files**: 68 Lua files in `TRP3FW.toc` (modular architecture)
+**Total Lines of Code**: ~25,700 across the 69 Lua files loaded by `TRP3FW.toc`
+(measured 2026-08-09; an earlier documented "~3,400" was off by roughly 6x)
+**Files**: 69 Lua files in `TRP3FW.toc` (modular architecture)
 
 **Performance**: substantially faster than v1.x
 - 90% reduction in mouseover events

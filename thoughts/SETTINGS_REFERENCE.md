@@ -802,6 +802,23 @@ chat.
 - **Default:** `false`
 - **Description:** Filter gradients from incoming profiles
 
+### filterNameWhitespace
+- **Type:** boolean
+- **Default:** `false`
+- **Description:** Collapse newlines and runs of spaces in short identity fields, then trim the
+  ends. Padding a name with a newline plus a space run forces it onto a second row and inflates
+  the tooltip's footprint (seen in the wild as `"Gravecaller\n" .. (" "):rep(16) .. "Sombria"`).
+- **Fields:** MSP `NA`, `NT`, `NH`, `NI`, `RA`, `RC`, `PN`; TRP3 characteristics `FN`, `LN`,
+  `FT`, `TI`, `CL`, `RA` plus `MI` misc traits (nickname/pronouns are MI entries in TRP3, not
+  flat fields); glance titles via `sanitizeMisc` (`peek.TI`).
+- **Not applied to:** `DE`/`HI` and `CU`/`CO` (paragraph breaks are legitimate content), glance
+  body text (`TX`), and `PE` at the MSP layer — there it is still TRP3's raw serialized wire
+  format where newlines are structural separators `parsePeekString` matches against, so
+  collapsing would repeat the icon filter's PE regression.
+- **Command:** `/trp3fw filter whitespace` (toggle)
+- **Note:** Like the other filter toggles, enabling this does not install the hook until
+  `/trp3fw reloadhooks` or `/reload`.
+
 ### filterMinimumFontSize
 - **Type:** boolean
 - **Default:** `false`
