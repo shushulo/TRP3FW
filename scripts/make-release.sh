@@ -2,39 +2,68 @@
 #
 # make-release.sh -- build the stripped release branch from the dev branch.
 #
-# Model (three locations, two branches per line):
+# Model (three branches, each with one job):
 #
 #   v<N>-dev   gitea only, NEVER GitHub.  Full tree: code + tests/ + thoughts/
 #              + CLAUDE.md.  This is where you work.
 #   v<N>       gitea AND GitHub.  Stripped: code only.  Regenerated from
 #              v<N>-dev by this script at each release; never committed to
 #              directly, and force-moved every time.
+#   main       gitea AND GitHub.  Tracks the LATEST release, whatever series it
+#              came from, so the GitHub landing page is never stale.  Same
+#              stripped shape as v<N>; only ever updated by merging v<N> in,
+#              which this script does for you.
 #
-# Versioning is unified with the branch line: branch v1.6 -> TRP3FW.VERSION
-# "1.6.0" -> tag "v1.6.0".  core/init.lua is the single source of truth; the
-# .toc, the README badge and the tag are all checked against it below.
+# Versioning is unified with the branch LINE, not the patch number: branch v1.6
+# carries the whole 1.6.x series (1.6.0, 1.6.1, ...).  Only a series bump earns
+# a new branch (1.7.0 -> v1.7-dev -> v1.7).  core/init.lua is the single source
+# of truth for the version; --bump rewrites the .toc and README badge from it so
+# they cannot drift, and the tag is derived from it too.
 #
-# This script PREPARES the release locally and stops.  It prints the push
-# commands but never pushes, and never touches GitHub.  Review, then push.
+# This script PREPARES the release locally and stops.  It builds the release
+# branch, creates the tag, and merges into main -- all local.  It prints the
+# push commands but never pushes, and never touches GitHub.  Review, then push.
+#
+# Nothing about a release is meant to live in your head: if a step is needed, it
+# is either done here or printed at the end.  Adding a manual step to the
+# process means adding it to this script.
 #
 # The headless test suite must pass before anything is built.  Point LUA at a
 # Lua 5.1 interpreter if it is not on PATH (the usual Windows install location
 # is tried automatically).
 #
-# Usage:   scripts/make-release.sh [--dev-branch v1.6-dev] [--skip-tests]
+# Usage:   scripts/make-release.sh [--bump X.Y.Z] [--dev-branch v1.6-dev]
+#                                  [--skip-tests] [--no-main]
+#
+#   --bump X.Y.Z  Set the version first: rewrites core/init.lua, TRP3FW.toc and
+#                 the README badge, then commits that to the dev branch.  Without
+#                 it the script releases whatever version the dev branch already
+#                 declares.
+#   --no-main     Build and tag, but do not merge into main.
 #
 set -euo pipefail
 
 DEV_BRANCH="v1.6-dev"
 SKIP_TESTS=0
+BUMP_TO=""
+MERGE_MAIN=1
+MAIN_BRANCH="main"
 while [[ $# -gt 0 ]]; do
 	case "$1" in
+		--bump)       BUMP_TO="$2"; shift 2 ;;
 		--dev-branch) DEV_BRANCH="$2"; shift 2 ;;
 		--skip-tests) SKIP_TESTS=1; shift ;;
-		-h|--help)    sed -n '2,34p' "$0"; exit 0 ;;
+		--no-main)    MERGE_MAIN=0; shift ;;
+		-h|--help)    sed -n '2,44p' "$0"; exit 0 ;;
 		*) echo "unknown argument: $1" >&2; exit 2 ;;
 	esac
 done
+
+# X.Y.Z only -- the tag, the branch-series check and the .toc all assume it.
+if [[ -n "$BUMP_TO" && ! "$BUMP_TO" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+	echo "error: --bump expects X.Y.Z (got '$BUMP_TO')" >&2
+	exit 2
+fi
 
 # Release branch is the dev branch minus the -dev suffix: v1.6-dev -> v1.6
 RELEASE_BRANCH="${DEV_BRANCH%-dev}"
@@ -74,6 +103,47 @@ ok "working tree clean"
 git rev-parse --verify --quiet "$DEV_BRANCH" >/dev/null || \
 	fail "dev branch '$DEV_BRANCH' does not exist"
 ok "dev branch '$DEV_BRANCH' exists"
+
+# --bump: rewrite the version in all three places from one argument, then commit
+# it to the dev branch.  The three used to be edited by hand and the script only
+# CHECKED that they agreed, which meant a release could fail preflight for a
+# reason ("README badge says X") that was pure clerical drift.  Deriving them
+# removes the drift instead of reporting it.
+if [[ -n "$BUMP_TO" ]]; then
+	if [[ "$STARTING_BRANCH" != "$DEV_BRANCH" ]]; then
+		git checkout --quiet "$DEV_BRANCH" || fail "could not switch to $DEV_BRANCH to bump"
+	fi
+
+	python - "$BUMP_TO" <<'PYEOF'
+import re, sys
+
+version = sys.argv[1]
+edits = [
+    ("core/init.lua", r'(TRP3FW\.VERSION\s*=\s*")[^"]*(")', rf'\g<1>{version}\g<2>'),
+    ("TRP3FW.toc",    r'(?m)^(##\s*Version:\s*).*$',        rf'\g<1>{version}'),
+    # The badge escapes '-' as '--'; a plain X.Y.Z has none, but keep the
+    # replacement confined to the version segment either way.
+    ("README.md",     r'(badge/version-)[^-]*(-blue\.svg)',  rf'\g<1>{version}\g<2>'),
+]
+
+for path, pattern, repl in edits:
+    with open(path, encoding="utf-8", newline="") as fh:
+        src = fh.read()
+    new, n = re.subn(pattern, repl, src, count=1)
+    if n != 1:
+        sys.exit(f"could not rewrite version in {path} (matched {n} times)")
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(new)
+PYEOF
+
+	if [[ -n "$(git status --porcelain)" ]]; then
+		git add core/init.lua TRP3FW.toc README.md
+		git commit --quiet -m "Bump version to $BUMP_TO"
+		ok "bumped to $BUMP_TO and committed to $DEV_BRANCH"
+	else
+		ok "already at $BUMP_TO; nothing to bump"
+	fi
+fi
 
 # Read the canonical version out of the DEV branch (not the working tree, which
 # may be sitting on some other branch).
@@ -276,19 +346,79 @@ if [[ "$TRACKED" -gt 200 ]]; then
 fi
 ok "release commit contains $TRACKED files, no dev-only trees"
 
+RELEASE_COMMIT="$(git rev-parse HEAD)"
+
+# --------------------------------------------------------------------------
+# Tag.  On the RELEASE commit, not the dev tip -- v1.6.0 set that precedent and
+# the tag should point at the tree users actually receive.  Created here rather
+# than left to the operator, because doing it by hand is how it lands on the
+# wrong commit.
+# --------------------------------------------------------------------------
+echo "==> Tagging"
+git tag -a "$TAG" -m "TRP3FW $VERSION" "$RELEASE_COMMIT"
+ok "$TAG -> $(git rev-parse --short "$RELEASE_COMMIT") (the release commit)"
+
+# --------------------------------------------------------------------------
+# main.  Tracks the latest release so the GitHub landing page is never stale.
+#
+# This was a manual `git merge` that lived nowhere except somebody's memory, and
+# it was duly forgotten: main sat on 1.6.0 while 1.6.1 was built, tagged and
+# ready.  It is a scripted step now.
+#
+# The merge is always --no-ff and always takes the release branch's tree
+# wholesale: main is a mirror of the newest release, never a place work happens,
+# so there is nothing on it worth preserving in a conflict.
+# --------------------------------------------------------------------------
+if [[ "$MERGE_MAIN" -eq 1 ]]; then
+	echo "==> Merging into $MAIN_BRANCH"
+	if git rev-parse --verify --quiet "$MAIN_BRANCH" >/dev/null; then
+		git checkout --quiet "$MAIN_BRANCH"
+		# -X theirs resolves in favour of the release branch. Because v<N> is
+		# force-rebuilt each release, main's previous parent is an orphaned
+		# commit and a content conflict is expected, not exceptional.
+		if git merge --no-ff -X theirs --quiet \
+			-m "Merge $TAG into $MAIN_BRANCH" "$RELEASE_BRANCH"; then
+			:
+		else
+			fail "merge into $MAIN_BRANCH conflicted; resolve by hand (release branch and tag are built)"
+		fi
+
+		# The merge must leave main byte-identical to the release branch. -X theirs
+		# resolves conflicting hunks, but a file deleted on one side and modified on
+		# the other can still survive; compare trees rather than trusting the merge.
+		if [[ -n "$(git diff --stat "$RELEASE_BRANCH" "$MAIN_BRANCH")" ]]; then
+			echo "  FAIL: $MAIN_BRANCH does not match $RELEASE_BRANCH after merge:" >&2
+			git diff --stat "$RELEASE_BRANCH" "$MAIN_BRANCH" >&2
+			exit 1
+		fi
+		ok "$MAIN_BRANCH matches $RELEASE_BRANCH exactly"
+	else
+		git checkout --quiet -b "$MAIN_BRANCH" "$RELEASE_BRANCH"
+		ok "created $MAIN_BRANCH at $RELEASE_BRANCH"
+	fi
+fi
+
 echo
-echo "==> Done. $RELEASE_BRANCH is built at $(git rev-parse --short HEAD)"
+echo "==> Done."
+echo "    $RELEASE_BRANCH  $(git rev-parse --short "$RELEASE_COMMIT")"
+echo "    $TAG        -> $(git rev-parse --short "$RELEASE_COMMIT")"
+[[ "$MERGE_MAIN" -eq 1 ]] && \
+	echo "    $MAIN_BRANCH         $(git rev-parse --short "$MAIN_BRANCH")"
 echo
 echo "Review:"
 echo "    git show --stat $RELEASE_BRANCH"
 echo "    git diff $DEV_BRANCH $RELEASE_BRANCH -- TRP3FW.toc"
 echo
-echo "Then tag and push (dev -> gitea only; release -> both):"
-echo "    git tag -a $TAG -m 'TRP3FW $VERSION'"
+echo "Push (dev -> gitea only; release, tag and main -> both):"
 echo "    git push gitea $DEV_BRANCH"
 echo "    git push gitea $RELEASE_BRANCH --force-with-lease"
 echo "    git push gitea $TAG"
+[[ "$MERGE_MAIN" -eq 1 ]] && echo "    git push gitea $MAIN_BRANCH"
 echo "    git push origin $RELEASE_BRANCH --force-with-lease"
 echo "    git push origin $TAG"
+[[ "$MERGE_MAIN" -eq 1 ]] && echo "    git push origin $MAIN_BRANCH"
+echo
+echo "Nothing has been pushed. Re-running before pushing is safe: it rebuilds the"
+echo "release branch and re-merges main. Delete the tag first ($TAG) if you do."
 echo
 echo "Returning to $STARTING_BRANCH"

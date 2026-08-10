@@ -703,8 +703,31 @@ Stored in: `WTF/Account/<account>/SavedVariables/TRP3FW.lua`
 
 ## Version Information
 
-**Current Version**: 1.6.1 (`core/init.lua` is the single source of truth; the .toc, the README
-badge and the release tag are all checked against it by `scripts/make-release.sh`)
+**Current Version**: 1.6.1 (`core/init.lua` is the single source of truth; `--bump` rewrites
+the .toc and README badge from it, and the tag is derived from it)
+
+### Branch model
+
+Three branches, each with one job. `scripts/make-release.sh` does all of it:
+
+| Branch | Remotes | Contents |
+|---|---|---|
+| `v<N>-dev` | gitea only | Full tree — code + `tests/` + `thoughts/` + CLAUDE.md. Work here. |
+| `v<N>` | gitea + GitHub | Stripped, code only. Force-rebuilt from `v<N>-dev` each release. |
+| `main` | gitea + GitHub | Tracks the latest release, so the GitHub landing page is never stale. |
+
+The branch tracks the **series**, not the patch: `v1.6-dev` carries all of 1.6.x. Only a series
+bump earns a new branch (1.7.0 → `v1.7-dev` → `v1.7`). Renaming it to `v1.6.1-dev` would break
+the script's series check.
+
+```bash
+scripts/make-release.sh --bump 1.6.2
+```
+
+That bumps the version in all three files, runs the suite, builds and strips `v<N>`, tags the
+**release** commit, and merges into `main` — then stops and prints the push commands. It never
+pushes and never touches GitHub. If a release step exists, it belongs in that script rather
+than in someone's memory: `main` used to be a manual merge, and it was duly forgotten.
 **Interface Version**: 90207 (WoW 9.2.7+)
 **Total Lines of Code**: ~25,700 across the 69 Lua files loaded by `TRP3FW.toc`
 (measured 2026-08-09; an earlier documented "~3,400" was off by roughly 6x)
