@@ -12,7 +12,7 @@ local addonName, TRP3FW = ...
 -- 2.9.x line: existing installs carry TRP3FW_DB.global.lastVersion = "2.9.2-hotfix",
 -- so any future upgrade check must not assume versions increase monotonically
 -- across this boundary.
-TRP3FW.VERSION = "1.6.0"
+TRP3FW.VERSION = "1.6.1"
 TRP3FW.ADDON_NAME = addonName
 
 -- FIXED: HIGH-6 - SendId verification system (prevents spoofing)
@@ -254,6 +254,7 @@ TRP3FW.defaultSettings = {
 
 	filterGradients = false,
 	filterIcons = false,
+	filterNameWhitespace = false,  -- Collapse padded whitespace/newlines in short identity fields
 	filterMinimumFontSize = false,  -- Inject minimum font size into incoming profiles
 	minimumFontSizeLevel = "h3",    -- Font size level to inject (h1, h2, h3, p)
 

@@ -25,12 +25,18 @@ end
 -- 128-255 accented-character range was broken AND digits 2/5 leaked into the class
 -- (letting names like "Bob2" pass). Mirrors the correct SANITIZE_ZONE_PATTERN below.
 --
--- NOTE: This pattern has no digit class (%d) by design - player names are assumed
--- letters/space/apostrophe/hyphen/high-byte only (confirmed for Epsilon as of 2026-07).
--- If that assumption turns out wrong (server allows digits in character names, e.g.
--- "Bob2"), every profile exchange with such a player silently fails sanitization here
--- AND in CleanPlayerName's reject-class below (same missing %d) - add %d to both.
-local SANITIZE_NAME_PATTERN = "^([%a_%s%'\128-\255]+%-?[%a_%s%'\128-\255]*)$"
+-- Digits ARE allowed (via %w). The "no digits by design" assumption this pattern used to carry
+-- was wrong and was disproved in the field: a live Chomp hook rejected the real Epsilon name
+-- "Fallywix 420-Apertus", which fails closed and so silently breaks every profile exchange
+-- with that player. Epsilon permits digits in character names; the original digit rejection
+-- was never a deliberate rule, it was a test pinning the side effect of the malformed
+-- "\128-%255" range (which leaked the literal digits 2 and 5 into the class).
+--
+-- Digits are safe for the RunPrivileged use case: the sanitized name is interpolated into
+-- TargetUnit("<name>") and only quotes/backslashes can escape that string context - those
+-- are still escaped below and are still absent from this whitelist.
+-- CleanPlayerName's reject-class below must stay in sync with this set.
+local SANITIZE_NAME_PATTERN = "^([%w_%s%'\128-\255]+%-?[%w_%s%'\128-\255]*)$"
 local SANITIZE_ZONE_PATTERN = "^([%w%s'%-\128-\255]+)$"
 local CONTROL_CHAR_PATTERN = "%z"
 local CONTROL_CLASS_PATTERN = "%c"
@@ -142,9 +148,10 @@ function SecurityService:CleanPlayerName(name)
     local cleanName = name:match("^([^%-]+)") or name
     local normalized = cleanName -- Epsilon allows spaces in names, do not replace with underscores
 
-    -- NOTE: no %d here either - see SANITIZE_NAME_PATTERN comment above. Add %d to this
-    -- reject-class too if digit-containing character names ever turn out to be valid.
-    if normalized:find("[^%a_%s_%-%'\128-\255]") then
+    -- Digits allowed - see SANITIZE_NAME_PATTERN comment above. This reject-class is the
+    -- complement of that whitelist and must stay in sync with it; a name accepted there and
+    -- rejected here still fails closed at the hook (the "Fallywix 420-Apertus" bug).
+    if normalized:find("[^%w_%s_%-%'\128-\255]") then
         TRP3FW:Debug("[SECURITY] Rejected malformed player name in CleanPlayerName: "..tostring(name).." (invalid characters)", "security")
         return nil
     end

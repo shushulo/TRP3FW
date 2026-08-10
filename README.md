@@ -2,7 +2,7 @@
 
 **Intelligent Profile Privacy & Security for Roleplayers**
 
-[![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.6.1-blue.svg)]()
 [![WoW](https://img.shields.io/badge/WoW-9.2.7%2B-orange.svg)]()
 [![License](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 
@@ -68,7 +68,8 @@ Presets are a starting point — every underlying option stays editable afterwar
 * **Cross-protocol** — works with **Total RP 3**, **MyRolePlay**, and **XRP**, including the
   Mary Sue Protocol paths those addons share.
 * **Content filters** — optionally strip colour gradients and inline icons from *incoming*
-  profiles, or enforce a minimum font size so nobody can send you unreadable text.
+  profiles, collapse names padded with newlines and runs of spaces to inflate a tooltip, or
+  enforce a minimum font size so nobody can send you unreadable text.
 * **Built for crowds** — request batching, LRU caches on every hot path, and throttled WHO
   queries keep the cost flat when 50 people load in at once.
 * **Security-minded** — all player names are sanitized before use, every cache is size-capped,

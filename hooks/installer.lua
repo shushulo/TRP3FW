@@ -123,6 +123,7 @@ function TRP3FW:InstallHooks()
     self:InstallMSPHooks()
     self:InstallGradientHooks()
     self:InstallIconHooks()
+    self:InstallWhitespaceHooks()    -- Collapse padded whitespace in identity fields
     self:InstallFontSizeHooks()      -- Font size injection hooks
     if not self.mapScanDisabledReason then
         self:InstallTRP3ScanNotification()  -- TRP3 scan response notifications

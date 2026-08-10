@@ -911,6 +911,33 @@ function TRP3FW:SanitizeIconName(text)
     return text:gsub("[^%w_%-/\\]", "")
 end
 
+-- Whitespace collapse functions
+--
+-- Seen in the wild: a profile Name field of "Gravecaller\n" .. (" "):rep(16) .. "Sombria",
+-- which renders as two rows with the surname pushed right - inflating the tooltip's height
+-- and horizontal footprint. A newline is the load-bearing part (it forces the second row);
+-- the space run only positions the text on it. Both collapse in one pass because Lua's %s
+-- matches \n, \t and space alike.
+--
+-- Control characters are handled explicitly rather than left to %s: %s covers \n, \r and \t,
+-- but not the rest of the C0 range (e.g. \1), and a bare control char with no adjacent
+-- whitespace must still go. Stripping them to a space first means a "a\1b" becomes "a b"
+-- rather than fusing into "ab", and the %s+ pass then folds any run this created.
+--
+-- Applies to short identity fields only. Description/History are large rich-text fields whose
+-- paragraph breaks are legitimate content - collapsing them would run every profile's prose
+-- into a single line. Same carve-out the icon filter makes, for the same reason.
+function TRP3FW:CollapseWhitespace(text)
+    if not text or type(text) ~= "string" then
+        return text
+    end
+
+    -- Control chars -> space (see above), then fold runs, then trim the ends. Trailing
+    -- padding is invisible in-game and just as cheap to add as leading padding.
+    local collapsed = text:gsub("%c", " "):gsub("%s+", " "):gsub("^%s*(.-)%s*$", "%1")
+    return collapsed
+end
+
 -- OPTIMIZATION: Helper function to count table entries efficiently
 function TRP3FW:CountTableEntries(tbl)
     if not tbl or type(tbl) ~= "table" then return 0 end
